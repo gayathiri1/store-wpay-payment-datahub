@@ -1,6 +1,6 @@
 # Wpay Payment DataHub
 
-This project includes the codebase related to the data pipelines assosiated with the W-Pay payment datahub.
+This project includes the codebase related to the data pipelines assosiated with the W-Pay payment datahub
 
 ## Cloud Composer DAGs
 
