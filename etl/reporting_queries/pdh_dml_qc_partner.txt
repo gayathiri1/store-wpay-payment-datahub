@@ -1,0 +1,81 @@
+ truncate table pdh_analytics_ds.qc_parnter;
+insert into pdh_analytics_ds.qc_parnter(
+ with activation as (SELECT
+  TransactionDate,
+  Merchant,
+  CONCAT("PRE",FORMAT_DATE("%d%m%g", TransactionDate),"ACT") AS Reference_no,
+  "123951" AS Customer_Account_No,
+  "204742" AS GL_Account_No,
+  CONCAT(Merchant," ",FORMAT_DATE("%d-%m-%Y", TransactionDate)) AS Customer_Text,
+  CONCAT(Merchant," ",FORMAT_DATE("%d-%m-%Y", TransactionDate  )) AS GL_text,
+  "9259" AS Profit_Centre,
+  "" AS Cost_Centre,
+  "" AS Internal_Order,
+  "" AS Merch_Trade_Dept,
+  Merchant AS ASSIGNMENT,
+  "" AS Trans_Type,
+  "" AS Second_Company_Code,
+  ProgramGroup,
+  "" AS Tax_code,
+  SUM(Amount) AS Amount,
+  "" AS GST_Amount
+FROM
+  `pdh_rd_quickcilver.qc_partner_detail`
+
+GROUP BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,15,16
+  ),
+  discount as (SELECT
+   TransactionDate,
+  Merchant,
+  CONCAT("PRE",FORMAT_DATE("%d%m%g", TransactionDate),"DIS") AS Reference_no,
+  "123951" AS Customer_Account_No,
+  "699200" AS GL_Account_No,
+  CONCAT(Merchant, " ","Commission", " ",FORMAT_DATE("%d-%m-%Y", TransactionDate)) AS Customer_Text,
+  CONCAT(Merchant, " ","Commission", " ",FORMAT_DATE("%d-%m-%Y", TransactionDate)) AS GL_text,
+  "" AS Profit_Centre,
+  "9876" AS Cost_Centre,
+  "" AS Internal_Order,
+  "" AS Merch_Trade_Dept,
+  Merchant AS ASSIGNMENT,
+  "" AS Trans_Type,
+  "2010" AS Second_Company_Code,
+   ProgramGroup,
+  " " AS Tax_code,
+  sum(DiscountValue) AS Amount,
+  "" GST_Amount
+ FROM
+  `pdh_rd_quickcilver.qc_partner_detail`
+
+GROUP BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15,16)
+  select * from activation
+  UNION ALL
+  select * from discount )

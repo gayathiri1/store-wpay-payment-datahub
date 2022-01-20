@@ -1,0 +1,85 @@
+truncate table pdh_analytics_ds.ar_rpt;
+Insert into pdh_analytics_ds.ar_rpt(
+
+with activation as (SELECT
+  TransactionDate,
+  CONCAT("AIA",FORMAT_DATE("%d%m%g", TransactionDate),"ACT") AS Reference_no,
+  "123633" AS Customer_Account_No,
+  "204742" AS GL_Account_No,
+  CONCAT(Merchant," ",ProgramGroup, " ",FORMAT_DATE("%d-%m-%Y", TransactionDate)) AS Customer_Text,
+  CONCAT(Merchant," ",ProgramGroup, " ",FORMAT_DATE("%d-%m-%Y", TransactionDate)) AS GL_text,
+  "9259" AS Profit_Centre,
+  "" AS Cost_Centre,
+  "" AS Internal_Order,
+  "" AS Merch_Trade_Dept,
+  Merchant AS ASSIGNMENT,
+  "" AS Trans_Type,
+  "" AS Second_Company_Code,
+  ProgramGroup,
+  "" AS Tax_code,
+  SUM(Amount_Transacting_Merchants_Currency_Or_Points) AS Amount,
+  NULL AS GST_Amount
+FROM
+  `pdh_rd_quickcilver.qc_detail_transactions`
+WHERE
+  Merchant LIKE "%AIA%"
+  AND ActivationOutlet ='AIA-NZ'
+
+GROUP BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15),
+  discount as (SELECT
+  TransactionDate,
+  CONCAT("AIA",FORMAT_DATE("%d%m%g", TransactionDate),"DIS") AS Reference_no,
+  "123633" AS Customer_Account_No,
+  "699200" AS GL_Account_No,
+  CONCAT(Merchant," ",ProgramGroup, " ","Discount", " ",FORMAT_DATE("%d-%m-%Y", TransactionDate)) AS Customer_Text,
+  CONCAT(Merchant," ",ProgramGroup, " ","Discount", " ",FORMAT_DATE("%d-%m-%Y", TransactionDate)) AS GL_text,
+  "" AS Profit_Centre,
+  "9876" AS Cost_Centre,
+  "" AS Internal_Order,
+  "" AS Merch_Trade_Dept,
+  Merchant AS ASSIGNMENT,
+  "" AS Trans_Type,
+  "2010" AS Second_Company_Code,
+  ProgramGroup,
+  " " AS Tax_code,
+  -(SUM(Amount_Transacting_Merchants_Currency_Or_Points)* 0.03) AS Amount,
+  Null AS GST_Amount,
+FROM
+  `pdh_rd_quickcilver.qc_detail_transactions`
+WHERE
+  Merchant LIKE "%AIA%"
+  AND ActivationOutlet ='AIA-NZ' 
+GROUP BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13,
+  14,
+  15)
+  select * from activation
+  UNION ALL
+  select * from discount)

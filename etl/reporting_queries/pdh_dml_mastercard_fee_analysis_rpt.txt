@@ -1,0 +1,120 @@
+
+
+truncate table pdh_analytics_ds.mastercard_fee_analysis_rpt ;
+insert into pdh_analytics_ds.mastercard_fee_analysis_rpt  
+WITH
+  d AS (
+  SELECT
+    s.file_date,
+    r.division,
+    r.store_id,
+    p.card_type,
+    CAST(
+      CASE processing_code
+        WHEN 0 THEN 'Purchase'
+        WHEN 200000 THEN 'Refund'
+        ELSE 'Ignore'
+    END
+      AS STRING) AS Transaction_Type,
+       CASE settlement_svc_id_code
+  WHEN 'AP00003601' then 'Australian Domestic'
+  WHEN 'AP00000002' then 'International'
+  END
+  As Type_of_the_card,
+    CAST(amount_txn AS int64)/100 amount_txn,
+    CAST(extended_interchange_amount_fee AS int64 )/1000000 fees,
+    (CAST(extended_interchange_amount_fee AS int64 )/1000000)/(CAST(amount_txn AS int64)/100 ) *100 avg_amt
+  FROM
+   `pdh_rd_data_navigator.mastercard_T1G0` s
+  INNER JOIN
+    `pdh_reporting_ds.view_ref_store_details` r
+  ON
+    r.store_id=SUBSTR(s.card_acceptor_terminal_id,1,5)
+  INNER JOIN
+    `pdh_ref_ds.ref_mc_prod_code` p
+  ON
+    s.GCMS_product_identifier=p.type
+    AND s.licensed_product_identifier=p.sub_type
+  WHERE
+    card_type='Credit'
+   ),
+  d1 AS (
+  SELECT
+    s.file_date,
+    r.division,
+    r.store_id,
+    p.card_type,
+    CAST(
+      CASE processing_code
+        WHEN 0 THEN 'Purchase'
+        WHEN 200000 THEN 'Refund'
+        ELSE 'Ignore'
+    END
+      AS STRING) AS Transaction_Type,
+        CASE settlement_svc_id_code
+  WHEN 'AP00003601' then 'Australian Domestic'
+  WHEN 'AP00000002' then 'International'
+  END
+  As Type_of_the_card,
+    CAST(amount_txn AS int64)/100 amt_txn,
+    CAST(extended_interchange_amount_fee AS int64)/1000000 AS fees,
+    1 AS tran_cnt
+  FROM
+    `pdh_rd_data_navigator.mastercard_T1G0` s
+  INNER JOIN
+    `pdh_reporting_ds.view_ref_store_details` r
+  ON
+    r.store_id=SUBSTR(s.card_acceptor_terminal_id,1,5)
+  INNER JOIN
+    `pdh_ref_ds.ref_mc_prod_code` p
+  ON
+    s.GCMS_product_identifier=p.type
+    AND s.licensed_product_identifier=p.sub_type
+  WHERE
+    card_type='Debit'
+ )
+SELECT
+  file_date,
+  division,
+  store_id,
+  card_type,
+  Transaction_Type,
+  Type_of_the_card,  
+  ROUND(avg_amt,3) avg_fee_percent,
+  0 AS average_fees,
+  SUM(amount_txn) AS Amount_Txn,
+  COUNT(1) txn_cnt
+FROM
+  d
+GROUP BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8
+UNION ALL
+SELECT
+  file_date,
+  division,
+  store_id,
+  card_type,
+  Transaction_Type,
+  Type_of_the_card,  
+  0 AS avg_fee_percent,
+  fees AS average_fees,
+  SUM(amt_txn) AS Amount_Txn,
+  COUNT(1) txn_cnt
+FROM
+  d1
+GROUP BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8

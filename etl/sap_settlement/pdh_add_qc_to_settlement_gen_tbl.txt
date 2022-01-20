@@ -1,0 +1,124 @@
+--Add QC data to generic settlement table
+declare sys_date date default current_date("Australia/Sydney");
+declare batch_end_datetime datetime;
+declare batch_end_mm_dd_hh_mm_ss datetime;
+--
+DECLARE inp_lookup STRING DEFAULT "QC Settlement";
+DECLARE batch string;
+--Quit Process if there is missing store_id for transactions in Settlement window 
+if (Select count(*) from `pdh_analytics_ds.sap_missing_store_log`
+    Where create_by = "Settlement Process"
+      and data_source = "QC") > 0 then
+   return;
+end if;
+--Get next Batch Number
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+if (ifnull(batch,"") in ("NOContRec","UpdFailed"))  then
+    return;
+end if; 
+
+--Add QC data to Settlement Generic Table
+insert into `pdh_analytics_ds.stlm_standard_settlement_table`
+   (last_update_datetime,
+    last_updated_by,
+    posting_date,
+    setlmnt_result_file,
+    tran_uid,
+    filename,
+    transaction_timestamp,
+    store_id,
+    division,
+    order_number,
+    tran_settlement_amount,
+    record_type,
+    tlf_name)
+    select current_datetime("Australia/Sydney")  as last_update_datetime,
+           "Settlement Process" as last_updated_by,
+           null as posting_date,
+           null as setlmnt_result_file,
+           concat("QC_",trim(trn.approvalcode),"_",
+                        trim(trn.ReferenceNumber),"_",
+                        cast(trn.BatchNumber as string),"_",
+                        format_datetime("%Y%m%dT%H%M%S",
+                                           cast(concat(cast(trn.transactiondate as string),"T",
+                                                       cast(trn.transactiontime as string)) as datetime))) as tran_uid,
+           trn.file_name as filename,
+           cast(concat(cast(trn.transactiondate as string),"T",
+                     cast(trn.transactiontime as string)) as datetime)  as transaction_timestamp,
+           case 
+              when ifnull(trn.outletcode,"") <>  "" then upper(trim(trn.outletcode))
+              when (upper(trim(trn.descriptive_outlet_name)) = "SAP HYBRIS" and
+                    upper(left(trim(trn.issuer),20))  = "WOOLWORTHS GROUP LTD") then "W5975"
+              else null 
+           end  store_id,
+           upper(trim(rsd.division)) as division, 
+           case 
+              when upper(rsd.is_online) = "ONLINE" then  trim(trn.invoicenumber)
+              else ""
+           end as order_number,
+           abs(trn.amount_transacting_merchants_currency_or_points) * tt.settlement_factor as tran_settlement_amount,
+           tt.record_type,
+           null as tlf_name
+    from `pdh_rd_quickcilver.qc_detail_transactions` trn 
+   -- `pdh_staging_ds.qc_detail_transactions` trn /* Test only */
+    join `pdh_ref_ds.ref_store_details` rsd 
+         on upper(trim(rsd.store_id)) = case 
+                                           when ifnull(trn.outletcode,"") <>  "" then upper(trim(trn.outletcode))
+                                           when (upper(trim(trn.descriptive_outlet_name)) = "SAP HYBRIS" and
+                                                 upper(left(trim(trn.issuer),20))  = "WOOLWORTHS GROUP LTD") then "W5975"
+                                           else null 
+                                       end
+          and rsd.is_closed = False
+    join `pdh_ref_ds.ref_merchant_settlement_window` msw
+         on msw.is_active = "Y"
+        and msw.division = upper(trim(rsd.division))
+    join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+      on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
+      and upper(ifnull(scm.active_flag,"")) <> "N" 
+    join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
+           on tt.settlement_factor <> 0
+          and tt.transaction_type = upper(trim(trn.transactiontype))
+          and tt.tran_qualifier = msw.division_type
+    left join `pdh_analytics_ds.stlm_standard_settlement_table` std
+         on std.tran_uid = concat("QC_",trim(trn.approvalcode),"_",
+                                  trim(trn.ReferenceNumber),"_",
+                                  cast(trn.BatchNumber as string),"_",
+                                  format_datetime("%Y%m%dT%H%M%S",
+                                           cast(concat(cast(trn.transactiondate as string),"T",
+                                                       cast(trn.transactiontime as string)
+                                                      ) as datetime)
+                                                 ))  
+    where  upper(trim(trn.transactionstatus)) = "SUCCESS"
+      and  settlement_factor <> 0
+      and  std.tran_uid is null
+      and   cast(concat(cast(trn.transactiondate as string),"T",
+                     cast(trn.transactiontime as string)) as datetime)
+              > case 
+                   when msw.last_execution_time is null then "1900-01-01T00:00:00"
+                   else msw.last_execution_time
+                end
+      and   cast(concat(cast(trn.transactiondate as string),"T",
+                        cast(trn.transactiontime as string)) as datetime)
+            <= cast(concat(format_date("%Y-%m-%d",date_add(sys_date, INTERVAL msw.day_lag DAY)), "T",
+                     right(concat("0",
+                                  cast(floor(msw.settlement_cutoff/100) as string)
+                                 ),2), ":",
+                     right(cast(msw.settlement_cutoff as string),2)
+                    ,":00") as datetime);
+--
+--add control rec to specify QC detail is added to generic settlement table
+set batch_end_datetime = current_datetime("Australia/Sydney");
+set batch_end_mm_dd_hh_mm_ss = cast(format_date("%Y-%m-%dT%H:%M:%S",  batch_end_datetime) as datetime);
+insert into pdh_analytics_ds.file_gen_details 
+         select  batch,
+                 cast(batch_end_datetime as date), 
+                 "qcdsettlement",
+                 true, 
+                 false, 
+                 min(transaction_timestamp),
+                 max(transaction_timestamp), 
+                 batch_end_mm_dd_hh_mm_ss,
+                 null
+        from `pdh_analytics_ds.stlm_standard_settlement_table`
+        where left(tran_uid,3) = "QCD"
+          and setlmnt_result_file is null; 

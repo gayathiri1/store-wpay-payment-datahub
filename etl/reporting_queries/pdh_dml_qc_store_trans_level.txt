@@ -1,0 +1,102 @@
+truncate table pdh_analytics_ds.qc_store_trans_level;
+Insert into pdh_analytics_ds.qc_store_trans_level
+
+
+WITH
+  QC_Transactions AS (
+  SELECT
+    RIGHT(QDT.OutletCode,4) AS QDT_StoreNumber,
+    QDT.BusinessReferenceNumber AS QDT_Ordernumber,
+    QDT.DateAtClient AS QDT_OrderDate,
+    CAST( QDT.TimeAtClient AS STRING) AS QDT_OrderTime,
+    CASE
+      WHEN FORMAT_TIME('%R', TIME(QDT.TimeAtClient)) <= "18" THEN "Pre 6pm"
+    ELSE
+    "Post 6pm"
+  END
+    AS QDT_Flag,
+    CAST (QDT.Amount_Transacting_Merchants_Currency_Or_Points AS STRING) AS QDT_TXNValue,
+    QDT.Merchant AS QDT_Merchant,
+    CASE QDT.TransactionType
+      WHEN "GIFT CARD REDEEM" THEN "Redemption"
+      WHEN "GIFT CARD ACTIVATE" THEN "Activation"
+      WHEN "GIFT CARD RELOAD" THEN "Activation"
+  END
+    AS QDT_TxnType,
+  FROM
+    `pdh_rd_quickcilver.qc_detail_transactions` QDT
+  WHERE
+    LENGTH(QDT.BusinessReferenceNumber) > 0
+    AND QDT.Merchant <> "AIA-NZ"
+    AND QDT.DateAtClient >= "2021-07-01" ),
+  Redemption AS (
+  SELECT
+    PTLD.SiteNumber PTLD_StoreNumber,
+    PTLD.Referencenumber AS PTLD_OrderNumber,
+    PTLD.BusinessDate AS PTLD_OrderDate,
+    (0 - PTLD.TenderAmount) AS PTLD_TXNValue,
+    "Redemption"AS PTLD_TXNtype,
+  FROM
+    `pdh_rd_wdp.pos_tender_line_detail` PTLD
+  WHERE
+    PTLD.TenderTXNType IN("ZP79",
+      "ZP80",
+      "ZP07") ),
+  Activation AS (
+  SELECT
+    PILD.TranRefNo AS PILD_OrderNumber,
+    PILD.BusinessDate AS PILD_OrderDate,
+    PILD.RetailAmount AS PILD_TXNValue,
+    PILD.SiteNumber AS PILD_StoreNumber,
+    "Activation" AS PILD_TXNtype
+  FROM
+    `pdh_rd_wdp.pos_item_line_detail` PILD
+  WHERE
+    PILD.PurchaseGroup IN( "QCExternalGiftCards",
+      "QCWOWGiftCards") )
+SELECT
+  QT.QDT_StoreNumber,
+  QT.QDT_Ordernumber,
+  QT.QDT_OrderDate,
+  QT.QDT_OrderTime,
+  QT.QDT_Flag,
+  QT.QDT_TXNValue,
+  QT.QDT_Merchant,
+  QT.QDT_TxnType,
+  red.PTLD_StoreNumber,
+  red.PTLD_OrderNumber,
+  red.PTLD_OrderDate,
+  red.PTLD_TXNValue,
+  red.PTLD_TXNtype,
+  actv.PILD_OrderNumber,
+  actv.PILD_OrderDate,
+  actv.PILD_TXNValue,
+  actv.PILD_StoreNumber,
+  actv.PILD_TXNtype,
+IF
+  (CAST (QDT_TXNValue AS FLOAT64)=(IFNULL(CAST(PTLD_TXNValue AS FLOAT64),
+        0)+ IFNULL (CAST(PILD_TXNValue AS FLOAT64),
+        0)),
+    'Matched',
+    'Mismatched') AS FLAG
+FROM
+  QC_Transactions QT
+LEFT JOIN
+  Redemption red
+ON
+  QT.QDT_Ordernumber = red.PTLD_OrderNumber
+  AND QT.QDT_StoreNumber = red.PTLD_StoreNumber
+LEFT JOIN
+  Activation actv
+ON
+  QT.QDT_Ordernumber = actv.PILD_OrderNumber
+  AND QT.QDT_StoreNumber = actv.PILD_StoreNumber
+ORDER BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8
