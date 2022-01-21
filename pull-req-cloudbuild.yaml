@@ -1,6 +1,29 @@
 steps:
 # Cloudbuild only clone the current commit, it won't clone the history. 
 # So added below 3 steps to clone the complete history from the Github.
+# Also added the Git branch name validation.
+- name: 'gcr.io/cloud-builders/git'
+  secretEnv: ['SSH_KEY']
+  entrypoint: 'bash'
+  args:
+  - -c
+  - |
+    echo 'Build:$BUILD_ID is triggered for the Pull request:$_PR_NUMBER'
+    echo 'The Base Branch is: $_BASE_BRANCH'
+    echo 'The Head Branch is: $_HEAD_BRANCH'
+    valid_branch_regex="^feature\/ci-cd|feature\/DATPAY-([0-9]{4})$"
+    if [[ ! $_HEAD_BRANCH =~ $valid_branch_regex ]]
+    then
+        echo "There is something wrong with your branch name. Branch names must adhere to this contract: $valid_branch_regex. You should rename your branch to a valid name and try again."
+        exit 1
+    else
+      echo "$$SSH_KEY" >> /root/.ssh/id_rsa
+      chmod 400 /root/.ssh/id_rsa
+      cp known_hosts.github /root/.ssh/known_hosts
+    fi   
+  volumes:
+  - name: 'ssh'
+    path: /root/.ssh
 
 # Access the id_github file from Secret Manager, and setup SSH to clone the Github repo.
 - name: 'gcr.io/cloud-builders/git'
