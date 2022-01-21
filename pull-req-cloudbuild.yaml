@@ -122,7 +122,7 @@ steps:
     # if [[ $(grep dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt) == *dags\/*.py ]];
     #  then
       echo "*********** Dags modified in the repo are list below ************"
-      gsutil -m rsync -c -r -n -x "app/dags/common/airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
+      gsutil -m rsync -c -r -n -x "airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
       echo "*********** Dags list end ************"
     #  else
     #   echo "Dags are not modified, hence dags sync with gcs is not required.";
