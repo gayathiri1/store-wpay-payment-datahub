@@ -113,7 +113,7 @@ steps:
 # In gsutil -c option is used to do the checksum comparison rather than mtime check, 
 # as mtime always gets changed when repo gets cloned to cloudbuild workspace. 
 # The -d option will delete files from the destination folder if they don't exist in the source folder.
-# -x to exclude files.
+# -x to exclude files. Example: -x "zlibpdh/__init__.py|airflow_monitoring.py$"
 - name: gcr.io/cloud-builders/gsutil
   entrypoint: bash
   args: 
