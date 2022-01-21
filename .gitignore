@@ -40,3 +40,11 @@
 Thumbs.db
 package-lock.json
 env-config*.json
+
+# Local .terraform directories
+**/.terraform/*
+**/.terraform.lock.hcl
+# .tfstate files
+*.tfstate
+*.tfstate.*
+**/infra/terraform/id_github*
