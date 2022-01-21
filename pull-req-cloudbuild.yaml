@@ -113,6 +113,7 @@ steps:
 # In gsutil -c option is used to do the checksum comparison rather than mtime check, 
 # as mtime always gets changed when repo gets cloned to cloudbuild workspace. 
 # The -d option will delete files from the destination folder if they don't exist in the source folder.
+# -x to exclude files.
 - name: gcr.io/cloud-builders/gsutil
   entrypoint: bash
   args: 
@@ -121,8 +122,9 @@ steps:
     # if [[ $(grep dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt) == *dags\/*.py ]];
     #  then
       echo "*********** Dags modified in the repo are list below ************"
-      gsutil -m rsync -c -r -n app/dags/common gs://${_GCS_BUCKET}/dags;
+      gsutil -m rsync -c -r -n -x "app/dags/common/airflow_monitoring.py" app/dags/common gs://${_GCS_BUCKET}/dags;
       echo "*********** Dags list end ************"
+      if 
     #  else
     #   echo "Dags are not modified, hence dags sync with gcs is not required.";
     # fi
