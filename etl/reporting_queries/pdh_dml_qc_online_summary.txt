@@ -1,0 +1,79 @@
+
+truncate table pdh_analytics_ds.qc_online_summary;
+insert into pdh_analytics_ds.qc_online_summary 
+(
+
+with QC_transaction as
+ (SELECT    
+    QDT.InvoiceNumber  AS QDT_Ordernumber,
+    QDT.DateAtClient AS QDT_OrderDate,
+    CAST( QDT.TimeAtClient as STRING) AS QDT_OrderTime,
+    QDT.CardNumber AS QDT_Card_number,    
+    QDT.Merchant AS QDT_Merchant,
+    QDT.Outlet AS QDT_Outlet,
+    QDT.TransactionType AS QDT_TxnType,
+    QDT.TransactionStatus as QDT_TxnStatus,
+   CAST(SUM(QDT.Amount_Transacting_Merchants_Currency_Or_Points) AS STRING) AS QDT_TXNValue,
+  FROM
+    pdh_rd_quickcilver.qc_detail_transactions QDT
+  WHERE
+    LENGTH(QDT.InvoiceNumber) <> 0 
+    AND QDT.Merchant <> 'AIA-NZ'
+    AND QDT.DateAtClient >= "2021-07-01" 
+    AND  UPPER(QDT.Outlet) like "%ONLINE%"
+    group by 1,2,3,4,5,6,7,8 ),
+	
+	
+	 Activation_redemption as(
+   (SELECT
+  SAP.invoice_no AS OrderNumber,
+  DATE(SAP.order_date) AS OrderDate,
+  SAP.sales_merchant AS Merchant,
+  'GIFT CARD ACTIVATE' AS Transaction_type,
+  CAST(SUM(CAST(SAP.gc_face_value AS FLOAT64)) AS STRING) AS Transactionvalue,  
+FROM
+  pdh_rd_quickcilver.sap_hybris_qc_item_level_report SAP
+WHERE
+  
+DATE(SAP.order_date) >= "2021-07-01"   and retailer= 'WOOLWORTHS'
+GROUP BY
+  1,
+  2,
+  3)
+ Union ALL
+( SELECT     
+    DP.orderNumber AS OrderNumber,
+    DATE(DP.txnTime) AS OrderDate,
+    DP.MerchantName as Merchant,
+     "GIFT CARD REDEEM" AS Transaction_type,     
+    CAST(SUM(amount) as string) AS TransactionValue,
+   
+  FROM
+   pdh_rd_data_navigator.digitalpay_gc_txns DP
+  WHERE
+    DP.transactionType IN('PURCHASE')
+      AND DATE(DP.txnTime) >= "2021-07-01"
+      and (length(txnRef)-length(replace(txnRef,".",""))) = 2
+      group by 1,2,3,4 ))
+	  
+	  
+SELECT   
+  QDT_Ordernumber,
+  QDT_OrderDate,
+  QDT_OrderTime,  
+  QDT_TXNValue,
+  QDT_Merchant,
+  QDT_Outlet,  
+  QDT_TxnType,
+  QDT_TxnStatus, 
+  QDT_Card_number, 
+  OrderNumber,
+  OrderDate,
+  Merchant,
+  Transaction_type,  
+  TransactionValue
+   from QC_transaction
+   join 
+		Activation_redemption
+   ON
+  QDT_Ordernumber = OrderNumber )

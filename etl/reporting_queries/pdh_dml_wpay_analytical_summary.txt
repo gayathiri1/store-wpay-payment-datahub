@@ -1,0 +1,275 @@
+TRUNCATE TABLE
+  pdh_analytics_ds.wpay_analytical_summary;
+INSERT INTO
+  pdh_analytics_ds.wpay_analytical_summary (
+  WITH
+    sml_merchant AS (
+    SELECT
+      switch_tran_date,
+      switch_timestamp,
+      local_timestamp,
+      store_id,
+      terminal_id,
+      CAST(bin AS String) bin,
+      pan,
+      CAST(txn_type_indicator AS STRING) txn_type_indicator,
+      CAST(settlement_date AS STRING) settlement_date,
+      ap_approval_code,
+      action_code,
+      response_code,
+      issuer,
+      issuer_institution_id,
+      CAST(mti AS STRING) AS mti,
+      card_owner,
+      transaction_desc,
+      rrn,
+      pos_card_holder_present,
+      pos_data_card_input_method,
+      tran_type,
+      abbr,
+      approval_flag,
+      transaction_approval_status_text,
+      account,
+      link_route,
+      scheme,
+      card_type,
+      orig_card_type,
+      dom_int_ind,
+      CAST(stan AS STRING) stan,
+      CAST(original_stan AS STRING) original_stan,
+      card_acpt_id,
+      location,
+      adtnl_response_data,
+      tran_type_description,
+      fee_indicator,
+      transaction_amount,
+      purchase_amount,
+      cashout_amount,
+      vcalc_transaction_count,
+      vcalc_settlement_amount_inc_gst,
+      vcalc_interchange_fees_invoiced_ex_gst,
+      vcalc_processing_fees_ex_gst,
+      fraud_fees_ex_gst,
+      company,
+      invoice_group,
+      merchant_group,
+      division,
+      brand,
+      ined_store_id,
+      site_name,
+      suburb,
+      state,
+      CAST(postcode AS STRING) postcode,
+      country
+    FROM
+      `pdh_analytics_ds.tbl_sml_merchant_fees_rpt`
+    WHERE
+      ifnull(brand,
+        "") <> ""AND ifnull(approval_flag,
+        "") <> ""
+      AND ifnull(scheme,
+        "") <> ""
+      AND ifnull(card_type,
+        "") <> ""
+      AND ifnull( tran_type_description,
+        "") <> ""
+      AND switch_tran_date >= '2021-09-01' ),
+    edg AS (
+    SELECT
+      switch_tran_date,
+      switch_timestamp,
+      local_timestamp,
+      store_id,
+      terminal_id,
+      CAST(bin AS String) bin,
+      pan,
+      CAST(txn_type_indicator AS STRING) txn_type_indicator,
+      CAST(settlement_date AS STRING) settlement_date,
+      ap_approval_code,
+      action_code,
+      response_code,
+      issuer,
+      issuer_institution_id,
+      CAST(mti AS STRING) AS mti,
+      card_owner,
+      transaction_desc,
+      rrn,
+      pos_card_holder_present,
+      pos_data_card_input_method,
+      tran_type,
+      abbr,
+      approval_flag,
+      transaction_approval_status_text,
+      account,
+      link_route,
+      scheme,
+      card_type,
+      orig_card_type,
+      dom_int_ind,
+      CAST(stan AS STRING) stan,
+      CAST(original_stan AS STRING) original_stan,
+      card_acpt_id,
+      location,
+      adtnl_response_data,
+      tran_type_description,
+      fee_indicator,
+      transaction_amount,
+      purchase_amount,
+      cashout_amount,
+      vcalc_transaction_count,
+      vcalc_settlement_amount_inc_gst,
+      vcalc_interchange_fees_invoiced_ex_gst,
+      vcalc_processing_fees_ex_gst,
+      fraud_fees_ex_gst,
+      company,
+      invoice_group,
+      merchant_group,
+      division,
+      brand,
+      ined_store_id,
+      site_name,
+      suburb,
+      state,
+      CAST(postcode AS STRING) postcode,
+      country
+    FROM
+      `pdh_analytics_ds.tbl_edg_fees_rpt`
+    WHERE
+      ifnull(brand,
+        "") <> ""AND ifnull(approval_flag,
+        "") <> ""
+      AND ifnull(scheme,
+        "") <> ""
+      AND ifnull(card_type,
+        "") <> ""
+      AND ifnull( tran_type_description,
+        "") <> ""
+      AND switch_tran_date >= '2021-09-01' ),
+    eg_fuel AS (
+    SELECT
+      switch_tran_date,
+      switch_timestamp,
+      local_timestamp,
+      store_id,
+      terminal_id,
+      CAST(bin AS String) bin,
+      pan,
+      CAST(txn_type_indicator AS STRING) txn_type_indicator,
+      CAST(settlement_date AS STRING) settlement_date,
+      ap_approval_code,
+      action_code,
+      response_code,
+      issuer,
+      issuer_institution_id,
+      CAST(mti AS STRING) AS mti,
+      card_owner,
+      transaction_desc,
+      rrn,
+      pos_card_holder_present,
+      pos_data_card_input_method,
+      tran_type,
+      abbr,
+      approval_flag,
+      transaction_approval_status_text,
+      account,
+      link_route,
+      scheme,
+      card_type,
+      orig_card_type,
+      dom_int_ind,
+      CAST(stan AS STRING) stan,
+      CAST(original_stan AS STRING) original_stan,
+      card_acpt_id,
+      location,
+      adtnl_response_data,
+      tran_type_description,
+      fee_indicator,
+      transaction_amount,
+      purchase_amount,
+      cashout_amount,
+      vcalc_transaction_count,
+      vcalc_settlement_amount_inc_gst,
+      vcalc_interchange_fees_invoiced_ex_gst,
+      vcalc_processing_fees_ex_gst,
+      fraud_fees_ex_gst,
+      company,
+      invoice_group,
+      merchant_group,
+      division,
+      brand,
+      ined_store_id,
+      site_name,
+      suburb,
+      state,
+      CAST(postcode AS STRING) postcode,
+      country
+    FROM
+      `pdh_analytics_ds.tbl_egfuel_fees_rpt`
+    WHERE
+      ifnull(brand,
+        "") <> ""AND ifnull(approval_flag,
+        "") <> ""
+      AND ifnull(scheme,
+        "") <> ""
+      AND ifnull(card_type,
+        "") <> ""
+      AND ifnull( tran_type_description,
+        "") <> ""
+      AND switch_tran_date >= '2021-09-01' ),
+    fee AS (
+    SELECT
+      *
+    FROM
+      sml_merchant
+    UNION ALL
+    SELECT
+      *
+    FROM
+      eg_fuel
+    UNION ALL
+    SELECT
+      *
+    FROM
+      edg),
+    scheme AS (
+    SELECT
+      Division AS SF_Division,
+      Card_Type AS SF_Card_Type,
+      Scheme_fee AS SF_Scheme_fee,
+      Scheme_Fee_Percentage AS SF_Scheme_Fee_Percentage
+    FROM
+      `pdh_ref_ds.ref_scheme_fee` SF ),
+    overhead AS (
+    SELECT
+      Divisions AS ohf_Divisions,
+      Merchant_Name AS ohf_Merchant_Name,
+      CAST(Wpay_Overhead AS STRING) AS ohf_Wpay_Overhead,
+      Price_Model AS ohf_Price_Model
+    FROM
+      `pdh_ref_ds.ref_overhead_fee` ),
+    dim AS (
+    SELECT
+      DISTINCT clndr_date,
+      CAST(wofy as STRING) wofy
+    FROM
+      `pdh_ref_ds.dim_date` )
+  SELECT
+    fee.*,
+    dim.*,
+    SCHEME.*,
+    overhead.*
+  FROM
+    fee
+  LEFT JOIN
+    dim
+  ON
+    switch_tran_date = clndr_date
+  LEFT JOIN
+    SCHEME
+  ON
+    UPPER(fee.scheme) = UPPER(SF_Division)
+    AND UPPER(fee.card_type) = UPPER(SF_Card_Type)
+  LEFT JOIN
+    overhead
+  ON
+    fee.division = ohf_Divisions )
