@@ -122,7 +122,7 @@ steps:
     # if [[ $(grep dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt) == *dags\/*.py ]];
     #  then
       echo "*********** Dags modified in the repo are list below ************"
-      gsutil -m rsync -c -r -n -x "airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
+      gsutil -m rsync -c -r -n -x "composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
       echo "*********** Dags list end ************"
       if [[ $_BASE_BRANCH == "preprod" ]];
         then 
@@ -143,19 +143,27 @@ steps:
   - '-c'
   - | 
       echo "*********** Following ETL Files would laoded ************"
-      gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
+      if [[ $_BASE_BRANCH == "dev" ]];
+        then 
+
+          gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
+          
+        else
+          gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
+      fi
       echo "*********** ETL Files list end ************"
 
-# Checking if any variables are modfied. 
-- name: gcr.io/cloud-builders/gcloud
-  entrypoint: bash
-  args: 
-  - '-c'
-  - | 
-      echo "*********** Exporting the composer variables ************"
-      # gcloud composer environments run ${_COMPOSER_NAME} --location ${_COMPOSER_LOC} variables -- --export /home/airflow/gcs/data/airflow-var-$BUILD_ID-$COMMIT_SHA.json;
-      gcloud composer environments run ${_COMPOSER_NAME} --location ${_COMPOSER_LOC} variables -- --export /home/airflow/gcs/data/airflow-var-backup.json; 
-      echo "*********** Variable export end ************"
+# # Checking if any variables are modfied. 
+# As connectivity between the composer and cloudbuild is not available, can't do the deployment using cloudbuild.
+# - name: gcr.io/cloud-builders/gcloud
+#   entrypoint: bash
+#   args: 
+#   - '-c'
+#   - | 
+#       echo "*********** Exporting the composer variables ************"
+#       # gcloud composer environments run ${_COMPOSER_NAME} --location ${_COMPOSER_LOC} variables -- --export /home/airflow/gcs/data/airflow-var-$BUILD_ID-$COMMIT_SHA.json;
+#       gcloud composer environments run ${_COMPOSER_NAME} --location ${_COMPOSER_LOC} variables -- --export /home/airflow/gcs/data/airflow-var-backup.json; 
+#       echo "*********** Variable export end ************"
 # logsBucket: "gs://${_LOGS_BUCKET}"
 
 availableSecrets:

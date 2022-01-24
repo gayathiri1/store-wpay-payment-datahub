@@ -38,42 +38,42 @@ steps:
       git diff --name-only HEAD~1 HEAD > /workspace/commitfiles.txt && \
       cat /workspace/commitfiles.txt
 
-# Terraform apply after the merge.
-- name: hashicorp/terraform:1.1.2
-  entrypoint: sh
-  args: 
-  - '-c'
-  - |
-    cd app/terraform/
-    terraform init -backend-config "bucket=${_TF_BACKEND_BUCKET}" -backend-config "prefix=${_TF_BACKEND_PREFIX}"
-    # terraform workspace select ${_BASE_BRANCH} || terraform workspace new ${_BASE_BRANCH}
-    terraform plan
-    # terraform apply --auto-approve
-    if grep "bq\/tables\/\|bq\/views\/\|bq/etl\/" /workspace/commitfiles.txt; 
-    then 
-      echo "bq deployment is required"; 
-      if grep bq\/tables\/ /workspace/commitfiles.txt;
-      then
-        echo "bq table deployment is required. Also check if table backup is required."; 
+# # Terraform apply after the merge.
+# - name: hashicorp/terraform:1.1.2
+#   entrypoint: sh
+#   args: 
+#   - '-c'
+#   - |
+#     cd app/terraform/
+#     terraform init -backend-config "bucket=${_TF_BACKEND_BUCKET}" -backend-config "prefix=${_TF_BACKEND_PREFIX}"
+#     # terraform workspace select ${_BASE_BRANCH} || terraform workspace new ${_BASE_BRANCH}
+#     terraform plan
+#     # terraform apply --auto-approve
+#     if grep "bq\/tables\/\|bq\/views\/\|bq/etl\/" /workspace/commitfiles.txt; 
+#     then 
+#       echo "bq deployment is required"; 
+#       if grep bq\/tables\/ /workspace/commitfiles.txt;
+#       then
+#         echo "bq table deployment is required. Also check if table backup is required."; 
 
-      else
-        echo "bq table deployment is not required in current build.";
-      fi
-      if grep bq\/views\/ /workspace/commitfiles.txt;
-      then
-        echo "bq views deployment is required."; 
-      else
-        echo "bq views deployment is not required in current build.";
-      fi
-      if grep bq\/etl\/ /workspace/commitfiles.txt;
-      then
-        echo "bq etl deployment is required. Also check if etl execution is required."; 
-      else
-        echo "bq etl deployment is not required in current build.";
-      fi   
-    else 
-      echo "No bq files modified in current commit, hence bq deployment is not required."; 
-    fi
+#       else
+#         echo "bq table deployment is not required in current build.";
+#       fi
+#       if grep bq\/views\/ /workspace/commitfiles.txt;
+#       then
+#         echo "bq views deployment is required."; 
+#       else
+#         echo "bq views deployment is not required in current build.";
+#       fi
+#       if grep bq\/etl\/ /workspace/commitfiles.txt;
+#       then
+#         echo "bq etl deployment is required. Also check if etl execution is required."; 
+#       else
+#         echo "bq etl deployment is not required in current build.";
+#       fi   
+#     else 
+#       echo "No bq files modified in current commit, hence bq deployment is not required."; 
+#     fi
 
 # # Synch the Dags with the GCS bucket. It creates the directories if it doesn't exists.
 # # In gsutil -c option is used to do the checksum comparison rather than mtime check, 
