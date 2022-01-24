@@ -147,7 +147,7 @@ steps:
       echo "*********** ETL Files list end ************"
 
 # Checking if any variables are modfied. 
-- name: gcr.io/cloud-builders/gsutil
+- name: gcr.io/cloud-builders/gcloud
   entrypoint: bash
   args: 
   - '-c'
