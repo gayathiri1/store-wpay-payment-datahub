@@ -1,0 +1,176 @@
+truncate table pdh_analytics_ds.edp_missing_txns;
+insert into pdh_analytics_ds.edp_missing_txns
+(
+WITH
+  WDP AS (
+  SELECT
+    DISTINCT WDP.AUTREFNUM AS WDP_AUTREFNUM,
+    WDP.SiteNumber AS WDP_SiteNumber,
+    DATETIME(WDP.TenderEndTimestamp) AS WDP_TenderEndTimestamp,
+    SUM( WDP.TenderAmount) AS WDP_TenderAmount,
+  FROM
+    `pdh_rd_wdp.everydaypay_pos_tender_line_detail` WDP
+  WHERE
+    WDP.TenderTXNType ='ZP81'
+  GROUP BY
+    1,
+    2,
+    WDP.TenderEndTimestamp
+  ORDER BY
+    WDP_AUTREFNUM DESC),
+  SLP AS (
+  SELECT
+    SUBSTRING(SLP.txn_desc, 12, 15) AS SWI_txn_desc,
+    datetime(SLP.txn_timestamp) AS SWI_txn_date,
+    SUBSTR(SLP.card_acceptor_terminal_id, 2,4) AS SWI_Store_number,
+    SLP.retrieval_ref_num  as SWI_RRN,
+   if (DATE(SLP.txn_timestamp)= DATE(SLP.recn_date_acquirer), Sum(amount_txn)/100 ,0)  as SWI_CUTOFF_BEFORE_6,   
+    if (DATE(SLP.txn_timestamp)< DATE(SLP.recn_date_acquirer), Sum(amount_txn)/100 ,0)  as SWI_CUTOFF_AFTER_6
+  FROM
+    `pdh_rd_data_navigator.slp_txnact` SLP
+  WHERE
+    txn_desc LIKE '%CNPW%'
+    AND SUBSTRING(SUBSTRING(SLP.txn_desc, 5, 15), -9, 1)='W'
+    AND txn_disposition = 1
+  GROUP BY
+    1,
+    2,
+    3,
+    4,
+    txn_timestamp,
+    recn_date_acquirer ),
+  EDWP AS (
+  SELECT
+    SUBSTRING(EDWP.txn_desc, 12, 15) AS SWI_txn_desc,
+    DATETIME(EDWP.txn_timestamp) AS SWI_txn_date,
+    substring(EDWP.card_acceptor_terminal_id,2,4) AS SWI_Store_number,
+    EDWP.retrieval_ref_num  as SWI_RRN,
+   if (DATE(EDWP.txn_timestamp)= DATE(EDWP.recn_date_acquirer), Sum(amount_txn)/100 ,0)  as SWI_CUTOFF_BEFORE_6,   
+    if (DATE(EDWP.txn_timestamp)< DATE(EDWP.recn_date_acquirer), Sum(amount_txn)/100 ,0)  as SWI_CUTOFF_AFTER_6
+  FROM
+    `pdh_rd_data_navigator.edwp_txnact` EDWP
+  WHERE
+    txn_desc LIKE '%CNPW%'
+    AND SUBSTRING(SUBSTRING(EDWP.txn_desc, 5, 15), -9, 1)='W'
+    AND txn_disposition = 1
+  GROUP BY
+    1,
+    2,
+    3,
+    4,
+    txn_timestamp,
+    recn_date_acquirer),
+  SWI AS (
+  SELECT
+    *
+  FROM
+    SLP
+  UNION ALL
+  SELECT
+    *
+  FROM
+    EDWP),
+  DP AS (
+  SELECT
+    SUBSTRING(Ordernumber, 2) AS DP_Ordernumber,
+    DATETIME(Txntime) AS DP_Txntime,
+    substring(terminal_id,2,4) as DP_Store_number,
+    RRN as DP_RRN,
+    ROUND(SUM(
+      IF
+        ( gateway='WEX'AND (LENGTH(txnRef)-LENGTH(REPLACE(txnRef,".",""))) != 2,
+          Amount *
+          CASE TransactionType
+            WHEN 'REFUND' THEN -1
+          ELSE
+          1
+        END
+          ,
+          0 )),3) DP_Amount_WEX,
+    ROUND(SUM(
+      IF
+        ( gateway='WEX'AND (LENGTH(txnRef)-LENGTH(REPLACE(txnRef,".",""))) = 2,
+          Amount *
+          CASE TransactionType
+            WHEN 'REFUND' THEN -1
+          ELSE
+          1
+        END
+          ,
+          0 )),3) DP_Amount_QC
+  FROM
+    `pdh_rd_data_navigator.digitalpay_gc_txns` DP
+  WHERE
+    Transactiontype IN ('PURCHASE',
+      'REFUND')
+    AND MerchantName IN ('ScanGoSuper',
+      'Everyday Pay')
+  GROUP BY
+    1,
+    2,3,
+    4
+  ORDER BY
+    1),
+  DP_Switch_int AS (
+  SELECT
+    SWI_txn_desc,
+    SWI_txn_date,
+    SWI_Store_number,
+    SWI_CUTOFF_BEFORE_6,
+    SWI_CUTOFF_AFTER_6,
+    SWI_RRN,
+     DP_Ordernumber,
+    DP_Txntime,
+   DP_Store_number,
+   DP_RRN,
+    DP_Amount_WEX,
+    DP_Amount_QC   
+  FROM
+    SWI
+FULL OUTER JOIN
+    DP 
+    ON 
+     DP_Ordernumber = SWI_txn_desc),
+  DP_SWITCH AS (
+  SELECT
+    COALESCE(DP_Ordernumber,
+      SWI_txn_desc) AS Order_number,
+    COALESCE(DP_Txntime,
+      SWI_txn_date) AS Order_date,
+    COALESCE(DP_Store_number,
+        SWI_Store_number) AS Store_number,
+     Coalesce(DP_RRN,SWI_RRN) as RRN,
+    SWI_CUTOFF_BEFORE_6,
+    SWI_CUTOFF_AFTER_6,
+    DP_Txntime,
+    DP_Amount_WEX,
+    DP_Amount_QC
+  FROM
+    DP_Switch_int)
+SELECT distinct
+  Order_number,
+  WDP_AUTREFNUM,
+  Order_date,
+  WDP_TenderEndTimestamp,
+  WDP_SiteNumber,
+  RRN,
+  DP_Amount_WEX,
+  Store_number,
+  DP_Amount_QC,
+  SWI_CUTOFF_BEFORE_6,
+  SWI_CUTOFF_AFTER_6,
+  WDP_TenderAmount,
+  CASE
+    WHEN WDP_AUTREFNUM IS NULL THEN 'Missing in WDP'
+    WHEN Order_number IS NULL THEN 'Missing in SWITCH/DP Txns'
+  ELSE
+  'Not Missing'
+END
+  AS Flag
+FROM
+  WDP
+FULL OUTER JOIN
+  DP_Switch
+ON
+  WDP_AUTREFNUM = Order_number 
+)

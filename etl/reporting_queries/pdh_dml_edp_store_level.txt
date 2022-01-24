@@ -1,0 +1,140 @@
+truncate table pdh_analytics_ds.edp_store_level;
+insert into pdh_analytics_ds.edp_store_level
+(
+
+WITH
+  WDP AS(
+  SELECT
+    DISTINCT WDP.AUTREFNUM AS WDP_AUTREFNUM,
+    WDP.SiteNumber AS WDP_SiteNumber,
+    DATE(WDP.TenderEndTimestamp) AS WDP_TenderEndTimestamp,
+    SUM( WDP.TenderAmount) AS WDP_TenderAmount,
+  FROM
+    `pdh_rd_wdp.everydaypay_pos_tender_line_detail` WDP
+  WHERE
+    WDP.TenderTXNType ='ZP81'
+  GROUP BY
+    1,
+    2,
+    WDP.TenderEndTimestamp
+  ORDER BY
+    WDP_AUTREFNUM DESC),
+  SLP AS (
+  SELECT
+    SUBSTRING(SLP.txn_desc, 12, 15) AS SWI_txn_desc,
+    DATE(SLP.txn_timestamp) AS SWI_txn_date,
+    SUBSTR(SLP.card_acceptor_terminal_id, 2,4) AS SWI_Store_number,
+   if (DATE(SLP.txn_timestamp)= DATE(SLP.recn_date_acquirer), Sum(amount_txn)/100 ,0)  as SWI_CUTOFF_BEFORE_6,   
+    if (DATE(SLP.txn_timestamp)< DATE(SLP.recn_date_acquirer), Sum(amount_txn)/100 ,0)  as SWI_CUTOFF_AFTER_6
+  FROM
+    `pdh_rd_data_navigator.slp_txnact` SLP
+  WHERE
+    txn_desc LIKE '%CNPW%'
+    AND SUBSTRING(SUBSTRING(SLP.txn_desc, 5, 15), -9, 1)='W'
+    AND txn_disposition = 1
+  GROUP BY
+    1,
+    2,
+    3,
+    txn_timestamp,
+    recn_date_acquirer),
+  EDWP AS (
+  SELECT
+    SUBSTRING(EDWP.txn_desc, 12, 15) AS SWI_txn_desc,
+    DATE(EDWP.txn_timestamp) AS SWI_txn_date,
+    SUBSTR(EDWP.card_acceptor_terminal_id, 2,4) AS SWI_Store_number,
+  if (DATE(EDWP.txn_timestamp)= DATE(EDWP.recn_date_acquirer), Sum(amount_txn)/100 ,0)  as SWI_CUTOFF_BEFORE_6,   
+    if (DATE(EDWP.txn_timestamp)< DATE(EDWP.recn_date_acquirer), Sum(amount_txn)/100 ,0)  as SWI_CUTOFF_AFTER_6
+  FROM
+    `pdh_rd_data_navigator.edwp_txnact` EDWP
+  WHERE
+    txn_desc LIKE '%CNPW%'
+    AND SUBSTRING(SUBSTRING(EDWP.txn_desc, 5, 15), -9, 1)='W'
+    AND txn_disposition = 1
+  GROUP BY
+    1,
+    2,
+    3,
+    txn_timestamp,
+    recn_date_acquirer),
+  SWI AS (
+  SELECT
+    *
+  FROM
+    SLP
+  UNION ALL
+  SELECT
+    *
+  FROM
+    EDWP),
+  DP AS (
+  SELECT
+    SUBSTRING(Ordernumber, 2) AS DP_Ordernumber,
+    DATE(Txntime) AS DP_Txntime,
+    substring(terminal_id,2,4) as DP_Store_number,
+    ROUND(SUM(
+      IF
+        ( gateway='WEX'AND (LENGTH(txnRef)-LENGTH(REPLACE(txnRef,".",""))) != 2,
+          Amount *
+          CASE TransactionType
+            WHEN 'REFUND' THEN -1
+          ELSE
+          1
+        END
+          ,
+          0 ) ),3) DP_Amount_WEX,
+    ROUND(SUM(
+      IF
+        ( gateway='WEX'AND (LENGTH(txnRef)-LENGTH(REPLACE(txnRef,".",""))) = 2,
+          Amount *
+          CASE TransactionType
+            WHEN 'REFUND' THEN -1
+          ELSE
+          1
+        END
+          ,
+          0 ) ),3) DP_Amount_QC
+  FROM
+   pdh_rd_data_navigator.digitalpay_gc_txns
+  WHERE
+    Transactiontype IN ('PURCHASE',
+      'REFUND')
+    AND MerchantName IN ('ScanGoSuper',
+      'Everyday Pay')
+  GROUP BY
+    1,
+    2,3)
+SELECT
+  DISTINCT WDP_SiteNumber,
+  DATE(WDP_TenderEndTimestamp) AS Order_date,
+  SUM(IFNULL(SWI_CUTOFF_BEFORE_6,
+      0)) AS SWI_CUTOFF_BEFORE_6,
+  SUM(IFNULL(SWI_CUTOFF_AFTER_6,
+      0)) AS SWI_CUTOFF_AFTER_6,
+  SUM(IFNULL(DP_Amount_WEX,
+      0)) AS DP_Amount_WEX,
+  SUM(IFNULL(DP_Amount_QC,
+      0)) AS DP_Amount_QC,
+  SUM(IFNULL(WDP_TenderAmount,
+      0)) AS WDP_TenderAmount,
+IF
+  (SUM(IFNULL(WDP_TenderAmount,
+        0)) = SUM(IFNULL(SWI_CUTOFF_BEFORE_6,
+        0))+SUM(IFNULL(SWI_CUTOFF_AFTER_6,
+        0))+SUM(IFNULL(DP_Amount_QC,
+        0))+SUM(IFNULL(DP_Amount_WEX,
+        0)),
+    "Matched",
+    "Mismatched") AS flag
+FROM
+  WDP
+LEFT JOIN
+  SWI
+ON
+  WDP_AUTREFNUM =SWI_txn_desc and WDP_SiteNumber= SWI_Store_number
+LEFT JOIN
+DP
+ON 
+WDP_AUTREFNUM =DP_Ordernumber and  WDP_SiteNumber=DP_Store_number
+group by 1,2
+order by 1)

@@ -1,5 +1,0 @@
-steps:
- 
-  # Deploy to google cloud app egnine
-  - name: 'gcr.io/cloud-builders/gsutil'
-    args: ['cp', 'dags/dev/*', 'gs://$PROJECT_ID/syed-test-dir']

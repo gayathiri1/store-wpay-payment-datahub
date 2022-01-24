@@ -1,0 +1,2 @@
+create or replace table `stg` as select * except (rnk)
+from `src` order by rnk;

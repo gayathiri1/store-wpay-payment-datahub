@@ -1,0 +1,301 @@
+--load EG fuel Settlement Listing
+DECLARE inp_lookup STRING DEFAULT "EG Settlement";
+DECLARE batch string;
+--
+declare sysdate date default current_date("Australia/Sydney");
+declare batch_start_yyyy_mm_dd_hh_mm_ss datetime default datetime_trunc(current_datetime("Australia/Sydney"),second);
+declare batch_end_yyyy_mm_dd_hh_mm_ss datetime;
+declare batch_end_yyyymmdd string;
+declare max_settlementdate date default (Select max(cast(datetime_created as date)) 
+                                         FROM `pdh_analytics_ds.audit_stlm_batch`
+                                         where left(division,2) = "EG"
+                                         and batchnumber between "S000000000" and "S999999999"); 
+
+--declare postingfilename string;
+declare trailorcount int64;
+--     
+--settlement expract
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+if (ifnull(batch,"") in ("","NOContRec","UpdFailed"))  then
+    return;
+end if; 
+set batch_end_yyyy_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),second);
+-- Always add CSV Headers based on settlement window
+  truncate table `pdh_analytics_ds.stlm_std_eg_transaction_listing`;
+  insert into `pdh_analytics_ds.stlm_std_eg_transaction_listing` 
+     select distinct concat(msw.file_prefix,"_Settlement_",
+                            format_date("%Y%m%d%H%M%S",
+                              datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss, INTERVAL 0 second))),
+                    msw.file_prefix,
+                    "H",
+                    "transaction_uid",
+                    "wpay_store_id",
+                    "terminal_id",
+                    "card_acceptor_id",
+                    "transaction_amt",
+                    "transaction_timestamp",
+                    "transaction_local_timestamp",
+                    "pan",
+                    "stan",
+                    "rrn",
+                    "original_stan",
+                    "mti",
+                    "card_entry_mode",
+                    "sale_amt",
+                    "cashout_amt",
+                    "transaction_type_desc",
+                    "scheme",
+                    "card_type",
+                    "card_subtype",
+                    "settlement_date",
+                    "response_code",
+                    "approval_status",
+                    "approval_code",
+                    "order_num",
+                    "addtl_response_data",
+                    "card_acceptor_name_location",
+                    "merchant_store_id",
+                    "account_type",
+                    "surcharge_amt",
+                    "tip_amt",
+                    "moto_type",
+                    "original_scheme",
+                    "mcr_ind"
+     from `pdh_ref_ds.ref_merchant_settlement_window` msw
+     where msw.is_active = "Y"
+       and left(msw.division,2) = "EG"
+       and ifnull(msw.file_prefix,"") <> "";
+
+--Add details if EG settled not reported exists exists
+   insert into `pdh_analytics_ds.stlm_std_eg_transaction_listing`
+   With trn as (
+          Select concat("QC_",trim(trnq.approvalcode),"_",
+                                  trim(trnq.ReferenceNumber),"_",
+                                  cast(trnq.BatchNumber as string),"_",
+                                  format_datetime("%Y%m%dT%H%M%S",
+                                           cast(concat(cast(trnq.transactiondate as string),"T",
+                                                       cast(trnq.transactiontime as string)
+                                                      ) as datetime)
+                                                 )) as tran_uid,
+                  concat(format_date("%Y%m%d",trnq.DateAtClient),
+                                  format_time("%H%M%S",trnq.TimeAtClient)) as timestamp_local,
+                  trnq.CardNumber,
+                  trnq.POSName as terminal_id,
+                  trnq.BusinessReferenceNumber as rrn,
+                  trnq.transactiontype,
+                  trnq.CardEntryMode,
+                  case 
+                     when upper(trim(trnq.transactionstatus)) = "SUCCESS" then "00"
+                     else "12"
+                  end response_code,
+                  case 
+                     when upper(trim(trnq.transactionstatus)) = "SUCCESS" then "0"
+                     else "1"
+                  end approval_status,
+                  trnq.ApprovalCode approval_code,
+                  trnq.Outlet
+      from `pdh_rd_quickcilver.qc_detail_transactions` trnq
+          -- `pdh_staging_ds.qc_detail_transactions` trnq --Test only
+		  --`pdh_rd_quickcilver.qc_detail_transactions`
+      join  pdh_analytics_ds.stlm_standard_settlement_table st1
+            on st1.tran_uid = concat("QC_",trim(trnq.approvalcode),"_",
+                                  trim(trnq.ReferenceNumber),"_",
+                                  cast(trnq.BatchNumber as string),"_",
+                                  format_datetime("%Y%m%dT%H%M%S",
+                                           cast(concat(cast(trnq.transactiondate as string),"T",
+                                                       cast(trnq.transactiontime as string)
+                                                      ) as datetime)
+                                                 ))
+           and  left(st1.division,2) = "EG"
+           and ifnull(st1.tlf_name,"") = "" 
+           and ifnull(st1.setlmnt_result_file,"") <> ""
+     --Block DigiPay
+     /* union all 
+         Select concat("DP_",trim(trnd.txnRef)) as tran_uid,
+                format_datetime("%Y-%m-%dT%H:%M:%S",datetime(ifnull(trnd.storeTimeStamp,trnd.txnTime))) as timestamp_local,
+                trnd.token as CardNumber,
+                trnd.terminal_id,
+                trnd.RRN as BusinessReferenceNumber,
+                Concat(upper(trim(trnd.transactiontype)), " ",
+                       case (length(trnd.txnRef) - length(replace(trnd.txnRef,".","")))
+                          when 0 then "WEX"
+                          when 2 then  "QC"
+                          else "NAP"
+                       end) as transactiontype,
+                case 
+                     when trnd.responseCodeContainer = "00" then "00"
+                     else "12"
+                end response_code
+      from pdh_rd_data_navigator.digitalpay_gc_txns trnd
+      join  pdh_analytics_ds.stlm_standard_settlement_table st2
+            on st2.tran_uid = concat("DP_",trim(trnd.txnRef))
+           and left(st2.division,2) = "EG"
+           and ifnull(st2.tlf_name,"") = "" 
+           and ifnull(st2.setlmnt_result_file,"") <> "" */
+          )
+          Select concat(msw.file_prefix,"_Settlement_",
+                            format_date("%Y%m%d%H%M%S",
+                              datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss, INTERVAL 0 SECOND))) as file_name,
+                 msw.file_prefix as merchant,
+                 "D" as record_type,
+                 std.tran_uid as transaction_uid,
+                 std.store_id wpay_store_id,
+                 trn.terminal_id,
+                 cast(null as string) as card_acceptor_id,
+                 Concat(
+                   case
+                    When std.tran_settlement_amount < 0 then "-"
+                    else ""
+                   End,
+                   right(concat(repeat("0",18), 
+                              cast(cast(abs(std.tran_settlement_amount) * 100 as Int64)
+                                                as string)),18)) as transaction_amount,
+                 format_datetime("%Y%m%d%H%M%S", std.transaction_timestamp) transaction_timestamp,
+                 trn.timestamp_local,
+                 case 
+                    when length(trim(trn.CardNumber)) < 10 then trim(trn.CardNumber)
+                    else concat(left(trim(trn.CardNumber),6),
+                                repeat("*",length(trim(trn.CardNumber)) - 9),
+                                right(trim(trn.cardnumber),3))
+                 end as pan,
+                 cast(null as string) as stan,
+                 trn.rrn,
+                 cast(null as string) as original_stan,
+                 cast(null as string) as mti,
+                 trn.CardEntryMode,
+                 Concat(
+                   case
+                    When std.tran_settlement_amount < 0 then "-"
+                    else ""
+                   End,
+                   right(concat(repeat("0",18), 
+                              cast(cast(abs(std.tran_settlement_amount) * 100 as Int64)
+                                                as string)),18)) as sale_amt,
+                 "0" as cash_amt,
+                 upper(trim(trn.transactiontype)) as transaction_type_desc,
+                 "GIFT CARDS" as scheme,
+                 cast(null as string) as card_type,
+                 cast(null as string) as card_subtype,
+                 format_date("%Y%m%d", std.posting_date) as settlement_date,
+                 trn.response_code,
+                 trn.approval_status,
+                 trn.approval_code,
+                 std.order_number,
+                 cast(null as string) as addtl_response_data,
+                 trn.Outlet card_acceptor_name_location, 
+                 upper(trim(scm.merchant_store_number)) as merchant_store_id,
+                 cast(null as string) as account_type,
+                 "0" as surcgarge_amt,
+                 "0" as tip_amt,
+                 cast(null as string) as moto_type,
+                 cast(null as string) as original_scheme,
+                 cast(null as string) as mcr_ind
+        from `pdh_analytics_ds.stlm_standard_settlement_table` std
+        join `pdh_ref_ds.ref_merchant_settlement_window` msw
+             on msw.is_active = "Y"
+            and msw.division = std.division
+        join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+             on upper(trim(scm.wpay_store_number)) = std.store_id
+            and upper(Ifnull(scm.active_flag,"")) <> "N" 
+        join trn on std.tran_uid = trn.tran_uid
+       where left(std.division,2) = "EG"
+             and ifnull(std.tlf_name,"") = "" 
+             and ifnull(std.setlmnt_result_file,"") <> "";
+           
+    --Always Add Trailor 
+      insert into `pdh_analytics_ds.stlm_std_eg_transaction_listing`
+              (file_name,merchant,record_type,transaction_uid)
+              Select file_name,merchant,"T", cast(count(*) - 1 as string)
+              from `pdh_analytics_ds.stlm_std_eg_transaction_listing`
+              Group By file_name,merchant;
+    --add to history
+       insert into `pdh_analytics_ds.stlm_std_eg_transaction_listing_history` 
+          select batch_end_yyyy_mm_dd_hh_mm_ss, *
+          from `pdh_analytics_ds.stlm_std_eg_transaction_listing`;
+     --
+     --Insert Batch Audit if Detail exists
+      insert into `pdh_analytics_ds.audit_stlm_batch`
+       (batchnumber, division, record_type, batch_start,	batch_end, filename, posting_file_name,	cutoff_start, cutoff_end,
+       	first_trans_time,last_trans_time, no_trans_posted,amount_posted, comment, datetime_created,created_by)
+      select batch,
+             std.division,
+             std.record_type,
+             batch_start_yyyy_mm_dd_hh_mm_ss,
+             batch_end_yyyy_mm_dd_hh_mm_ss,
+             std.filename,
+             concat(msw.file_prefix,"_Settlement_",
+                            format_date("%Y%m%d%H%M%S",
+                              datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss, INTERVAL 0 SECOND))) postingfilename, 
+             batch_today.cutoff_min,
+             batch_today.cutoff_max,
+             std.trans_min,
+             std.trans_max,
+             std.no_trans_posted, 
+             std.amount_posted,
+             "processd transaction after cutoff_stat up to cutoff_end",
+             cast(format_date("%Y-%m-%dT%H:%M:%S", current_datetime("Australia/Sydney")) as datetime),
+             "EG Fuel Settlement"
+      from (Select division, record_type,filename, 
+                   min(transaction_timestamp) trans_min,
+                   max(transaction_timestamp) trans_max,
+                   count(*) no_trans_posted, 
+                   round(sum(tran_settlement_amount),2) amount_posted
+            from `pdh_analytics_ds.stlm_standard_settlement_table` std
+            where left(division,2) = "EG"
+             and ifnull(tlf_name,"") = "" 
+             and ifnull(setlmnt_result_file,"") <> ""
+            group by division,record_type,filename)  std
+      join (Select division, min(cutoff_start) cutoff_min, max(cutoff_end) cutoff_max
+            FROM `pdh_analytics_ds.audit_stlm_batch`
+            where left(division,2) = "EG"
+            and cast(datetime_created as date) = max_settlementdate 
+            and batchnumber between "S000000000" and "S999999999"
+            group by division) batch_today on batch_today.division = std.division 
+      join `pdh_ref_ds.ref_merchant_settlement_window` msw
+             on msw.division = std.division;
+--
+--Update Generic table
+        Update  `pdh_analytics_ds.stlm_standard_settlement_table` std
+           set std.tlf_name = t.tlf_name,
+               std.last_update_datetime = batch_end_yyyy_mm_dd_hh_mm_ss,
+               std.last_updated_by  ="EG Settlement"
+        from (select tran_uid, 
+                     concat(msw.file_prefix,"_Settlement_",
+                            format_date("%Y%m%d%H%M%S",
+                                       datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss, INTERVAL 0 SECOND))) tlf_name
+              from `pdh_analytics_ds.stlm_standard_settlement_table` std1
+              join `pdh_ref_ds.ref_merchant_settlement_window` msw on msw.is_active = "Y"
+                                                                  and msw.division = std1.division
+              Where left(std1.division,2) = "EG"
+                and ifnull(std1.tlf_name,"") = "" 
+                and ifnull(std1.setlmnt_result_file,"") <> "") t
+     Where t.tran_uid = std.tran_uid;
+
+--
+--Always add control record based on Settlement window          
+      insert into pdh_analytics_ds.file_gen_details 
+         select  batch,
+                 cast(batch_end_yyyy_mm_dd_hh_mm_ss as date), 
+                 lower(concat(file_prefix,"_egsettlement")),
+                 true,
+                 null, 
+                 ifnull(min_transaction,
+                            datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss, INTERVAL 0 SECOND)),
+                 ifnull(max_transaction,
+                           datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss, INTERVAL 0 SECOND)),
+                 datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss, INTERVAL 0 SECOND),
+                 null
+        from (Select msw.file_prefix,min(std.transaction_timestamp) min_transaction,
+                                                  max(std.transaction_timestamp) max_transaction
+              from `pdh_ref_ds.ref_merchant_settlement_window` msw
+              left join (select division, transaction_timestamp
+                         from `pdh_analytics_ds.stlm_standard_settlement_table`
+                         where  left(division,2) = "EG"
+                           and ifnull(tlf_name,"") = "" 
+                           and ifnull(setlmnt_result_file,"") <> "") std on msw.division = std.division
+              where msw.is_active = "Y"
+                and left(msw.division,2) = "EG"
+                and ifnull(msw.file_prefix,"") <> ""
+               -- and msw.file_seq > 0
+              group by msw.file_prefix);
+             

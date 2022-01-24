@@ -1,0 +1,27 @@
+truncate table  pdh_analytics_ds.aia_rpt;
+Insert into  pdh_analytics_ds.aia_rpt
+SELECT
+  CardNumber,
+  Merchant,
+  ActivationOutlet,
+  Issuer,
+  TransactionDate,
+ CAST(TransactionTime AS STRING) AS TransactionTime,
+
+  TransactionTimeZone,
+  ProgramGroup,
+  TransactionType,
+  BaseCurrency,
+  "3%" AS Discount,
+  InvoiceNumber,
+  ReasonOfCancel,
+  Notes,
+  Amount_Transacting_Merchants_Currency_Or_Points,
+  (Amount_Transacting_Merchants_Currency_Or_Points/100)* 3 Discount_Value,
+  ((Amount_Transacting_Merchants_Currency_Or_Points/100)* 3)*0.15 GST_value,
+  (Amount_Transacting_Merchants_Currency_Or_Points) - ((Amount_Transacting_Merchants_Currency_Or_Points/100)* 3) Net_Value
+FROM
+  `pdh_rd_quickcilver.qc_detail_transactions`
+WHERE
+  Merchant LIKE "%AIA%"
+  AND ActivationOutlet ='AIA-NZ'

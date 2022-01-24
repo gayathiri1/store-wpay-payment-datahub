@@ -1,0 +1,41 @@
+
+
+truncate table pdh_analytics_ds.visa_fee_analysis_rpt ;
+insert into pdh_analytics_ds.visa_fee_analysis_rpt  
+SELECT
+  gfs_aux_visa.file_date AS file_date,
+  gfs_aux_visa.mti AS mti,
+  gfs_aux_visa.tran_disposition AS tran_disposition,
+  gfs_aux_visa.issuer AS issuer,
+  gfs_aux_visa.pan AS pan,
+  gfs_aux_visa.domestic_or_international AS domestic_or_international,
+  gfs_aux_visa.acct_funding_source AS acct_funding_source,
+  CAST(gfs_aux_visa.tran_amt/100 AS FLOAT64) AS tran_amt,
+  CAST(gfs_aux_visa.interchange_fee/1000000 AS FLOAT64) AS interchange_fee,
+  CAST(gfs_aux_visa.interchange_fee/1000000 AS FLOAT64)/ CAST(gfs_aux_visa.tran_amt/100 AS FLOAT64) AS calc_interchange_fee,
+  gfs_aux_visa.tstamp_trans AS tstamp_trans,
+  DATE(gfs_aux_visa.tstamp_trans) AS tran_date,
+  CAST(gfs_aux_visa.stan AS FLOAT64) AS stan,
+  gfs_aux_visa.tstamp_local AS tstamp_local,
+  gfs_aux_visa.date_recon AS date_recon,
+  CAST(gfs_aux_visa.rrn AS FLOAT64) AS rrn,
+  gfs_aux_visa.card_acpt_term_id AS card_acpt_term_id,
+  ref_store_details.division AS division,
+  ref_store_details.brand AS brand,
+  ref_store_details.store_id,
+  ref_store_details.is_online,
+  gfs_aux_visa.processing_code,
+  ref_trans_types.abbr,
+  ref_trans_types.tran_type,
+  ref_trans_types.connex
+FROM
+  `pdh_rd_data_navigator.gfs_aux_visa` gfs_aux_visa
+  
+LEFT JOIN
+  `pdh_ref_ds.ref_store_details` ref_store_details
+  ON
+  ref_store_details.store_id = LEFT(gfs_aux_visa.card_acpt_term_id,5)
+LEFT JOIN
+  `pdh_ref_ds.ref_transaction_types` ref_trans_types
+  on 
+  cast (gfs_aux_visa.processing_code as Numeric) =CAST(ref_trans_types.connex as NUMERIC)
