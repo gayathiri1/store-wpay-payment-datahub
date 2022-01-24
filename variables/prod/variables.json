@@ -184,83 +184,82 @@
             }
 
         ]
-    },
-    "file_gen_etl": {
+    }, "file_gen_etl":{
         "bucket": "pdh_prod_etls",
         "emailTo": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au,rdubey1@woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+		"qc_select": "select * from gcp-wow-wpay-paydathub-prod.pdh_analytics_ds.file_gen_details where processing_date = current_date('Australia/Sydney') and merchant_name in(mrc)and etl_complete = true and (extract_wf_complete is false or extract_wf_complete is null) and remarks is null;",
         "files": [
             {
+                "start_time": "11:00:00",
                 "end_time": "11:30:00",
                 "merchant": "'lvfeelist'",
                 "query_file": "live_group/pdh_live_group_etl.txt",
-                "start_time": "11:00:00",
-                "access_google_sheet":"N",
+				"access_google_sheet":"N",
 				"gs_unique_id" :"",
 				"gs_table_name":"",
 				"gs_sheet_name":""
             },
             {
+				"start_time": "04:00:00",
                 "end_time": "04:30:00",
                 "merchant": "'strmapping'",
                 "query_file": "str_sap_cust_mapping/pdh_strmapping_etl.txt",
-                "start_time": "04:00:00",
-                "access_google_sheet":"N",
-				"gs_unique_id" :"",
-				"gs_table_name":"",
-				"gs_sheet_name":""
+				"access_google_sheet":"Y",
+				"gs_unique_id" :"1bjpx4ja-6nxSOF1uUMz73GA43EEN-4lPOihhL41mfNY",
+				"gs_table_name":"gcp-wow-wpay-paydathub-prod.pdh_ref_ds.ref_str_to_sap_customermapping",
+				"gs_sheet_name":"Sheet1"
             },
             {
+				"start_time": "05:00:00",
                 "end_time": "05:30:00",
                 "merchant": "'missingstore'",
                 "query_file": "sap_settlement/pdh_log_missing_storeid.txt",
-                "start_time": "05:00:00",
-                "access_google_sheet":"N",
+				"access_google_sheet":"N",
 				"gs_unique_id" :"",
 				"gs_table_name":"",
 				"gs_sheet_name":""
             },
             {
+				"start_time": "05:00:00",
                 "end_time": "05:30:00",
                 "merchant": "'qcdsettlement'",
                 "query_file": "sap_settlement/pdh_add_qc_to_settlement_gen_tbl.txt",
-                "start_time": "05:00:00",
-                "access_google_sheet":"N",
+				"access_google_sheet":"N",
 				"gs_unique_id" :"",
 				"gs_table_name":"",
 				"gs_sheet_name":""
             },
             {
+				"start_time": "05:00:00",
                 "end_time": "05:30:00",
                 "merchant": "'sapsettlement'",
                 "query_file": "sap_settlement/pdh_sap_settlement_etl.txt",
-                "start_time": "05:00:00",
-                "access_google_sheet":"N",
+				"access_google_sheet":"N",
 				"gs_unique_id" :"",
 				"gs_table_name":"",
 				"gs_sheet_name":""
             },
             {
+				"start_time": "11:00:00",
                 "end_time": "11:30:00",
                 "merchant": "'sapfee'",
                 "query_file": "sap_fee_posting/pdh_sap_fee_posting_etl.txt",
-                "start_time": "11:00:00",
-                "access_google_sheet":"N",
+				"access_google_sheet":"N",
 				"gs_unique_id" :"",
 				"gs_table_name":"",
 				"gs_sheet_name":""
             },
-            {
+			{
+				"start_time": "06:00:00",
                 "end_time": "06:30:00",
-                "merchant": "'eg_group_egsettlement','eg_ventures_egsettlement','eg_group_online_egsettlement','eg_ventures_online_egsettlement'",
-                "query_file": "eg_egapac_settlement/pdh_eg_egapac_settlement_etl.txt",
-                "start_time": "06:00:00",
-                "access_google_sheet":"N",
+		        "merchant":"'eg_group_egsettlement','eg_ventures_egsettlement','eg_group_online_egsettlement','eg_ventures_online_egsettlement'",
+                "query_file":"eg_egapac_settlement/pdh_eg_egapac_settlement_etl.txt",
+				"access_google_sheet":"N",
 				"gs_unique_id" :"",
 				"gs_table_name":"",
 				"gs_sheet_name":""
-            }
-        ],
-        "qc_select": "select * from gcp-wow-wpay-paydathub-prod.pdh_analytics_ds.file_gen_details where processing_date = current_date('Australia/Sydney') and merchant_name in(mrc)and etl_complete = true and (extract_wf_complete is false or extract_wf_complete is null) and remarks is null;"
+			}
+        ]
     },
     "gs_detail": [
         {
