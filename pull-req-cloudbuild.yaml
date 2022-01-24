@@ -134,6 +134,17 @@ steps:
     #   echo "Dags are not modified, hence dags sync with gcs is not required.";
     # fi
 
+
+# Loading ETL files to GCS bucket.
+- name: gcr.io/cloud-builders/gsutil
+  entrypoint: bash
+  args: 
+  - '-c'
+  - | 
+      echo "*********** Following ETL Files would laoded ************"
+      gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET}/dags;
+      echo "*********** ETL Files list end ************"
+
 # logsBucket: "gs://${_LOGS_BUCKET}"
 
 availableSecrets:

@@ -61,6 +61,12 @@ variable composer_location {
     default = "xxxx-sydney-pls-change"
 }
 
+variable etl_bucket {
+    type = string
+    description = "etl bucket name"
+    default = "xxxx-pls-change"
+}
+
 
 # variable cloudBuild_serviceAcct {
 #     type = string
