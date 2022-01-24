@@ -145,9 +145,7 @@ steps:
       echo "*********** Following ETL Files would laoded ************"
       if [[ $_BASE_BRANCH == "dev" ]];
         then 
-
-          gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
-          
+          gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};     
         else
           gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
       fi
