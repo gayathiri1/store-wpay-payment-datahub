@@ -124,6 +124,12 @@ steps:
       echo "*********** Dags modified in the repo are list below ************"
       gsutil -m rsync -c -r -n -x "airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
       echo "*********** Dags list end ************"
+      if [[ $_BASE_BRANCH == "preprod" ]];
+        then 
+          echo "********* Copying the preprod only files*******"
+          gsutil -m rsync -c -r -n app/dags/preprod gs://${_GCS_BUCKET}/dags;
+          echo "********* End of preprod copy files*******"
+      fi
     #  else
     #   echo "Dags are not modified, hence dags sync with gcs is not required.";
     # fi
