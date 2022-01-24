@@ -67,6 +67,12 @@ variable etl_bucket {
     default = "xxxx-pls-change"
 }
 
+variable environment {
+    type = string
+    description = "name of the environment like dev, preprod, prod"
+    default = "xxxx-pls-change"
+}
+
 
 # variable cloudBuild_serviceAcct {
 #     type = string

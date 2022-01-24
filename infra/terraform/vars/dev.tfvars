@@ -1,5 +1,6 @@
 # github_repo_branch = "^(?=feature:DATPAY-)feature:DATPAY-([0-9]{4})$"
 # github_repo_branch = "^feature:DATPAY-([0-9]{4})$"
+environment = "dev"
 github_repo_branch = "^dev$"
 composer_gcs_bucket = "us-central1-pdh-composer-de-9fdde59d-bucket"
 composer_environment = "pdh-composer-dev"

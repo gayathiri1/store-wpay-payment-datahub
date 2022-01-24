@@ -22,6 +22,7 @@ resource "google_cloudbuild_trigger" "cicd-pr-trigger" {
         _TF_BACKEND_BUCKET = var.terraform_backend_bucket
         _TF_BACKEND_PREFIX = var.terraform_backend_prefix
         _ETL_BUCKET = var.etl_bucket
+        _ENV_NAME = var.environment
         # _LOGS_BUCKET = var.cloudBuild_logs
     }
     # service_account = "projects/${var.composer_project_id}/serviceAccounts/${var.cloudBuild_serviceAcct}"

@@ -135,7 +135,8 @@ steps:
     # fi
 
 
-# Loading ETL files to GCS bucket.
+# Loading ETL files to GCS bucket. 
+# This step is to present the difference to the approver before merging the pull request.
 - name: gcr.io/cloud-builders/gsutil
   entrypoint: bash
   args: 
@@ -145,6 +146,16 @@ steps:
       gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
       echo "*********** ETL Files list end ************"
 
+# Checking if any variables are modfied. 
+- name: gcr.io/cloud-builders/gsutil
+  entrypoint: bash
+  args: 
+  - '-c'
+  - | 
+      echo "*********** Exporting the composer variables ************"
+      # gcloud composer environments run ${_COMPOSER_NAME} --location ${_COMPOSER_LOC} variables -- --export /home/airflow/gcs/data/airflow-var-$BUILD_ID-$COMMIT_SHA.json;
+      gcloud composer environments run ${_COMPOSER_NAME} --location ${_COMPOSER_LOC} variables -- --export /home/airflow/gcs/data/airflow-var-backup.json; 
+      echo "*********** Variable export end ************"
 # logsBucket: "gs://${_LOGS_BUCKET}"
 
 availableSecrets:
