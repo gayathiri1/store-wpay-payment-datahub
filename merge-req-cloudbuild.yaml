@@ -56,7 +56,7 @@ steps:
       echo "*********** Dags sync to bucket: ${_GCS_BUCKET} started ************"
       gsutil -m rsync -c -r -x "composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
       echo "*********** Dags sync end ************"
-      if [[ $_BASE_BRANCH == "preprod" ]];
+      if [[ $BRANCH_NAME == "preprod" ]];
         then 
           echo "********* Copying the preprod only dags files*******"
           gsutil -m rsync -c -r -n app/dags/preprod gs://${_GCS_BUCKET}/dags;
@@ -75,7 +75,7 @@ steps:
       if grep app\/etl\/ /workspace/commitfiles.txt;
       then
         echo "***********ETL Files upload to bucket: ${_ETL_BUCKET} started************"
-        if [[ $_BASE_BRANCH == "preprod" ]];
+        if [[ $BASE_BRANCH == "preprod" ]];
           then 
             gsutil -m rsync -c -r  app/etl gs://${_ETL_BUCKET};     
           else
