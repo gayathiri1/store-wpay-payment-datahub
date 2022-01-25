@@ -75,7 +75,7 @@ steps:
       if grep app\/etl\/ /workspace/commitfiles.txt;
       then
         echo "***********ETL Files upload to bucket: ${_ETL_BUCKET} started************"
-        if [[ $BASE_BRANCH == "preprod" ]];
+        if [[ $BRANCH_NAME == "preprod" ]];
           then 
             gsutil -m rsync -c -r  app/etl gs://${_ETL_BUCKET};     
           else
