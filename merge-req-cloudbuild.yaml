@@ -38,6 +38,63 @@ steps:
       git diff --name-only HEAD~1 HEAD > /workspace/commitfiles.txt && \
       cat /workspace/commitfiles.txt
 
+
+
+# Synch the Dags with the GCS bucket. It creates the directories if it doesn't exists.
+# In gsutil -c option is used to do the checksum comparison rather than mtime check, 
+# as mtime always gets changed when repo gets cloned to cloudbuild workspace. 
+# -n option would check the difference without performing the sync
+# The -d option will delete files from the destination folder if they don't exist in the source folder.
+# -x to exclude files. Example: -x "zlibpdh/__init__.py|airflow_monitoring.py$"
+- name: gcr.io/cloud-builders/gsutil
+  entrypoint: bash
+  args: 
+  - '-c'
+  - | 
+    if grep app\/dags\/ /workspace/commitfiles.txt;
+     then
+      echo "*********** Dags sync to bucket: ${_GCS_BUCKET} started ************"
+      gsutil -m rsync -c -r -x "composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
+      echo "*********** Dags sync end ************"
+      if [[ $_BASE_BRANCH == "preprod" ]];
+        then 
+          echo "********* Copying the preprod only dags files*******"
+          gsutil -m rsync -c -r -n app/dags/preprod gs://${_GCS_BUCKET}/dags;
+          echo "********* End of preprod copy files*******"
+      fi
+     else
+      echo "Dags are not modified, hence dags sync with gcs: ${_GCS_BUCKET} is not required.";
+    fi
+
+# Loading ETL files to GCS bucket. 
+- name: gcr.io/cloud-builders/gsutil
+  entrypoint: bash
+  args: 
+  - '-c'
+  - | 
+      if grep app\/etl\/ /workspace/commitfiles.txt;
+      then
+        echo "***********ETL Files upload to bucket: ${_ETL_BUCKET} started************"
+        if [[ $_BASE_BRANCH == "dev" ]];
+          then 
+            gsutil -m rsync -c -r  -x "prod_replicator\/.*$" app/etl gs://${_ETL_BUCKET};     
+          else
+            gsutil -m rsync -c -r app/etl gs://${_ETL_BUCKET};
+        fi
+        echo "*********** ETL Files upload ended ************"
+      else
+        echo "etl files are not modified/added, hence etl sync with gcs: ${_ETL_BUCKET} is not required.";
+      fi
+# logsBucket: "gs://${_LOGS_BUCKET}"
+# cloudbuild-github-ssh-key
+
+availableSecrets:
+  secretManager:
+  # - versionName: projects/$PROJECT_NUMBER/secrets/$REPO_NAME-github-key/versions/latest
+  - versionName: projects/$PROJECT_NUMBER/secrets/cloudbuild-github-ssh-key/versions/latest
+    env: 'SSH_KEY'
+
+
 # # Terraform apply after the merge.
 # - name: hashicorp/terraform:1.1.2
 #   entrypoint: sh
@@ -73,28 +130,4 @@ steps:
 #       fi   
 #     else 
 #       echo "No bq files modified in current commit, hence bq deployment is not required."; 
-#     fi
-
-# # Synch the Dags with the GCS bucket. It creates the directories if it doesn't exists.
-# # In gsutil -c option is used to do the checksum comparison rather than mtime check, 
-# # as mtime always gets changed when repo gets cloned to cloudbuild workspace. 
-# # The -d option will delete files from the destination folder if they don't exist in the source folder.
-# - name: gcr.io/cloud-builders/gsutil
-#   entrypoint: bash
-#   args: 
-#   - '-c'
-#   - | 
-#     if [[ $(grep dags\/ /workspace/commitfiles.txt) == *dags\/*.py ]];
-#      then
-#       gsutil -m rsync -c -d -r dags gs://${_GCS_BUCKET}/dags;
-#      else
-#       echo "Dags are not modified, hence dags sync with gcs is not required.";
-#     fi
-
-# logsBucket: "gs://${_LOGS_BUCKET}"
-# cloudbuild-github-ssh-key
-
-availableSecrets:
-  secretManager:
-  - versionName: projects/$PROJECT_NUMBER/secrets/$REPO_NAME-github-key/versions/latest
-    env: 'SSH_KEY'
+#     fi   

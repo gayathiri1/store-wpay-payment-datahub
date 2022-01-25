@@ -119,7 +119,7 @@ steps:
   args: 
   - '-c'
   - | 
-    if [[ $(grep dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt) == *dags\/*.py ]];
+    if [[ $(grep app\/dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt) == app\/dags\/*.py ]];
      then
       echo "*********** Dags modified in the repo are list below ************"
       gsutil -m rsync -c -r -n -x "composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
