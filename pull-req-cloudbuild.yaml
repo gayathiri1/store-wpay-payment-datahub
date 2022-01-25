@@ -119,8 +119,8 @@ steps:
   args: 
   - '-c'
   - | 
-    # if [[ $(grep dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt) == *dags\/*.py ]];
-    #  then
+    if [[ $(grep dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt) == *dags\/*.py ]];
+     then
       echo "*********** Dags modified in the repo are list below ************"
       gsutil -m rsync -c -r -n -x "composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
       echo "*********** Dags list end ************"
@@ -130,9 +130,9 @@ steps:
           gsutil -m rsync -c -r -n app/dags/preprod gs://${_GCS_BUCKET}/dags;
           echo "********* End of preprod copy files*******"
       fi
-    #  else
-    #   echo "Dags are not modified, hence dags sync with gcs is not required.";
-    # fi
+     else
+      echo "Dags are not modified, hence dags sync with gcs: ${_GCS_BUCKET} is not required.";
+    fi
 
 
 # Loading ETL files to GCS bucket. 
@@ -142,15 +142,19 @@ steps:
   args: 
   - '-c'
   - | 
-      echo "*********** Following ETL Files would laoded ************"
-      if [[ $_BASE_BRANCH == "dev" ]];
-        then 
-          gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};     
-        else
-          gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
+      if grep app\/etl\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
+      then
+        echo "*********** Following ETL Files would be laoded to the bucket: ${_ETL_BUCKET}************"
+        if [[ $_BASE_BRANCH == "dev" ]];
+          then 
+            gsutil -m rsync -c -r -n  -x "prod_replicator\/*$" app/etl gs://${_ETL_BUCKET};     
+          else
+            gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
+        fi
+        echo "*********** ETL Files list end ************"
+      else
+        echo "etl files are not modified/added, hence etl sync with gcs: ${_ETL_BUCKET} is not required.";
       fi
-      echo "*********** ETL Files list end ************"
-
 # # Checking if any variables are modfied. 
 # As connectivity between the composer and cloudbuild is not available, can't do the deployment using cloudbuild.
 # - name: gcr.io/cloud-builders/gcloud
