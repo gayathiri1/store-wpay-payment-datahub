@@ -51,8 +51,8 @@ steps:
   args: 
   - '-c'
   - | 
-    if grep app\/dags\/ /workspace/commitfiles.txt;
-     then
+    # if grep app\/dags\/ /workspace/commitfiles.txt;
+    #  then
       echo "*********** Dags sync to bucket: ${_GCS_BUCKET} started ************"
       gsutil -m rsync -c -r -x "composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
       echo "*********** Dags sync end ************"
@@ -62,9 +62,9 @@ steps:
           gsutil -m rsync -c -r -n app/dags/preprod gs://${_GCS_BUCKET}/dags;
           echo "********* End of preprod copy files*******"
       fi
-     else
-      echo "Dags are not modified, hence dags sync with gcs: ${_GCS_BUCKET} is not required.";
-    fi
+    #  else
+    #   echo "Dags are not modified, hence dags sync with gcs: ${_GCS_BUCKET} is not required.";
+    # fi
 
 # Loading ETL files to GCS bucket. 
 - name: gcr.io/cloud-builders/gsutil
@@ -72,8 +72,8 @@ steps:
   args: 
   - '-c'
   - | 
-      if grep app\/etl\/ /workspace/commitfiles.txt;
-      then
+      # if grep app\/etl\/ /workspace/commitfiles.txt;
+      # then
         echo "***********ETL Files upload to bucket: ${_ETL_BUCKET} started************"
         if [[ $BRANCH_NAME == "preprod" ]];
           then 
@@ -82,9 +82,9 @@ steps:
             gsutil -m rsync -c -r -x "prod_replicator\/.*$" app/etl gs://${_ETL_BUCKET};
         fi
         echo "*********** ETL Files upload ended ************"
-      else
-        echo "etl files are not modified/added, hence etl sync with gcs: ${_ETL_BUCKET} is not required.";
-      fi
+      # else
+      #   echo "etl files are not modified/added, hence etl sync with gcs: ${_ETL_BUCKET} is not required.";
+      # fi
 # logsBucket: "gs://${_LOGS_BUCKET}"
 # cloudbuild-github-ssh-key
 
