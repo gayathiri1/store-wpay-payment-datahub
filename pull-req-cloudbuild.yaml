@@ -147,7 +147,7 @@ steps:
         echo "*********** Following ETL Files would be laoded to the bucket: ${_ETL_BUCKET}************"
         if [[ $_BASE_BRANCH == "dev" ]];
           then 
-            gsutil -m rsync -c -r -n  -x "prod_replicator\/*$" app/etl gs://${_ETL_BUCKET};     
+            gsutil -m rsync -c -r -n  -x "prod_replicator\/.*$" app/etl gs://${_ETL_BUCKET};     
           else
             gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
         fi
