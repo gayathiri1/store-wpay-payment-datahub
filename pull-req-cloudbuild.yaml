@@ -60,7 +60,7 @@ steps:
       echo '########## Commit List End ##########'
       cd $REPO_NAME
       git branch -a
-      git diff --name-only remotes/origin/$_HEAD_BRANCH remotes/origin/$_BASE_BRANCH > /workspace/branchfiles.txt
+      git diff --name-only remotes/origin/$_BASE_BRANCH remotes/origin/$_HEAD_BRANCH > /workspace/branchfiles.txt
       echo '########## Files changed in Pull Request are listed below ##########'
       cat /workspace/branchfiles.txt
       echo '########## Pull Request List End ##########'
