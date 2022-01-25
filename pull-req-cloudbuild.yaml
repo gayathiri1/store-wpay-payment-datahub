@@ -119,7 +119,7 @@ steps:
   args: 
   - '-c'
   - | 
-    if [[ $(grep app\/dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt) == app\/dags\/*.py ]];
+    if grep app\/dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
      then
       echo "*********** Dags modified in the repo are list below ************"
       gsutil -m rsync -c -r -n -x "composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
@@ -145,11 +145,11 @@ steps:
       if grep app\/etl\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
       then
         echo "*********** Following ETL Files would be laoded to the bucket: ${_ETL_BUCKET}************"
-        if [[ $_BASE_BRANCH == "dev" ]];
+        if [[ $_BASE_BRANCH == "preprod" ]];
           then 
-            gsutil -m rsync -c -r -n  -x "prod_replicator\/.*$" app/etl gs://${_ETL_BUCKET};     
+            gsutil -m rsync -c -r -n  app/etl gs://${_ETL_BUCKET};     
           else
-            gsutil -m rsync -c -r -n app/etl gs://${_ETL_BUCKET};
+            gsutil -m rsync -c -r -n -x "prod_replicator\/.*$" app/etl gs://${_ETL_BUCKET};
         fi
         echo "*********** ETL Files list end ************"
       else
