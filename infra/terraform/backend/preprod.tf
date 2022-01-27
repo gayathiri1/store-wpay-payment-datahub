@@ -1,2 +1,2 @@
-bucket  = "pls-change-xxxxx"
+bucket  = "gcp-wow-wpay-paydathub-uat"
 prefix  = "pdh-cicd/infra"

@@ -12,7 +12,7 @@ steps:
     echo 'The Base Branch is: $_BASE_BRANCH'
     echo 'The Head Branch is: $_HEAD_BRANCH'
     valid_branch_regex="^feature\/DATPAY-([0-9]{4})$"
-    releae_branch_regex="^feature\/([0-9]{1}).([0-9]{2})$"
+    releae_branch_regex="^release\/([0-9]{1}).([0-9]{2})$"
     if [[ $_BASE_BRANCH == "dev" ]]
     then
       if [[ ! $_HEAD_BRANCH =~ $valid_branch_regex ]]
