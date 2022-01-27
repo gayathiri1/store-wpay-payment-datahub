@@ -29,7 +29,7 @@ resource "google_cloudbuild_trigger" "cicd-pr-trigger" {
     # service_account = google_service_account.cloudbuild_serv_acct.name
     filename = var.pull_req_cloudbuild_yaml
     tags = [ 
-        "env = ${terraform.workspace}"
+        "env = ${var.environment}"
      ]
 }
 
@@ -55,11 +55,13 @@ resource "google_cloudbuild_trigger" "cicd-mr-trigger" {
         _COMPOSER_NAME = var.composer_environment
         _COMPOSER_LOC = var.composer_location
         # _LOGS_BUCKET = var.cloudBuild_logs
+        _ETL_BUCKET = var.etl_bucket
+        _ENV_NAME = var.environment
     }
     # service_account = "projects/${var.composer_project_id}/serviceAccounts/${var.cloudBuild_serviceAcct}"
     # service_account = google_service_account.cloudbuild_serv_acct.name
     filename = var.merge_req_cloudbuild_yaml
     tags = [ 
-        "env = ${terraform.workspace}"
+        "env = ${var.environment}"
      ]
 }
