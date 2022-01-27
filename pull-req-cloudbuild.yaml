@@ -11,17 +11,27 @@ steps:
     echo 'Build:$BUILD_ID is triggered for the Pull request:$_PR_NUMBER'
     echo 'The Base Branch is: $_BASE_BRANCH'
     echo 'The Head Branch is: $_HEAD_BRANCH'
-    valid_branch_regex="^feature\/ci-cd|feature\/DATPAY-([0-9]{4})$"
-    if [[ ! $_HEAD_BRANCH =~ $valid_branch_regex ]]
+    valid_branch_regex="^feature\/DATPAY-([0-9]{4})$"
+    releae_branch_regex="^feature\/([0-9]{1}).([0-9]{2})$"
+    if [[ $_BASE_BRANCH == "dev" ]]
     then
-        echo "There is something wrong with your branch name. Branch names must adhere to this contract: $valid_branch_regex. You should rename your branch to a valid name and try again."
-        exit 1
-    else
-      echo "Git Branch name validation passed."
-      echo "$$SSH_KEY" >> /root/.ssh/id_rsa
-      chmod 400 /root/.ssh/id_rsa
-      cp known_hosts.github /root/.ssh/known_hosts
-    fi   
+      if [[ ! $_HEAD_BRANCH =~ $valid_branch_regex ]]
+      then
+          echo "There is something wrong with your feature branch name. Feature branch names must adhere to this contract: $valid_branch_regex. You should rename your branch to a valid name and try again."
+          exit 1
+      fi
+    else [[ $_BASE_BRANCH == "preprod" || $_BASE_BRANCH == "prod" ]]
+      if [[ ! $_HEAD_BRANCH =~ $releae_branch_regex ]]
+      then
+          echo "There is something wrong with your release branch name. Release branch names must adhere to this contract: $releae_branch_regex. You should rename your branch to a valid name and try again."
+          exit 1
+      fi
+    fi  
+    echo "Git Branch name validation passed."
+    echo "$$SSH_KEY" >> /root/.ssh/id_rsa
+    chmod 400 /root/.ssh/id_rsa
+    cp known_hosts.github /root/.ssh/known_hosts
+
   volumes:
   - name: 'ssh'
     path: /root/.ssh
