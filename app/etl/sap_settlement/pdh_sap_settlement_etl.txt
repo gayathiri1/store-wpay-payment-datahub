@@ -1,4 +1,4 @@
---Perform SAP Settlement
+--Perform SAP Settlement Add store_id to audit_batch
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default cast(sys_date as string);
 declare strt_settlement datetime default current_datetime("Australia/Sydney");
@@ -128,15 +128,19 @@ end if;
                std.filename,
                postingfilename,
                cast(format_date("%Y-%m-%dT%H:%M:%S", current_datetime("Australia/Sydney")) as datetime);
+--
 --update settlement window if detail exists
    update `pdh_ref_ds.ref_merchant_settlement_window` msw
-       set msw.last_execution_time = std2.max_transaction_timestamp,
+       set msw.last_execution_time = std2.min_transaction_timestamp,
            msw.last_updated_datetime = DATETIME_TRUNC(CURRENT_DATETIME("Australia/Sydney"),SECOND)
-   from (select division, max(transaction_timestamp) max_transaction_timestamp
-         from `pdh_analytics_ds.stlm_standard_settlement_table`
-         where ifnull(setlmnt_result_file,"") = ""
-         group by division) std2
-   where upper(trim(msw.division)) = std2.division;
+   from (select std1.division, min(std1.max_transaction_timestamp) min_transaction_timestamp
+         from (
+               select left(tran_uid,2) source,division, max(transaction_timestamp) max_transaction_timestamp
+               from `pdh_analytics_ds.stlm_standard_settlement_table`
+               where ifnull(setlmnt_result_file,"") = ""
+               group by left(tran_uid,2), division) std1
+         group by std1.division) std2
+   where upper(trim(msw.division)) = std2.division;
 --
  --Always Insert csv output control
    set (min_tran_time,max_tran_time) = (select AS STRUCT datetime_trunc(min(transaction_timestamp),SECOND),

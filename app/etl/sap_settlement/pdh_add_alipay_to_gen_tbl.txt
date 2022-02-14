@@ -1,0 +1,130 @@
+--Start of Script
+--load data to generic settlement table from Ali pay
+declare sys_date date default current_date("Australia/Sydney");
+declare batch_end_mm_dd_hh_mm_ss datetime;
+--
+DECLARE inp_lookup STRING DEFAULT "ALP Settlement";
+DECLARE batch string;
+
+--Get next Batch Number
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+if (ifnull(batch,"") in ("NOContRec","UpdFailed"))  then
+    return;
+end if;
+--add digipay transactions to Generic table
+
+insert into `pdh_analytics_ds.stlm_standard_settlement_table`
+   (last_update_datetime,
+    last_updated_by,
+    posting_date,
+    setlmnt_result_file,
+    tran_uid,
+    filename,
+    transaction_timestamp,
+    store_id,
+    division,
+    order_number,
+    tran_settlement_amount,
+    record_type,
+    tlf_name)
+    select current_datetime("Australia/Sydney")  as last_update_datetime,
+           "ALP Settlement Process" as last_updated_by,
+           null as posting_date,
+           null as setlmnt_result_file,
+           concat("LK_",
+                  trim(ifNull(trn.ResRef,"NULL")),"_",
+                  ifnull(format_date("%Y%m%d",trn.ReqDate),"19000101"),"T",
+                  ifnull(format_time("%H%M%S",trn.ReqTime),"000000")) as tran_uid,
+           trn.file_name as filename,
+           cast(Concat(ifNull(format_date("%Y-%m-%d",trn.ReqDate),"1900-01-01"),"T",
+                       ifNull(format_time("%H:%M:%S",trn.ReqTime),"00:00:00"))
+                 as datetime)  as transaction_timestamp,
+           upper(trim(trn.ReqStore)) store_id,
+           upper(trim(rsd.division)) as division,
+           
+           "" as order_number,
+           abs(trn.ReqAmt) * tt.settlement_factor as tran_settlement_amount,
+           tt.record_type,
+           null as tlf_name
+    from  `pdh_rd_apm.alipay_linkly` trn
+    join `pdh_ref_ds.ref_store_details` rsd 
+         on upper(trim(rsd.store_id)) = upper(trim(trn.ReqStore))
+        and rsd.is_closed = False
+    join `pdh_ref_ds.ref_merchant_settlement_window` msw
+         on msw.division = upper(trim(rsd.division))
+        and msw.is_active = "Y"
+    join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
+          on tt.transaction_type = upper(trim(trn.ReqType))
+         and tt.settlement_factor <> 0
+         and tt.tran_qualifier = ""
+    join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+      on upper(trim(scm.wpay_store_number)) = upper(trim(trn.ReqStore)) 
+     and upper(ifnull(scm.active_flag,"")) <> "N" 
+    left join `pdh_analytics_ds.stlm_standard_settlement_table` std
+         on std.tran_uid = concat("LK_",
+                                  trim(ifNull(trn.ResRef,"NULL")),"_",
+                                  ifnull(format_date("%Y%m%d",trn.ReqDate),"19000101"),"T",
+                                  ifnull(format_time("%H%M%S",trn.ReqTime),"000000"))  
+    where ifnull(trn.ReqStore,"NULL") <> "NULL"
+      and trn.ReqAmt <> 0
+      and trn.ResRT =    "TRANSACTION APPROVED"
+      and trn.ReqMT in (200,400) 
+      and upper(trim(trn.ReqType)) in ("N","N-","P","R","30001000","30002000")
+      and trn.ReqDate is not NULL
+      and trn.OrigData = "Alipay"
+      and tt.settlement_factor <> 0
+      and std.tran_uid is null
+      and (Select count(*) from `pdh_analytics_ds.sap_missing_store_log`
+           Where create_by = "Settlement Process"
+           and (ifnull(division,"") = "" or comment like "Duplicate%")
+          ) = 0
+      and upper(trim(rsd.division)) not in (select distinct division
+                                            from `pdh_analytics_ds.sap_missing_store_log`
+                                            where create_by = "Settlement Process"
+                                              and ifnull(division,"") <> "") 
+      and cast(Concat(ifNull(format_date("%Y-%m-%d",trn.ReqDate),"1900-01-01"),"T",
+                      ifNull(format_time("%H:%M:%S",trn.ReqTime),"00:00:00"))
+                       as datetime)
+               > case 
+                    when msw.last_execution_time is null then cast("1900-01-01T00:00:00" as datetime)
+                    else msw.last_execution_time
+                 end
+     /* and  cast(Concat(ifNull(format_date("%Y-%m-%d",trn.ReqDate),"1900-01-01"),"T",
+                      ifNull(format_time("%H:%M:%S",trn.ReqTime),"00:00:00"))
+                       as datetime)
+              > cast(msw.earliest_lookback_date as datetime)   --Allow lookback */
+
+     and   cast(Concat(ifNull(format_date("%Y-%m-%d",trn.ReqDate),"1900-01-01"),"T",
+                      ifNull(format_time("%H:%M:%S",trn.ReqTime),"00:00:00"))
+                       as datetime)        
+            <= cast(concat(format_date("%Y-%m-%d",date_add(sys_date, INTERVAL msw.day_lag DAY)
+                                      ), "T",
+                           right(concat("0",
+                                        cast(floor(msw.settlement_cutoff/100) as string)
+                                       ),2
+                                ), ":",
+                           right(cast(msw.settlement_cutoff as string),2)
+                           ,":00") as datetime);
+--
+if (Select count(*) from `pdh_analytics_ds.sap_missing_store_log`
+           Where create_by = "Settlement Process"
+          ) >  0  then
+    return;
+end if;
+
+--add control rec
+set batch_end_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),SECOND);
+insert into pdh_analytics_ds.file_gen_details 
+    select batch,
+           cast(batch_end_mm_dd_hh_mm_ss as date), 
+           "lksettlement",
+           true, 
+           false, 
+           ifnull(datetime_trunc(min(transaction_timestamp),SECOND),batch_end_mm_dd_hh_mm_ss),
+           ifnull(datetime_trunc(max(transaction_timestamp),SECOND),batch_end_mm_dd_hh_mm_ss), 
+           batch_end_mm_dd_hh_mm_ss,
+           null 
+   from `pdh_analytics_ds.stlm_standard_settlement_table`
+   where left(tran_uid,2) = "LK"
+     and setlmnt_result_file is null;
+ --End of Script
