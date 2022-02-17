@@ -151,7 +151,7 @@ dn.bin_product_code,
 dn.scheme,
 trim(t.tran_type) tran_type_desc,
 trim(t.abbr) tran_type_abbr,
-trim(r.approval_flag) approval_flag,
+IFNULL(trim(r.approval_flag), "N") approval_flag,
 case trim(proc_id_iss_b) 
 when 'AMEX' then 'AMEX'
 when 'EHB' then 'EFTPOS'
