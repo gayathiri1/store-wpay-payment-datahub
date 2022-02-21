@@ -3,9 +3,9 @@ DECLARE tran_date DATE DEFAULT DATE_SUB(curr_date, INTERVAL 4 DAY); -- Get trans
 
 DECLARE minitaf_count DEFAULT (SELECT COUNT(*) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` WHERE file_date = tran_date);
 DECLARE lv_count DEFAULT (SELECT COUNT(*) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`
-    WHERE CAST(tstamp_trans AS DATE) = tran_date AND TRIM(proc_id_acq_b) = 'LGRP' AND inst_id_recn_acq_b = '000050000');
+    WHERE CAST(tstamp_local AS DATE) = tran_date AND TRIM(proc_id_acq_b) = 'LGRP' AND inst_id_recn_acq_b = '000050000');
 DECLARE lv_fee_count DEFAULT (SELECT COUNT(*) FROM `pdh_analytics_ds.tbl_fees_sml_merchant`
-    WHERE CAST(tstamp_trans AS DATE) = tran_date AND TRIM(proc_id_acq_b) = 'LGRP' AND inst_id_recn_acq_b = '000050000');
+    WHERE CAST(tstamp_local AS DATE) = tran_date AND TRIM(proc_id_acq_b) = 'LGRP' AND inst_id_recn_acq_b = '000050000');
 
 DECLARE inp_lookup STRING DEFAULT "Live group Fee listing";
 DECLARE batch string;
@@ -42,11 +42,11 @@ WITH result AS (
     WHEN TRIM(issuer) = 'FDI' THEN 'Credit'
     WHEN TRIM(issuer) = 'RED' THEN 'Credit'
     WHEN TRIM(issuer) = 'ANZ' AND CAST(issuer_institution_id AS int64) IN (56025433, 56025434, 56025435, 56025436, 56025437, 56025438, 56025439, 56025440, 83990554161, 83990554162, 83990554163, 83990554164) THEN 'Credit'
-    ELSE '' END AS card_type,
+    ELSE 'Debit' END AS card_type,
     '' card_subtype, CASE WHEN TRIM(issuer) IN ('AMEX', 'FDI') THEN "0.0000"
     ELSE IFNULL(FORMAT('%.4f', vcalc_interchange_fees_invoiced_ex_gst * 100), "0.0000") END interchange_fee,
-    FORMAT('%.4f', 0.0) interchange_fee_rebate,
-    FORMAT('%.4f', vcalc_processing_fees_ex_gst *100) processing_fee
+    IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
+    IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee
     FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt`
     WHERE TRIM(acquirer) = 'LGRP'
     AND acquirer_institution_id = '000050000'
