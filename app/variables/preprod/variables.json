@@ -1,0 +1,1118 @@
+{
+    "base_bucket": "us-central1-pdh-composer-ua-12e4c8b7-bucket",
+    "billing_engine_etl": {
+        "bucket": "pdh_preprod_etls",
+        "email_to": "dmanoharan1@tcs.woolworths.com.au,myee2@woolworths.com.au,pganesan2@tcs.woolworths.com.au",
+        "exception_text": "-----Query Job SQL Follows-----",
+        "files": [
+            {
+                "email": "dmanoharan1@tcs.woolworths.com.au,myee2@woolworths.com.au,pganesan2@tcs.woolworths.com.au",
+                "query_file": "billing_engine/pdh_billing_engine_etl.txt"
+            }
+        ]
+    },
+    "bucket": "pdh_preprod_etls",
+    "compliance_rules": {
+        "bucket": "pdh_preprod_etls",
+        "createquery": "create or replace table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` as select cast(rule_id as FLOAT64) as rule_id, attribute, merchant,merchant_to_report, cast(REPLACE(value,',','') as FLOAT64) as value, description from `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.compliance_staging`;",
+        "emailTo": "dmanoharan1@tcs.woolworths.com.au,gcp-wow-wpay-paydat-dev-bq-developers@woolworths.com.au,pganesan2@tcs.woolworths.com.au",
+        "files": [
+            {
+                "query_file": "compliance_rules/compliance_rules1.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules2.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules2.1.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules8.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules8.1.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules10.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules12.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules15_16.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules21.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules22_P1.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules20.txt"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules22.txt"
+            }
+        ],
+        "gs_sheet_name": "Rule_Table",
+        "gs_table_name": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.compliance_staging",
+        "gs_unique_id": "1rsZsUH1WDkoXgUYfkj6sN_TSu71YRgRAs-zSV06WYYs"
+    },
+    "control_table": "gcp-wow-wpay-paydathub-uat.pdh_analytics_ds.file_gen_details",
+    "data_merfee": {
+        "bucket_name": "pdh_preprod_etls",
+        "emailTo": "dmanoharan1@tcs.woolworths.com.au,rdubey1@woolworths.com.au,pganesan2@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+        "query_file": "preprod_replicator/pdh_rd_dnqc_view.txt",
+        "source_project": "gcp-wow-wpay-paydathub-prod",
+        "table": [
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "gfs_merfee",
+                "partition_key": "N",
+                "start_date": ""
+            }
+        ],
+        "target_project": "gcp-wow-wpay-paydathub-uat"
+    },
+    "data_navigator_quickcilver_pos": {
+        "bucket_name": "pdh_preprod_etls",
+        "emailTo": "dmanoharan1@tcs.woolworths.com.au,rdubey1@woolworths.com.au,smosin@woolworths.com.au,pganesan2@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+        "query_file": "preprod_replicator/pdh_rd_dnqc_view.txt",
+        "source_project": "gcp-wow-wpay-paydathub-prod",
+        "table": [
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "alh_txnact",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "alv_txnact",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "egf_txnact",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "egfap_txnact",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "egh_txnact",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "wpy_txnact",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "slp_txnact",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "alh_txn_listing",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "bws_online_txn_listing",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "bws_txn_listing",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "dm_online_txn_listing",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "dm_txn_listing",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "mastercard_T1G0",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "mastercard_TFL6",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "gfs_aux_visa",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "gfs_aux_eftpos",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "gfs_pdh_txn_interface",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "digitalpay_gc_txns",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_data_navigator",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "edwp_txnact",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_quickcilver",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "qc_detail_transactions",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_quickcilver",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "sap_hybris_qc_item_level_report",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_apm",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "alipay_linkly",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_quickcilver",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "qc_partner_detail",
+                "partition_key": "N",
+                "start_date": ""
+            },
+            {
+                "dataset": "pdh_rd_quickcilver",
+                "encryption": "N",
+                "end_date": "",
+                "load_type": "I",
+                "name": "qc_partner_summary",
+                "partition_key": "N",
+                "start_date": ""
+            }
+        ],
+        "target_project": "gcp-wow-wpay-paydathub-uat"
+    },
+    "email_to": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au",
+    "external_table_det": {
+        "drop_query": "drop table tbl_name",
+        "emailTo": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au",
+        "gs_detail": [
+            {
+                "createquery": "create or replace table `pdh_ref_ds.ref_store_details` as select country,division,brand,store_id,site_name,suburb,state,cast(postcode as INTEGER) as postcode,caid,cast(is_closed as BOOLEAN ) as is_closed,company,invoice_group,merchant_group,is_online,ratecard_group from `pdh_staging_ds.stgng_ref_store_details`;",
+                "gs_sheet_name": "Wow_Store_Details_20210719",
+                "gs_stgng_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.stgng_ref_store_details",
+                "gs_table_name": "pdh_ref_ds.ref_store_details",
+                "gs_unique_id": "1X-7Y5Pz2RjHkfyOqm8VfPFyAMxnlQCwsImlzNVI81tY"
+            },
+            {
+                "createquery": "create or replace table `pdh_ref_ds.ref_inst_id_config` as select * from `pdh_staging_ds.stgng_ref_inst_id_config`;",
+                "gs_sheet_name": "Institution ID Config Updated",
+                "gs_stgng_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.stgng_ref_inst_id_config",
+                "gs_table_name": "pdh_ref_ds.ref_inst_id_config",
+                "gs_unique_id": "1sbKGYKEUWRVjXlq9Ij8yGPs8s6egf8ggNYpvmgyaJ_w"
+            },
+            {
+                "createquery": "create or replace table `pdh_ref_ds.ref_merchant_fee_config` as select company,fee_code,frequency,direct_debit_flag,active_flag, cast(last_update_timestamp as datetime) as last_update_timestamp ,last_updated_by from pdh_staging_ds.stgng_ref_merchant_fee_config;",
+                "gs_sheet_name": "Config Table",
+                "gs_stgng_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.stgng_ref_merchant_fee_config",
+                "gs_table_name": "pdh_ref_ds.ref_merchant_fee_config",
+                "gs_unique_id": "1GYREcutYT1iCCmHQJCKHzgTKqh7qX_bjGvyF3BtpNec"
+            }
+        ]
+    },
+    "file_gen_bq_to_gcs": {
+        "base_bucket": "us-central1-pdh-composer-ua-12e4c8b7-bucket",
+        "bucket": "pdh_preprod_etls",
+        "control_table": "gcp-wow-wpay-paydathub-uat.pdh_analytics_ds.file_gen_details",
+        "email_to": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+        "environment": "Preprod",
+        "parameter": [
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/eg_group_egsettlement/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "eg_group_egsettlement",
+                "output_file_name": "EG_Group_Settlement_",
+                "query_file": "eg_egapac_settlement/pdh_eg_egapac_settlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_extraction_ds.v_ext_eg_group_egsettlement",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/eg_group_online_egsettlement/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "eg_group_online_egsettlement",
+                "output_file_name": "EG_Group_App_Txn_Listing_",
+                "query_file": "eg_egapac_settlement/pdh_eg_egapac_settlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_extraction_ds.v_ext_eg_group_online_egsettlement",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/eg_ventures_egsettlement/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "eg_ventures_egsettlement",
+                "output_file_name": "EGAPAC_Settlement_",
+                "query_file": "eg_egapac_settlement/pdh_eg_egapac_settlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_extraction_ds.v_ext_eg_ventures_egsettlement",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/eg_ventures_online_egsettlement/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "eg_ventures_online_egsettlement",
+                "output_file_name": "EG_Ventures_App_Txn_Listing_",
+                "query_file": "eg_egapac_settlement/pdh_eg_egapac_settlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_extraction_ds.v_ext_eg_ventures_online_egsettlement",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "",
+                "date_time_merchant": "N",
+                "delimiter": ",",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/live_group/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au,myee2@woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "Y",
+                "lck_file": "Y",
+                "merchant_name": "lvfeelist",
+                "output_file_name": "LV_Fee_Listing_",
+                "query_file": "live_group/pdh_lv_fee_listing.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_extraction_ds.v_ext_lv_fee_listing",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": ",",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/wineries/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "Y",
+                "lck_file": "Y",
+                "merchant_name": "wnfeelist",
+                "output_file_name": "WN_Fee_Listing_",
+                "query_file": "wineries/pdh_wn_fee_listing.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.wn_fee_listing",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "Y",
+                "delimiter": ",",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/store_to_sap_mapping/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "Y",
+                "lck_file": "Y",
+                "merchant_name": "strmapping",
+                "output_file_name": "StoreToSAPCust_Mapping_",
+                "query_file": "str_sap_cust_mapping/pdh_str_sap_fee_listing.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_ref_ds.ref_str_to_sap_customermapping",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": " ",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "Y",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/fee_posting_to_sap/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "sapfee",
+                "output_file_name": "WPAYFEES_",
+                "query_file": "sap_fee_posting/pdh_sap_fee_posting.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_sap_fee_posting",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": "TRG_WPAYFEE"
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "Y",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/sap_settlement/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "sapsettlement",
+                "output_file_name": "WPAYGFSST_",
+                "query_file": "sap_settlement/pdh_sap_settlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_extraction_ds.v_ext_settlement_result",
+                "split_etl": "Y",
+                "split_merchant": "'missingstore','qcdsettlement'",
+                "src_date_column": "",
+                "trigger_file": "TRG_WPAYGFSS"
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/egfuel_settlement/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "egsettlement",
+                "output_file_name": "EG_Australia_GC_Transaction_Listing_",
+                "query_file": "eg_egapac_settlement/pdh_eg_egapac_settlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_eg_transaction_listing",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/egapac_settlement/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "egapacsettlement",
+                "output_file_name": "EGAPAC_Australia_GC_Transaction_Listing_",
+                "query_file": "eg_egapac_settlement/pdh_eg_egapac_settlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_egapac_transaction_listing",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/std_transaction_list_endeavour_bws/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "endeavour bwsstdlist",
+                "output_file_name": "Endeavour_BWS_Australia_GC_Transaction_Listing_",
+                "query_file": "std_transaction_listing/pdh_standard_transaction_listing.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_std_transaction_listing_endeavour_bws",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/std_transaction_list_alv/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "alvstdlist",
+                "output_file_name": "ALV_Australia_GC_Transaction_Listing_",
+                "query_file": "std_transaction_listing/pdh_standard_transaction_listing.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_std_transaction_listing_alv",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/std_transaction_list_wpg/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "wpgstdlist",
+                "output_file_name": "WPG_Australia_GC_Transaction_Listing_",
+                "query_file": "std_transaction_listing/pdh_standard_transaction_listing.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_std_transaction_listing_wpg",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "",
+                "date_time_merchant": "N",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/email_attachment/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,rdubey1@woolworths.com.au,vtumati@woolworths.com.au,ubarua@woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "Y",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "N",
+                "merchant_name": "alhalvpresettle",
+                "output_file_name": "ALH_Presettlement_APM_",
+                "query_file": "pre_settlement/pdh_presettlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_presettlement_alhalv",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "",
+                "date_time_merchant": "Y",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/pre_settlement_bws/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "bwspresettle",
+                "output_file_name": "OST_Deposit_",
+                "query_file": "pre_settlement/pdh_presettlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_presettlement_bws",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "",
+                "date_time_merchant": "N",
+                "delimiter": ",",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/audit_test/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "Y",
+                "lck_file": "Y",
+                "merchant_name": "testaudit",
+                "output_file_name": "testaudit_",
+                "query_file": "live_group/pdh_lv_fee_listing.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_extraction_ds.v_ext_lv_fee_listing",
+                "split_etl": "N",
+                "split_merchant": "",
+                "src_date_column": "",
+                "trigger_file": ""
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "Y",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/internal_settlement/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "internalsettlement",
+                "output_file_name": "WPAYGFSST_",
+                "query_file": "sap_settlement/pdh_sap_settlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_settlement_result_internal",
+                "split_etl": "Y",
+                "split_merchant": "'missingstore','qcdsettlement','lksettlement','dpsettlement'",
+                "src_date_column": "",
+                "trigger_file": "TRG_WPAYGFSS"
+            },
+            {
+                "access_google_sheet": "N",
+                "date_filter": "N",
+                "date_time_merchant": "Y",
+                "delimiter": "|",
+                "destination_cloud_storage_uri": "gs://pdh_uat_outgoing/endeavour_settlement/",
+                "email": "dmanoharan1@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+                "email_attachment": "",
+                "extension": "csv",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "header": "N",
+                "lck_file": "Y",
+                "merchant_name": "endeavoursettlement",
+                "output_file_name": "WPAYGFSST_",
+                "query_file": "sap_settlement/pdh_sap_settlement.txt",
+                "source_table": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.v_ext_settlement_result_endeavour",
+                "split_etl": "Y",
+                "split_merchant": "'missingstore','qcdsettlement','lksettlement','dpsettlement'",
+                "src_date_column": "",
+                "trigger_file": "TRG_WPAYGFSS"
+            }
+        ],
+        "qc_ctrltab": "select count(*) from `gcp-wow-wpay-paydathub-uat.pdh_analytics_ds.file_gen_details` where processing_date = CURRENT_DATE('Australia/Sydney') and etl_complete = true and extract_wf_complete is null; ",
+        "qs_ctrltab": "select * from `gcp-wow-wpay-paydathub-uat.pdh_analytics_ds.file_gen_details` where processing_date = CURRENT_DATE('Australia/Sydney') and etl_complete = true and extract_wf_complete is null; ",
+        "qu_ctrltab": "update `ctrl` set extract_wf_complete = True, remarks = 'TRUE RUN BY COMPOSER' where batch_number='btc' and processing_date= CURRENT_DATE('Australia/Sydney') and merchant_name ='mrc' and etl_complete = true and extract_wf_complete is null and file_date='fldt';",
+        "qu_ctrltab_false": "update `ctrl` set remarks = 'TRUE RUN BY COMPOSER' where processing_date= CURRENT_DATE('Australia/Sydney') and merchant_name in (mrc) and extract_wf_complete = False;",
+        "stag_proj_dataset": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds"
+    },
+    "file_gen_etl": {
+        "bucket": "pdh_preprod_etls",
+        "emailTo": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au,skhajuria@tcs.woolworths.com.au",
+        "files": [
+            {
+                "access_google_sheet": "N",
+                "end_time": "99:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "merchant": "'lvfeelist'",
+                "query_file": "live_group/pdh_live_group_etl.txt",
+                "start_time": "99:00:00"
+            },
+            {
+                "access_google_sheet": "Y",
+                "end_time": "10:30:00",
+                "gs_sheet_name": "Sheet1",
+                "gs_table_name": "gcp-wow-wpay-paydathub-uat.pdh_ref_ds.ref_str_to_sap_customermapping",
+                "gs_unique_id": "1bjpx4ja-6nxSOF1uUMz73GA43EEN-4lPOihhL41mfNY",
+                "merchant": "'strmapping'",
+                "query_file": "str_sap_cust_mapping/pdh_strmapping_etl.txt",
+                "start_time": "10:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "11:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "merchant": "'missingstore'",
+                "query_file": "sap_settlement/pdh_log_missing_storeid.txt",
+                "start_time": "11:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "11:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "'qcdsettlement'",
+                "query_file": "sap_settlement/pdh_add_qc_to_settlement_gen_tbl.txt",
+                "start_time": "11:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "11:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "'lksettlement'",
+                "query_file": "sap_settlement/pdh_add_alipay_to_gen_tbl.txt",
+                "start_time": "11:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "99:00:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "'dpsettlement'",
+                "query_file": "sap_settlement/pdh_add_digipay_to_settlement_gen_tbl.txt",
+                "start_time": "99:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "99:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "'internalsettlement','endeavoursettlement'",
+                "query_file": "sap_settlement/pdh_sap_settlement_etl.txt",
+                "start_time": "99:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "11:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "'sapsettlement'",
+                "query_file": "sap_settlement/pdh_sap_settlement_etl.txt",
+                "start_time": "11:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "99:00:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "'egsettlement','egapacsettlement'",
+                "query_file": "eg_egapac_settlement/pdh_eg_egapac_settlement_etl.txt",
+                "start_time": "99:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "99:00:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "'alvstdlist','endeavour bwsstdlist','wpgstdlist'",
+                "query_file": "std_transaction_listing/pdh_standard_transaction_listing_etl.txt",
+                "start_time": "99:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "99:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "",
+                "merchant": "'eg_group_egsettlement','eg_ventures_egsettlement','eg_group_online_egsettlement','eg_ventures_online_egsettlement'",
+                "query_file": "eg_egapac_settlement/pdh_eg_egapac_settlement_etl.txt",
+                "start_time": "99:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "11:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "'sapfee'",
+                "query_file": "sap_fee_posting/pdh_sap_fee_posting_etl.txt",
+                "start_time": "11:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "11:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "'alhalvpresettle'",
+                "query_file": "pre_settlement/pdh_presettlement_etl.txt",
+                "start_time": "11:00:00"
+            },
+            {
+                "access_google_sheet": "N",
+                "end_time": "99:30:00",
+                "gs_sheet_name": "",
+                "gs_table_name": "",
+                "gs_unique_id": "N",
+                "merchant": "test'",
+                "query_file": "test/select.txt",
+                "start_time": "99:00:00"
+            }
+        ],
+        "qc_select": "select * from `gcp-wow-wpay-paydathub-uat.pdh_analytics_ds.file_gen_details` where processing_date = current_date('Australia/Sydney') and merchant_name in(mrc)and etl_complete = true and (extract_wf_complete is false or extract_wf_complete is null) and remarks is null;"
+    },
+    "qc_ctrltab": "select count(*) from `gcp-wow-wpay-paydathub-uat.pdh_analytics_ds.file_gen_details` where processing_date = CURRENT_DATE('Australia/Sydney') and etl_complete = true and extract_wf_complete is null; ",
+    "qs_ctrltab": "select * from `gcp-wow-wpay-paydathub-uat.pdh_analytics_ds.file_gen_details` where processing_date = CURRENT_DATE('Australia/Sydney') and etl_complete = true and extract_wf_complete is null; ",
+    "qu_ctrltab": "update `ctrl` set extract_wf_complete = True, remarks = 'TRUE RUN BY COMPOSER' where batch_number='btc' and processing_date= CURRENT_DATE('Australia/Sydney') and merchant_name ='mrc' and etl_complete = true and extract_wf_complete is null and file_date='fldt';",
+    "qu_ctrltab_false": "update `ctrl` set remarks = 'TRUE RUN BY COMPOSER' where processing_date= CURRENT_DATE('Australia/Sydney') and merchant_name in (mrc) and extract_wf_complete = False;",
+    "recon_dedup": {
+        "bucket_name": "pdh_preprod_etls",
+        "emailTo": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au",
+        "query_file": "preprod_replicator/pdh_recon_dedup.txt"
+    },
+    "reconframework_report": {
+        "bucket": "pdh_preprod_etls",
+        "email_to": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au",
+        "environment": "preprod",
+        "files": [
+            {
+                "query_file": "preprod_replicator/pdh_rd_dnqc_view.txt"
+            },
+            {
+                "query_file": "preprod_replicator/pdh_recon_dedup.txt"
+            }
+        ]
+    },
+    "reporting_queries": {
+        "bucket": "pdh_preprod_etls",
+        "email_to": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au,gnathan1@tcs.woolworths.com.au,marumugam@tcs.woolworths.com.au",
+        "environment": "preprod",
+        "files": [
+            {
+                "query_file": "reporting_queries/pdh_aia_etl.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_ar_etl.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_store_level.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_store_trans_level.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_online_summary.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_online_missing_txns_summary.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_visa_fee_analysis_rpt.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_mastercard_fee_analysis_rpt.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_edp_missing_txns.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_edp_store_level.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_edp_txns_level.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_partner.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_wpay_analytical_summary.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_eftpos_rates.txt"
+            }
+        ]
+    },
+    "sf_queries": {
+        "bucket": "pdh_preprod_etls",
+        "email_to": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au,gnathan1@tcs.woolworths.com.au,marumugam@tcs.woolworths.com.au,smani4@woolworths.com.au",
+        "environment": "preprod",
+        "files": [
+            {
+                "query_file": "sf_queries/pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary.txt"
+            }
+        ]
+    },
+    "stag_proj_dataset": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds",
+    "test_compliancerule": {
+        "bucket": "pdh_preprod_etls",
+        "checkquery": "SELECT DateTime_Created FROM gcp-wow-wpay-paydathub-uat.pdh_staging_ds.tab where format_date('%Y-%m-%d',DateTime_Created) = format_date('%Y-%m-%d',current_date('Australia/Sydney')) Limit 1;",
+        "createquery": "create or replace table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` as select cast(rule_id as FLOAT64) as rule_id, attribute, merchant,merchant_to_report, cast(REPLACE(value,',','') as FLOAT64) as value, description from `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.compliance_staging`;",
+        "emailTo": "dmanoharan1@tcs.woolworths.com.au",
+        "files": [
+            {
+                "query_file": "compliance_rules/compliance_rules1.txt",
+                "table": "Rule1_Output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules2.txt",
+                "table": "Rule2_Output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules2.1.txt",
+                "table": "Rule2_1_Output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules8.txt",
+                "table": "Rule8_Output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules8.1.txt",
+                "table": "Rule8_1_Output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules10.txt",
+                "table": "Rule10_Output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules12.txt",
+                "table": "Rule12_Output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules15_16.txt",
+                "table": "Rule15_16_output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules21.txt",
+                "table": "Rule21_Output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules22_P1.txt",
+                "table": "BillingTrnByMerchantScheme"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules20.txt",
+                "table": "Rule20_Output"
+            },
+            {
+                "query_file": "compliance_rules/compliance_rules22.txt",
+                "table": "Rule22_Output"
+            }
+        ],
+        "gs_sheet_name": "Rule_Table",
+        "gs_table_name": "gcp-wow-wpay-paydathub-uat.pdh_staging_ds.compliance_staging",
+        "gs_unique_id": "1rsZsUH1WDkoXgUYfkj6sN_TSu71YRgRAs-zSV06WYYs"
+    },
+    "wdp_pos": {
+        "emailTo": "rdubey1@woolworths.com.au,dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au",
+        "load_config": {
+            "wdp_everydaypay_pos_tender_line_detail": {
+                "dataset": "pdh_rd_wdp",
+                "load_type": "I",
+                "src_dataset": "pdh_rd_wdp",
+                "src_project": "gcp-wow-wpay-paydathub-prod",
+                "src_view": "everydaypay_pos_tender_line_detail",
+                "table": "everydaypay_pos_tender_line_detail"
+            },
+            "wdp_pos_item_line_detail": {
+                "dataset": "pdh_rd_wdp",
+                "load_type": "I",
+                "src_dataset": "pdh_rd_wdp",
+                "src_project": "gcp-wow-wpay-paydathub-prod",
+                "src_view": "pos_item_line_detail",
+                "table": "pos_item_line_detail"
+            },
+            "wdp_pos_item_line_detail_egl": {
+                "dataset": "pdh_rd_wdp",
+                "load_type": "I",
+                "src_dataset": "pdh_rd_wdp",
+                "src_project": "gcp-wow-wpay-paydathub-prod",
+                "src_view": "pos_item_line_detail_egl",
+                "table": "pos_item_line_detail_egl"
+            },
+            "wdp_pos_tender_line_detail": {
+                "dataset": "pdh_rd_wdp",
+                "load_type": "I",
+                "src_dataset": "pdh_rd_wdp",
+                "src_project": "gcp-wow-wpay-paydathub-prod",
+                "src_view": "pos_tender_line_detail",
+                "table": "pos_tender_line_detail"
+            },
+            "wdp_pos_tender_line_detail_egl": {
+                "dataset": "pdh_rd_wdp",
+                "load_type": "I",
+                "src_dataset": "pdh_rd_wdp",
+                "src_project": "gcp-wow-wpay-paydathub-prod",
+                "src_view": "pos_tender_line_detail_egl",
+                "table": "pos_tender_line_detail_egl"
+            }
+        },
+        "project_name": "gcp-wow-wpay-paydathub-uat"
+    }
+}
