@@ -1,0 +1,243 @@
+--
+--Start of Script
+--load data to pre settlement table , Alipay,Digipay, QcPartner
+declare sys_date date default current_date("Australia/Sydney");
+declare batch_start_yyyy_mm_dd_hh_mm_ss datetime default 
+            datetime_trunc(current_datetime("Australia/Sydney"),second);
+declare batch_end_yyyy_mm_dd_hh_mm_ss datetime;
+--
+Declare AlipayEnabled string default (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "LK");
+Declare QCEnabled string default  (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "QC");
+Declare DigipayEnabled string default  (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "DP");
+Declare QPEnabled string default  (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "QP");
+--
+DECLARE inp_lookup STRING DEFAULT "PRE Settlement";
+declare interfaceidentifier string DEFAULT "OST_Deposit";
+DECLARE batch string;
+--Get next Batch Number
+
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+if (ifnull(batch,"") in ("","NOContRec","UpdFailed"))  then
+   return;
+end if; 
+--
+--Replace old data
+truncate table `pdh_analytics_ds.stlm_pre_settlement_table`;
+truncate table `pdh_analytics_ds.stlm_pre_settlement_csv`;
+insert into `pdh_analytics_ds.stlm_pre_settlement_table`
+ with trnq as (
+     Select
+           concat("QC_",trim(qct.approvalcode),"_",
+                         trim(qct.ReferenceNumber),"_",
+                         cast(qct.BatchNumber as string),"_",
+                         ifnull(format_date("%Y%m%d",qct.transactiondate),"19000101"),"T",
+                         ifnull(format_time("%H%M%S",qct.transactiontime),"000000"))
+                                  as tran_uid,
+           cast(concat(ifnull(format_date("%Y-%m-%d",qct.transactiondate),"1900-01-01"),"T",
+                       ifnull(format_time("%H:%M:%S",qct.transactiontime),"00:00:00")) as datetime) as Trans_datetime,
+           qct.file_name,
+           case 
+              when ifnull(qct.outletcode,"") <>  "" then upper(trim(qct.outletcode))
+              when (upper(trim(qct.descriptive_outlet_name)) = "SAP HYBRIS" and
+                upper(left(trim(qct.issuer),20))  = "WOOLWORTHS GROUP LTD") then "W5975"
+              else null 
+           end  store_id,
+           upper(trim(qct.transactiontype)) as transactiontype,
+           "" as tran_qualifier,
+           abs(ifnull(qct.amount_transacting_merchants_currency_or_points,0)) tran_amount,
+           cast(null as numeric)  as discount_amt     
+      from `pdh_rd_quickcilver.qc_detail_transactions` qct
+      left Join `pdh_ref_ds.ref_merchant_settlement_window` mw
+         on mw.division_type = "PARTNER"
+        and mw.division = upper(trim(qct.Merchant))
+      where QCEnabled = "Y" 
+        and ifnull(mw.division,"") = ""
+        and upper(trim(qct.transactionstatus)) =  "SUCCESS"  
+        ),
+trqp as (
+     Select concat("QP_",trim(qpt.InvoiceNumber),"_",
+                         trim(qpt.CardNumber),"_",
+                         format_datetime("%Y%m%dT%H%M%S",
+                                           cast(qpt.TransactionDate as datetime)
+                                        )) as tran_uid,
+           cast(qpt.transactiondate as datetime) as Trans_datetime,
+           qpt.file_name,
+           mw.partner_storeid store_id,
+           upper(trim(qpt.TransactionType))  as transactiontype,
+           "QP" as tran_qualifier,
+           abs(ifnull(qpt.Amount,0)) tran_amount,
+           qpt.DiscountValue as discount_amt  
+      from `pdh_rd_quickcilver.qc_partner_detail` qpt
+      Join `pdh_ref_ds.ref_merchant_settlement_window` mw
+         on mw.division_type = "PARTNER"
+        and mw.is_active = "Y"
+        and ifnull(mw.partner_storeid,"") <> ""
+        and mw.division = upper(trim(qpt.Merchant))
+      where QPEnabled = "Y"
+        and upper(trim(qpt.TransactionType)) in ("ACTIVATION","CANCELLATION")
+        and cast(qpt.transactiondate as datetime) > mw.last_execution_time 
+        and (ifnull(qpt.Amount,0) <> 0 or ifnull(qpt.DiscountValue,0) <> 0)  
+      ),
+trnd as (
+      Select concat("DP_",trim(txnRef)) as tran_uid,
+       datetime(txnTime) as Trans_datetime,
+       file_name,
+       CASE upper(trim(MerchantName))
+                WHEN "WOWONLINE"        then "W8843"
+                WHEN "BWSONLINE"        then "W6802"
+                WHEN "DANMURPHYSONLINE" then "W8305"
+                WHEN "SCANGOSUPER"      then "W6134"
+                WHEN "LANGTONS"         then "WC500"
+                ELSE upper(left(trim(terminal_id),5))
+             end store_id,
+       upper(trim(transactiontype)) as transactiontype,
+       case (length(txnRef) - length(replace(txnRef,".","")))
+          when 0 then "WEX"
+          when 2 then "QC"
+          else "NAP"
+       end as tran_qualifier, 
+       abs(amount) tran_amount,
+       cast(null as numeric)  as discount_amt 
+    from `pdh_rd_data_navigator.digitalpay_gc_txns`
+    where DigipayEnabled = "Y"
+      and transactiontype = "PURCHASE" 
+      and MerchantName = "Everyday Pay"
+      and ifnull(responseCodeContainer,"") = "00"
+      and (length(txnRef) - length(replace(txnRef,".",""))) in (0,2)
+  ),
+  trnl as (
+      Select concat("LK_",
+                  trim(ifNull(cast(ResRef as string),"NULL")),"_",
+                  ifnull(format_date("%Y%m%d",ReqDate),"19000101"),"T",
+                  ifnull(format_time("%H%M%S",ReqTime),"000000"))  as tran_uid,
+             cast(Concat(ifNull(format_date("%Y-%m-%d",ReqDate),"1900-01-01"),"T",
+                       ifNull(format_time("%H:%M:%S",ReqTime),"00:00:00"))
+                 as datetime)  as Trans_datetime,
+             file_name,
+             upper(trim(ReqStore)) as store_id,
+             upper(trim(ReqType)) as transactiontype,
+             "" as tran_qualifier,
+             abs(ifnull(ReqAmt,0)) tran_amount,
+             cast(null as numeric)  as discount_amt  
+      from `pdh_rd_apm.alipay_linkly`
+      where AlipayEnabled = "Y"
+      and ifnull(ReqStore,"NULL") <> "NULL"
+      and ifnull(ReqAmt,0) <> 0
+      and ResRT =    "TRANSACTION APPROVED"
+      and ReqMT in (200,400) 
+      and upper(trim(ReqType)) in ("N","N-","P","R","30001000","30002000") 
+      and ReqDate is not NULL
+      and OrigData = "Alipay")
+      select trn.tran_uid,
+           upper(trim(ifNull(rsd.state,""))) state,
+           concat(upper(trim(ifNull(rsd.site_name,""))),
+                   case
+                     when ifNull(rsd.site_name,"") = "" or
+                          ifNull(rsd.suburb,"") = "" then ""
+                     else ","
+                   end,
+                   upper(trim(ifNull(rsd.suburb,"")))) as business_area,
+           upper(trim(rsd.division)) as division, 
+           trn.store_id,
+           tt.record_type as record_type,
+           trn.file_name filename,
+           trn.Trans_datetime as transaction_time,
+           case upper(rsd.is_online)
+              when "ONLINE" then "Y"
+              Else "N"
+           end as eft_flag,
+           trn.tran_amount * tt.settlement_factor as amount,
+           trn.discount_amt,
+           batch_start_yyyy_mm_dd_hh_mm_ss as last_update_datetime,	
+           "Pre Settlement" as last_updated_by
+    from (          Select * from trnq where ifnull(store_id,"") <> "" 
+          union all Select * from trnd where ifnull(store_id,"") <> "" 
+          union all Select * from trnl where ifnull(store_id,"") <> ""
+          union all Select * from trqp where ifnull(store_id,"") <> ""
+         ) trn
+    join `pdh_ref_ds.ref_store_details` rsd 
+         on upper(trim(rsd.store_id)) = trn.store_id
+          and rsd.is_closed = False
+    join `pdh_ref_ds.ref_merchant_settlement_window` msw
+         on msw.is_active = "Y"
+        and ifnull(msw.file_prefix_presettle,"") <> ""
+        and msw.division = upper(trim(rsd.division))
+    join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
+           on tt.settlement_factor <> 0
+          and tt.transaction_type = trn.transactiontype
+    join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+      on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
+      and upper(ifnull(scm.active_flag,"")) <>  "N" 
+    left join `pdh_analytics_ds.stlm_standard_settlement_table` std
+         on std.tran_uid = trn.tran_uid
+    where  ifnull(tt.settlement_factor,0) <> 0
+      and  std.tran_uid is null
+      and  trn.Trans_datetime >
+                Case
+                        when msw.last_execution_time is null then cast("1900-01-01" as datetime)
+                   else msw.last_execution_time
+                end
+    --  and  trn.Trans_datetime > cast(msw.earliest_lookback_date as datetime)
+      and   trn.Trans_datetime
+            <= cast(concat(format_date("%Y-%m-%d",date_add(sys_date, INTERVAL msw.day_lag  + 1 DAY )), "T",
+                     right(concat("0",
+                                  cast(floor(msw.settlement_cutoff/100) as string)
+                                 ),2), ":",
+                     right(cast(msw.settlement_cutoff as string),2)
+                    ,":00") as datetime);
+--
+
+set batch_end_yyyy_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),second);
+--Allways Create CSV Input Header
+Insert into `pdh_analytics_ds.stlm_pre_settlement_csv`
+     values("H",  "store_id","amount_in_dollar");
+--
+--Create CSV Input Details if exists
+Insert into `pdh_analytics_ds.stlm_pre_settlement_csv`
+   with DET as (
+            select 
+                 std.store_id,
+                 round(sum(std.amount + ifnull(std.discount_amt,0)),2)  as amount
+            from `pdh_analytics_ds.stlm_pre_settlement_table` std
+            join `pdh_ref_ds.ref_merchant_settlement_window` msw
+                 on msw.division = std.division
+                and ifnull(msw.file_prefix_presettle,"") <> ""
+            group by store_id
+             )
+     select "D" as record_type,
+            store_id,
+            case 
+               when mod(amount * 100,100) = 0  then concat(cast(amount as string) , ".00")
+               when mod(amount * 100,10)  = 0  then concat(cast(amount as string) , "0")
+               else cast(amount as string)
+        end  amount_in_dollar
+     from DET
+     order by store_id;
+          --
+     --Alwys Create CSV Input Trailor
+     if (Select count(*) from pdh_analytics_ds.stlm_pre_settlement_csv) > 0 then
+        Insert into pdh_analytics_ds.stlm_pre_settlement_csv
+          (record_type,store_id)
+          select "T", cast(count(*) - 1 as string)
+          from `pdh_analytics_ds.stlm_pre_settlement_csv`;
+     end if;
+      --
+      --Allways CSV Control
+      insert into pdh_analytics_ds.file_gen_details 
+         select  batch,
+                 cast(batch_end_yyyy_mm_dd_hh_mm_ss as date), 
+                 lower(concat(msw.file_prefix_presettle,"presettle")),
+                 true,
+                 null, 
+                 ifnull(min(std.transaction_time),datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss,INTERVAL 0 second)),
+                 ifnull(max(std.transaction_time),datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss,INTERVAL 0 second)), 
+                 ifnull(max(std.transaction_time),datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss,INTERVAL -1 day)),
+                 null
+        from `pdh_ref_ds.ref_merchant_settlement_window` msw
+        left join `pdh_analytics_ds.stlm_pre_settlement_table` std
+               on msw.division = std.division
+        where msw.is_active = "Y"
+          and ifnull(msw.file_prefix_presettle,"") <> ""
+        group by msw.file_prefix_presettle;
+--End of Script
+--
