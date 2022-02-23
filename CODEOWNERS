@@ -1,0 +1,13 @@
+# This is a comment.
+# Each line is a file pattern followed by one or more owners.
+# These owners will be the default owners for everything in the repo. 
+# Unless a later match takes precedence,
+# Order is important; the last matching pattern takes the most precedence.
+
+* @rdubey1wx @kknayak1
+
+# Only app owners would be requested when the any files in app floders are modified/added 
+# not the global owners.
+app/* @rdubey1wx
+
+infra/* @kknayak1 @rdubey1wx
