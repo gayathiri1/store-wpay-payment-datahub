@@ -787,13 +787,13 @@
         "files": [
             {
                 "access_google_sheet": "N",
-                "end_time": "99:30:00",
+                "end_time": "11:30:00",
                 "gs_sheet_name": "",
                 "gs_table_name": "",
                 "gs_unique_id": "",
                 "merchant": "'lvfeelist'",
                 "query_file": "live_group/pdh_live_group_etl.txt",
-                "start_time": "99:00:00"
+                "start_time": "11:00:00"
             },
             {
                 "access_google_sheet": "Y",

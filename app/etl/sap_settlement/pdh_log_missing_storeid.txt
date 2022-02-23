@@ -1,8 +1,12 @@
---Log missing Store Information
+--Log missing Store Information Activate Alipay, Everydaypay(Block), Add duplicate check
 declare sys_datetime datetime default 
             cast(format_datetime("%Y-%m-%dT%H:%M:%S",current_datetime("Australia/Sydney")) as datetime);
 declare sys_date date DEFAULT current_date("Australia/Sydney");
 DECLARE inp_lookup STRING DEFAULT "MST Settlement";
+Declare AlipayEnabled string default (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "LK");
+Declare QCEnabled string default  (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "QC");
+Declare DigiPayEnabled string default  (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "DP");
+--Select AlipayEnabled LK,DigiPayEnabled as DP, QCEnabled QC;
 
 DECLARE batch string;
 --Get next Batch Number
@@ -15,8 +19,8 @@ end if;
 delete `pdh_analytics_ds.sap_missing_store_log`
 Where create_by = "Settlement Process";
 --Add  Missing Store Details
-insert into `pdh_analytics_ds.sap_missing_store_log`
-   (batchnumber,store_id,switch_tran_date,comment,create_datetime,create_by,data_source,division, transaction_datetime )
+--insert into `pdh_analytics_ds.sap_missing_store_log`
+  -- (batchnumber,store_id,switch_tran_date,comment,create_datetime,create_by,data_source,division, transaction_datetime )
 with trnq as (
      Select concat("QC_",trim(approvalcode),"_",
                                   trim(ReferenceNumber),"_",
@@ -35,16 +39,16 @@ with trnq as (
             end  store_id,
             upper(trim(transactiontype)) as transactiontype,
             "" as tran_qualifier
-      from `pdh_rd_quickcilver.qc_detail_transactions` 
-      Where ifnull(amount_transacting_merchants_currency_or_points,0) <> 0 
-        and ifnull(case 
-                      when ifnull(outletcode,"") <>  "" then upper(trim(outletcode))
-                      when (upper(trim(descriptive_outlet_name)) = "SAP HYBRIS" and
-                           upper(left(trim(issuer),20))  = "WOOLWORTHS GROUP LTD") then "W5975"
-                      else Null
-                   end,"") <> ""
-      )
-/*,
+      from  `pdh_rd_quickcilver.qc_detail_transactions` 
+      Where QCEnabled = "Y"
+        and ifnull(amount_transacting_merchants_currency_or_points,0) <> 0 
+        and ifnull(case 
+                      when ifnull(outletcode,"") <>  "" then upper(trim(outletcode))
+                      when (upper(trim(descriptive_outlet_name)) = "SAP HYBRIS" and
+                           upper(left(trim(issuer),20))  = "WOOLWORTHS GROUP LTD") then "W5975"
+                      else Null
+                   end,"") <> ""
+      ),
 trnd as (
       Select concat("DP_",trim(txnRef)) as tran_uid,
              date(txnTime) as Trans_date,
@@ -55,14 +59,15 @@ trnd as (
                 WHEN "SCANGOSUPER"      then "W6134"
                 WHEN "LANGTONS"         then "WC500"
                 ELSE upper(left(trim(terminal_id),5))
-             end as store_id,
+             end as store_id,
              upper(trim(transactiontype)) as transactiontype,
              case
                 when length(txnRef) = length(replace(txnRef,".",""))  then "WEX" 
                 else "QC"  
              end as tran_qualifier
       from `pdh_rd_data_navigator.digitalpay_gc_txns`
-      where upper(trim(transactiontype)) in ("PURCHASE","REFUND") 
+      where  DigiPayEnabled = "Y"
+      and upper(trim(transactiontype)) in ("PURCHASE","REFUND") 
       and upper(trim(MerchantName)) = "EVERYDAY PAY"
       and ifnull(responseCodeContainer,"") = "00"
       and (length(txnRef) - length(replace(txnRef,".",""))) in (0,2)
@@ -74,9 +79,9 @@ trnd as (
                       WHEN "SCANGOSUPER"      then "W6134"
                       WHEN "LANGTONS"         then "WC500"
                       ELSE upper(left(trim(terminal_id),5))
-                   end ,"") <> ""   
+                   end ,"") <> ""   
        ),
-    trnl as (
+   trnl as (
       Select concat("LK_",
                   trim(ifNull(cast(ResRef as string),"NULL")),"_",
                   cast(ReqDate as string),"T",
@@ -87,41 +92,50 @@ trnd as (
              cast(Concat(cast(ReqDate as string),"T",
                        ifNull(cast(ReqTime as string),"00:00:00"))
                  as datetime)  as Trans_date,
-             upper(trim(ReqStore)) as store_id,
+             upper(trim(ReqStore)) as store_id,
              upper(trim(ReqType)) as transactiontype,
              "" as tran_qualifier
       from `pdh_rd_apm.alipay_linkly`
-      where ifnull(ReqStore,"NULL") <> "NULL"
+      where AlipayEnabled = "Y"
+      and ifnull(ReqStore,"NULL") <> "NULL"
       and ReqAmt <> 0
       and ResRT =    "TRANSACTION APPROVED"
       and ReqMT in (200,400) 
-      and upper(trim(ReqType)) in ("N","N_","P","R")
+      and upper(trim(ReqType)) in ("N","N-","P","R","30001000","30002000")
       and ReqDate is not NULL
-      and OrigData = "Alipay")
-   */
+      and OrigData = "Alipay"),
+    tran_combined as (select * from trnq
+                      union all Select * from trnd
+                      union all Select * from trnl),
+    trn_seq as (select *, row_number() over(partition by tran_uid) tran_uid_seq
+                from tran_combined)
     select distinct 
            batch,
            trn.store_id,
            cast(trn.Trans_date as date),
            Concat(
               Case 
-                 When rsd.store_id is Null then "Store not in Store Details"
-                 When rsd.is_closed = true then "Store is Closed"
+                 When trn.tran_uid_seq > 1 then concat("Duplicate Trans ", trn.tran_uid," ")
                  Else ""
-              End," ",
+              End,
+              Case 
+                 When rsd.store_id is Null then "Store not in Store Details "
+                 When rsd.is_closed = true then "Store is Closed "
+                 Else ""
+              End,
               Case
-                 When msw.division is null then concat("division ",upper(trim(ifNull(rsd.division,"")))," is missing in Settlement Window")
-                 When ifnull(msw.is_active,"N") = "N" then "Division is not active in settlement window" 
+                 When msw.division is null then concat("division ",upper(trim(ifNull(rsd.division,"")))," is missing in Settlement Window ")
+                 When ifnull(msw.is_active,"N") = "N" then "Division is not active in settlement window " 
                  else ""
-              end," ",
+              end,
               case 
-                 When tt.transaction_type is null then concat("tranType ",trn.transactiontype, " is missing in Settlement Factor Table")
-                 when tt.settlement_factor not in (0,-1,1) then "Invalid Settlement factor"
+                 When tt.transaction_type is null then concat("tranType ",trn.transactiontype, " is missing in Settlement Factor Table ")
+                 when ifnull(tt.settlement_factor,0) not in (0,-1,1) then "Invalid Settlement factor "
                  else ""
-              end," ",
+              end,
               case
-                  When scm.wpay_store_number is null then "Store is missing in SAP Settlement Mapping Table"
-                  When ifnull(upper(trim(scm.active_flag)),"") = "N" then "Store is not active in SAP Settlement Mapping Table" 
+                  When scm.wpay_store_number is null then "Store is missing in SAP Settlement Mapping Table "
+                  When ifnull(upper(trim(scm.active_flag)),"") = "N" then "Store is not active in SAP Settlement Mapping Table " 
                   else ""
               end) as comment,
            sys_datetime create_datetime,
@@ -129,10 +143,7 @@ trnd as (
            left(trn.tran_uid,2) as data_source,
            upper(trim(rsd.division)),
            trn.Trans_date
-    From (select * from trnq
-      --    union all Select * from trnd
-      --    union all Select * from trnl
-         ) trn
+    From trn_seq trn
     left join `pdh_ref_ds.ref_store_details` rsd 
          on upper(trim(rsd.store_id)) = trn.store_id
     left join `pdh_ref_ds.ref_merchant_settlement_window` msw
@@ -147,8 +158,9 @@ trnd as (
                                      when left(trn.tran_uid,2) = "QC" then msw.division_type
                                      else trn.tran_qualifier
                                   end 
-    where (CASE 
+    where (CASE 
              when ifnull(std.tran_uid,"") <> "" then 0
+             when trn.tran_uid_seq > 1 then 1
              WHEN rsd.store_id is Null then 1
              when rsd.is_closed = true then 1
              when msw.division is null then 1
@@ -160,10 +172,10 @@ trnd as (
           end)  = 1
      and (CASE 
              when msw.division is null then 1
-             when trn.Trans_date <= ifnull(msw.last_execution_time, cast("1900-01-01" as datetime)) then 0
-             when trn.Trans_date > cast(concat(format_date("%Y-%m-%d",date_add(sys_date, INTERVAL msw.day_lag DAY)), "T",
-                                        right(concat("0",cast(floor(msw.settlement_cutoff/100) as string)),2), ":",
-                                        right(cast(msw.settlement_cutoff as string),2),":00") as datetime) then 0
+             when trn.Trans_date <= ifnull(msw.last_execution_time, cast("1900-01-01" as datetime)) then 0
+             when trn.Trans_date > cast(concat(format_date("%Y-%m-%d",date_add(sys_date, INTERVAL msw.day_lag DAY)), "T",
+                                        right(concat("0",cast(floor(msw.settlement_cutoff/100) as string)),2), ":",
+                                        right(cast(msw.settlement_cutoff as string),2),":00") as datetime) then 0
              else 1
           end )   = 1;
 

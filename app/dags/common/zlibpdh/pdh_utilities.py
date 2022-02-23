@@ -27,11 +27,11 @@ class PDHUtils:
     sender = 'payments_datahub@woolworths.com.au'
     bq_client = bigquery.Client()
 
-    @classmethod
-    def send_email(cls,to, subject, message_text):
+    @staticmethod
+    def get_email_service():
         """
-            send the gmail notification from the service account credentials
-        """
+                    send the gmail notification from the service account credentials
+                """
         creds = None
         if os.path.exists('/home/airflow/gcs/data/tokenProd.pickle'):
             with open('/home/airflow/gcs/data/tokenProd.pickle', 'rb') as token:
@@ -49,6 +49,11 @@ class PDHUtils:
                 pickle.dump(creds, token)
 
         service = build('gmail', 'v1', credentials=creds)
+        return service
+
+    @classmethod
+    def send_email(cls,to, subject, message_text):
+        service = cls.get_email_service()
         message = MIMEText(message_text)
         message['to'] = to
         message['from'] = cls.sender
@@ -60,6 +65,18 @@ class PDHUtils:
             return f"Notification sent successfully.Message Id: {message['id']}"
         except Exception as e:
             return f"Notification failed due to error: {e}"
+
+    @classmethod
+    def send_email_attachment(cls, message):
+        service = cls.get_email_service()
+        message = {'raw': base64.urlsafe_b64encode(message.as_bytes()).decode()}
+        try:
+            message = (service.users().messages().send(userId=cls.sender, body=message)
+                       .execute())
+            print('Message Id: %s' % message['id'])
+            return message
+        except Exception as e:
+            print(f'An error occurred:{e}')
 
     @classmethod
     def load_csv_to_bq(cls,dag,uid,**kwargs):
@@ -100,6 +117,7 @@ class PDHUtils:
             schema_object=kwargs[object_name]['schema'],
             schema_fields=None,
             skip_leading_rows=1,
+            field_delimiter=',',
             autodetect=False,
             dag=dag
         )

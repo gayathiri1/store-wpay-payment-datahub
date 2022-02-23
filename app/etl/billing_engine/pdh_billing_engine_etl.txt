@@ -158,12 +158,14 @@ when 'EHB' then 'EFTPOS'
 when 'FDF' then 'FUEL CARDS'
 when 'FDI' then 'DINERS'
 when 'RED' then 'GIFT CARDS'
-when 'ANZ' then if(trim(dn.issuer_institution_id) ='056025433' or trim(dn.issuer_institution_id) = '056025434'or trim(dn.issuer_institution_id) =  '056025435'
-or trim(dn.issuer_institution_id) = '056025436'or trim(dn.issuer_institution_id) =  '056025437'
-or trim(dn.issuer_institution_id) = '056025438'or trim(dn.issuer_institution_id) =  '056025439' 
-or trim(dn.issuer_institution_id) = '056025440'or trim(dn.issuer_institution_id) =  '83990554161'
-or trim(dn.issuer_institution_id) = '83990554162'or trim(dn.issuer_institution_id) =  '83990554163'
-or trim(dn.issuer_institution_id) = '83990554164',  'UPI' , if(t.account='CRD' ,'CRD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT')) )
+when 'ANZ' then
+	if(trim(dn.issuer_institution_id) ='056025433' or trim(dn.issuer_institution_id) = '056025434'or trim(dn.issuer_institution_id) =  '056025435'
+		or trim(dn.issuer_institution_id) = '056025436'or trim(dn.issuer_institution_id) =  '056025437'
+		or trim(dn.issuer_institution_id) = '056025438'or trim(dn.issuer_institution_id) =  '056025439' 
+		or trim(dn.issuer_institution_id) = '056025440'or trim(dn.issuer_institution_id) =  '83990554161'
+		or trim(dn.issuer_institution_id) = '83990554162'or trim(dn.issuer_institution_id) =  '83990554163'
+		or trim(dn.issuer_institution_id) = '83990554164',  'UPI' ,
+	if(t.account='CRD' ,'CRD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT')) )
 when 'FIS' then 'CRD'
 when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT'))
 when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT'))
@@ -233,7 +235,7 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
     null card_acpt_id,
     null merchant_store_id,
     null as dom_int_ind,
-    'DEBIT' as card_type,
+    'D' as card_type,
     null card_subtype,
     null bin_product_code,
     schemeName scheme, 
@@ -273,10 +275,9 @@ END IF;
 
 -------------------------------------------------------------------------------------------
 
-INSERT INTO `pdh_analytics_ds.tbl_fees_all`
-with d as
-(
-    SELECT 
+
+CREATE TEMP TABLE `temp_billing_all` AS
+SELECT 
     dn.*,
     case upper(link_route)
         when 'GIFT CARDS' then if(Upper(tran_type_abbr)='PURCHASE','REDEMPTION',if(upper(tran_type_abbr)='REFUND','ACTIVATION',if(upper(tran_type_abbr) IN ('BALANCE INQUIRY - SAVINGS', 'BALANCE_INQUIRY'), 'BALANCE INQUIRY', UPPER(tran_type_abbr))))
@@ -317,9 +318,59 @@ with d as
         when 'PAYPAL' then 'OTHER'
         else card_type
     end calc_card_type,
+    from `pdh_staging_ds.tbl_temp_billing_all` dn;
 
-    from `pdh_staging_ds.tbl_temp_billing_all` dn
-)
+-- MISSING CARD TYPE CHECKS
+-- Note: the first two checks have been commented out while we discuss with GFS if they can replicate this logic in the TLF
+/*
+UPDATE `temp_billing_all` i SET i.calc_card_type = CASE WHEN v.acct_funding_source IN ('D', 'P') THEN 'DEBIT'
+WHEN v.acct_funding_source IN ('C', 'H', 'R') THEN 'CREDIT'
+ELSE ''
+END
+FROM (Select mti,tstamp_local,tstamp_trans,card_acpt_term_id,rrn,stan,tran_amt,pan,acct_funding_source,
+    from  `pdh_rd_data_navigator.gfs_aux_visa`
+    GROUP BY 1,2,3,4,5,6,7,8,9) v
+WHERE i.tstamp_local = v.tstamp_local
+and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acpt_term_id), 5)
+and i.stan = v.stan
+and i.transaction_total = v.tran_amt
+and i.mti = CASE v.mti WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
+and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
+AND (TRIM(i.calc_card_type) = '' OR i.calc_card_type IS NULL)
+AND CAST(i.tstamp_trans AS DATE) BETWEEN start_date AND end_date;
+
+UPDATE `temp_billing_all` i
+SET i.calc_card_type = c.card_type
+FROM (
+    SELECT masked_pan, tstamp_trans, tstamp_local, net_term_id, stan, retrieval_ref_no, mti, CASE 
+        WHEN card_type IN ('D', 'P') THEN 'DEBIT'
+        WHEN card_type IN ('C', 'H', 'R') THEN 'CREDIT'
+        ELSE ''
+    END AS card_type FROM (
+        SELECT r.masked_pan, r.tstamp_trans, r.tstamp_local, r.net_term_id, r.stan, r.retrieval_ref_no, r.mti, b.card_type, RANK() OVER (PARTITION BY r.masked_pan ORDER BY b.bin_low_range) join_rank FROM `temp_billing_all` r
+        JOIN `pdh_ref_ds.ref_bin_list` b ON LEFT(r.masked_pan, 6) >= LEFT(FORMAT('%09d', b.bin_low_range), 6) AND LEFT(r.masked_pan, 6) <= LEFT(FORMAT('%09d', b.bin_high_range), 6)
+        WHERE TRIM(r.card_type) = '' OR r.card_type IS NULL
+    ) WHERE join_rank = 1) c
+WHERE i.masked_pan = c.masked_pan
+AND i.tstamp_trans = c.tstamp_trans
+AND i.tstamp_local = c.tstamp_local
+AND i.net_term_id = c.net_term_id
+AND i.stan = c.stan
+AND i.retrieval_ref_no = c.retrieval_ref_no
+AND i.mti = c.mti
+AND (TRIM(i.calc_card_type) = '' OR i.calc_card_type IS NULL)
+AND CAST(i.tstamp_trans AS DATE) BETWEEN start_date AND end_date;
+*/
+
+UPDATE `temp_billing_all`
+SET calc_card_type = 'DEBIT'
+WHERE (TRIM(calc_card_type) = '' OR calc_card_type IS NULL)
+AND TRIM(proc_id_iss_b) IN ('VDCS', 'MC')
+AND switch_tran_date BETWEEN start_date AND end_date;
+
+-------------------------------------------------------------------------------------------
+
+INSERT INTO `pdh_analytics_ds.tbl_fees_all`
 select
 d.*,
 case act_code
@@ -341,7 +392,7 @@ as processing_fees,
 IF(LEFT(net_term_id,5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNULL(fraud_fee_fixed * 100, 0), 0) fraud_fees,
 000000 as settled_datetime,
 000000 as fncl_posted_datetime
-from d
+from `temp_billing_all` d
 left join `pdh_ref_ds.ref_rate_card` r on upper(d.calc_scheme)=upper(r.scheme) 
 and Upper(d.calc_card_type)=upper(r.card_type)
 AND upper(d.rate_group) = upper(r.merchant)
@@ -768,139 +819,3 @@ AND i.merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC');
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt`) < end_date THEN
     SELECT ERROR("Small Merchant reporting table not fully updated");
 END IF;
-
--------------------------------
--- MISSING CARD TYPE CHECKS
--------------------------------
-
--- EDG
-UPDATE `pdh_analytics_ds.tbl_edg_fees_rpt` i SET i.card_type = CASE WHEN v.acct_funding_source IN ('D', 'P') THEN 'DEBIT'
-WHEN v.acct_funding_source IN ('C', 'H', 'R') THEN 'CREDIT'
-ELSE ''
-END
-FROM (Select mti,tstamp_local,tstamp_trans,card_acpt_term_id,rrn,stan,tran_amt,pan,acct_funding_source,
-    from  `pdh_rd_data_navigator.gfs_aux_visa`
-    GROUP BY 1,2,3,4,5,6,7,8,9) v
-WHERE PARSE_TIMESTAMP('%Y%m%d%H%M%S', i.local_timestamp) = v.tstamp_local
-and LEFT(trim(i.terminal_id), 5) = LEFT(trim(v.card_acpt_term_id), 5)
-and i.stan = v.stan
-and CAST(i.transaction_amount*100 AS int64) = v.tran_amt
-and FORMAT('%04d', i.mti) = CASE v.mti WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
-and substr(i.pan,1,6) = substr(v.pan,1,6)
-AND (TRIM(i.card_type) = '' OR card_type IS NULL)
-AND switch_tran_date BETWEEN start_date AND end_date;
-
-UPDATE `pdh_analytics_ds.tbl_edg_fees_rpt` r
-SET r.card_type = c.card_type
-FROM (
-    SELECT pan, switch_timestamp, local_timestamp, terminal_id, stan, rrn, mti, CASE 
-        WHEN card_type IN ('D', 'P') THEN 'DEBIT'
-        WHEN card_type IN ('C', 'H', 'R') THEN 'CREDIT'
-        ELSE ''
-    END AS card_type FROM (
-        SELECT r.pan, r.switch_timestamp, r.local_timestamp, r.terminal_id, r.stan, r.rrn, r.mti, b.card_type, RANK() OVER (PARTITION BY r.pan ORDER BY b.bin_low_range) join_rank FROM `pdh_analytics_ds.tbl_edg_fees_rpt` r
-        JOIN `pdh_ref_ds.ref_bin_list` b ON LEFT(r.pan, 6) >= LEFT(FORMAT('%09d', b.bin_low_range), 6) AND LEFT(r.pan, 6) <= LEFT(FORMAT('%09d', b.bin_high_range), 6)
-        WHERE TRIM(r.card_type) = '' OR r.card_type IS NULL
-    ) WHERE join_rank = 1) c
-WHERE r.pan = c.pan
-AND r.switch_timestamp = c.switch_timestamp
-AND r.local_timestamp = c.local_timestamp
-AND r.terminal_id = c.terminal_id
-AND r.stan = c.stan
-AND r.rrn = c.rrn
-AND r.mti = c.mti
-AND switch_tran_date BETWEEN start_date AND end_date;
-
-UPDATE `pdh_analytics_ds.tbl_edg_fees_rpt`
-SET card_type = 'DEBIT'
-WHERE (TRIM(card_type) = '' OR card_type IS NULL)
-AND TRIM(issuer) IN ('VDCS', 'MC')
-AND switch_tran_date BETWEEN start_date AND end_date;
-
--- EG FUEL
-UPDATE `pdh_analytics_ds.tbl_egfuel_fees_rpt` i SET i.card_type = CASE WHEN v.acct_funding_source IN ('D', 'P') THEN 'DEBIT'
-WHEN v.acct_funding_source IN ('C', 'H', 'R') THEN 'CREDIT'
-ELSE ''
-END
-FROM (Select mti,tstamp_local,tstamp_trans,card_acpt_term_id,rrn,stan,tran_amt,pan,acct_funding_source,
-    from  `pdh_rd_data_navigator.gfs_aux_visa`
-    GROUP BY 1,2,3,4,5,6,7,8,9) v
-WHERE PARSE_TIMESTAMP('%Y%m%d%H%M%S', i.local_timestamp) = v.tstamp_local
-and LEFT(trim(i.terminal_id), 5) = LEFT(trim(v.card_acpt_term_id), 5)
-and i.stan = v.stan
-and CAST(i.transaction_amount*100 AS int64) = v.tran_amt
-and FORMAT('%04d', i.mti) = CASE v.mti WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
-and substr(i.pan,1,6) = substr(v.pan,1,6)
-AND (TRIM(i.card_type) = '' OR card_type IS NULL)
-AND switch_tran_date BETWEEN start_date AND end_date;
-
-UPDATE `pdh_analytics_ds.tbl_egfuel_fees_rpt` r
-SET r.card_type = c.card_type
-FROM (
-    SELECT pan, switch_timestamp, local_timestamp, terminal_id, stan, rrn, mti, CASE 
-        WHEN card_type IN ('D', 'P') THEN 'DEBIT'
-        WHEN card_type IN ('C', 'H', 'R') THEN 'CREDIT'
-        ELSE ''
-    END AS card_type FROM (
-        SELECT r.pan, r.switch_timestamp, r.local_timestamp, r.terminal_id, r.stan, r.rrn, r.mti, b.card_type, RANK() OVER (PARTITION BY r.pan ORDER BY b.bin_low_range) join_rank FROM `pdh_analytics_ds.tbl_egfuel_fees_rpt` r
-        JOIN `pdh_ref_ds.ref_bin_list` b ON LEFT(r.pan, 6) >= LEFT(FORMAT('%09d', b.bin_low_range), 6) AND LEFT(r.pan, 6) <= LEFT(FORMAT('%09d', b.bin_high_range), 6)
-        WHERE TRIM(r.card_type) = '' OR r.card_type IS NULL
-    ) WHERE join_rank = 1) c
-WHERE r.pan = c.pan
-AND r.switch_timestamp = c.switch_timestamp
-AND r.local_timestamp = c.local_timestamp
-AND r.terminal_id = c.terminal_id
-AND r.stan = c.stan
-AND r.rrn = c.rrn
-AND r.mti = c.mti
-AND switch_tran_date BETWEEN start_date AND end_date;
-
-UPDATE `pdh_analytics_ds.tbl_egfuel_fees_rpt`
-SET card_type = 'DEBIT'
-WHERE (TRIM(card_type) = '' OR card_type IS NULL)
-AND TRIM(issuer) IN ('VDCS', 'MC')
-AND switch_tran_date BETWEEN start_date AND end_date;
-
--- SMALL MERCHANTS
-UPDATE `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` i SET i.card_type = CASE WHEN v.acct_funding_source IN ('D', 'P') THEN 'DEBIT'
-WHEN v.acct_funding_source IN ('C', 'H', 'R') THEN 'CREDIT'
-ELSE ''
-END
-FROM (Select mti,tstamp_local,tstamp_trans,card_acpt_term_id,rrn,stan,tran_amt,pan,acct_funding_source,
-    from  `pdh_rd_data_navigator.gfs_aux_visa`
-    GROUP BY 1,2,3,4,5,6,7,8,9) v
-WHERE PARSE_TIMESTAMP('%Y%m%d%H%M%S', i.local_timestamp) = v.tstamp_local
-and LEFT(trim(i.terminal_id), 5) = LEFT(trim(v.card_acpt_term_id), 5)
-and i.stan = v.stan
-and CAST(i.transaction_amount*100 AS int64) = v.tran_amt
-and FORMAT('%04d', i.mti) = CASE v.mti WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
-and substr(i.pan,1,6) = substr(v.pan,1,6)
-AND (TRIM(i.card_type) = '' OR card_type IS NULL)
-AND switch_tran_date BETWEEN start_date AND end_date;
-
-UPDATE `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` r
-SET r.card_type = c.card_type
-FROM (
-    SELECT pan, switch_timestamp, local_timestamp, terminal_id, stan, rrn, mti, CASE 
-        WHEN card_type IN ('D', 'P') THEN 'DEBIT'
-        WHEN card_type IN ('C', 'H', 'R') THEN 'CREDIT'
-        ELSE ''
-    END AS card_type FROM (
-        SELECT r.pan, r.switch_timestamp, r.local_timestamp, r.terminal_id, r.stan, r.rrn, r.mti, b.card_type, RANK() OVER (PARTITION BY r.pan ORDER BY b.bin_low_range) join_rank FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` r
-        JOIN `pdh_ref_ds.ref_bin_list` b ON LEFT(r.pan, 6) >= LEFT(FORMAT('%09d', b.bin_low_range), 6) AND LEFT(r.pan, 6) <= LEFT(FORMAT('%09d', b.bin_high_range), 6)
-        WHERE TRIM(r.card_type) = '' OR r.card_type IS NULL
-    ) WHERE join_rank = 1) c
-WHERE r.pan = c.pan
-AND r.switch_timestamp = c.switch_timestamp
-AND r.local_timestamp = c.local_timestamp
-AND r.terminal_id = c.terminal_id
-AND r.stan = c.stan
-AND r.rrn = c.rrn
-AND r.mti = c.mti
-AND switch_tran_date BETWEEN start_date AND end_date;
-
-UPDATE `pdh_analytics_ds.tbl_sml_merchant_fees_rpt`
-SET card_type = 'DEBIT'
-WHERE (TRIM(card_type) = '' OR card_type IS NULL)
-AND TRIM(issuer) IN ('VDCS', 'MC')
-AND switch_tran_date BETWEEN start_date AND end_date;
