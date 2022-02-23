@@ -1,7 +1,6 @@
-
-
 truncate table pdh_analytics_ds.mastercard_fee_analysis_rpt ;
 insert into pdh_analytics_ds.mastercard_fee_analysis_rpt  
+
 WITH
   d AS (
   SELECT
@@ -9,18 +8,22 @@ WITH
     r.division,
     r.store_id,
     p.card_type,
+    s.currency_code,	
     CAST(
       CASE processing_code
         WHEN 0 THEN 'Purchase'
         WHEN 200000 THEN 'Refund'
-        ELSE 'Ignore'
+        WHEN 90000 Then 'Cash out'
+         WHEN 190000 THEN 'Fee reconciliation amount'
+      	WHEN 290000 THEN 'Fee reconciliation total'
     END
       AS STRING) AS Transaction_Type,
-       CASE settlement_svc_id_code
-  WHEN 'AP00003601' then 'Australian Domestic'
-  WHEN 'AP00000002' then 'International'
+       CASE extended_fee_settlement_indicator
+  WHEN 1 then 'Australian Domestic'
+  WHEN 0 then 'International'
   END
   As Type_of_the_card,
+    cast(Right(additional_amnt,6) as int64)/100 Cash_out,
     CAST(amount_txn AS int64)/100 amount_txn,
     CAST(extended_interchange_amount_fee AS int64 )/1000000 fees,
     (CAST(extended_interchange_amount_fee AS int64 )/1000000)/(CAST(amount_txn AS int64)/100 ) *100 avg_amt
@@ -44,18 +47,23 @@ WITH
     r.division,
     r.store_id,
     p.card_type,
+    s.currency_code,
     CAST(
       CASE processing_code
         WHEN 0 THEN 'Purchase'
         WHEN 200000 THEN 'Refund'
-        ELSE 'Ignore'
+	      WHEN 90000 Then 'Cash out'
+        WHEN 190000 THEN 'Fee reconciliation amount'
+	      WHEN 290000 THEN 'Fee reconciliation total'
     END
       AS STRING) AS Transaction_Type,
-        CASE settlement_svc_id_code
-  WHEN 'AP00003601' then 'Australian Domestic'
-  WHEN 'AP00000002' then 'International'
+          CASE extended_fee_settlement_indicator
+  WHEN 1 then 'Australian Domestic'
+  WHEN 0 then 'International'
+  
   END
   As Type_of_the_card,
+   cast(Right(additional_amnt,6) as int64)/100 Cash_out,
     CAST(amount_txn AS int64)/100 amt_txn,
     CAST(extended_interchange_amount_fee AS int64)/1000000 AS fees,
     1 AS tran_cnt
@@ -78,11 +86,14 @@ SELECT
   division,
   store_id,
   card_type,
+  currency_code,
   Transaction_Type,
-  Type_of_the_card,  
-  ROUND(avg_amt,3) avg_fee_percent,
+  Type_of_the_card, 
+    ROUND(avg_amt,3) avg_fee_percent,
   0 AS average_fees,
-  SUM(amount_txn) AS Amount_Txn,
+    SUM(amount_txn) AS total_Amount_Txn,
+  (Sum(amount_txn)-sum(Cash_out)) as TXN_amount,
+  Sum(Cash_out) as Cash_out,
   COUNT(1) txn_cnt
 FROM
   d
@@ -94,18 +105,22 @@ GROUP BY
   5,
   6,
   7,
-  8
+  8,
+  9
 UNION ALL
 SELECT
   file_date,
   division,
   store_id,
   card_type,
+  currency_code,
   Transaction_Type,
   Type_of_the_card,  
   0 AS avg_fee_percent,
   fees AS average_fees,
-  SUM(amt_txn) AS Amount_Txn,
+  SUM(amt_txn) AS total_Amount_Txn,
+ (Sum(amt_txn)-sum(Cash_out)) as TXN_amount,
+ Sum(Cash_out) as Cash_out,
   COUNT(1) txn_cnt
 FROM
   d1
@@ -117,4 +132,5 @@ GROUP BY
   5,
   6,
   7,
-  8
+  8,
+  9

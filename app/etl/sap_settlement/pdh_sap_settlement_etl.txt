@@ -137,7 +137,7 @@ end if;
          from (
                select left(tran_uid,2) source,division, max(transaction_timestamp) max_transaction_timestamp
                from `pdh_analytics_ds.stlm_standard_settlement_table`
-               where ifnull(setlmnt_result_file,"") = ""
+               --where ifnull(setlmnt_result_file,"") = ""
                group by left(tran_uid,2), division) std1
          group by std1.division) std2
    where upper(trim(msw.division)) = std2.division;
