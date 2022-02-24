@@ -151,12 +151,13 @@ dn.bin_product_code,
 dn.scheme,
 trim(t.tran_type) tran_type_desc,
 trim(t.abbr) tran_type_abbr,
-trim(r.approval_flag) approval_flag,
+IFNULL(trim(r.approval_flag), "N") approval_flag,
 case trim(proc_id_iss_b) 
 when 'AMEX' then 'AMEX'
 when 'EHB' then 'EFTPOS'
 when 'FDF' then 'FUEL CARDS'
-when 'FDI' then 'DINERS'
+when 'FDI' then
+	if(trim(dn.issuer_institution_id) in ('060092425', '060092426', '060092427', '060092428'), 'UPI', 'DINERS')
 when 'RED' then 'GIFT CARDS'
 when 'ANZ' then
 	if(trim(dn.issuer_institution_id) ='056025433' or trim(dn.issuer_institution_id) = '056025434'or trim(dn.issuer_institution_id) =  '056025435'
@@ -190,7 +191,7 @@ AND s.is_closed = FALSE
 insert into `pdh_staging_ds.tbl_temp_billing_all`
 	Select 
 	CAST(txnTime AS DATE) switch_tran_date,
-    null tran_uid,
+    'DP' tran_uid,
 	txnTime tstamp_trans,
 	null tstamp_local,
 	CAST(bin AS STRING) masked_pan,
@@ -262,9 +263,104 @@ JOIN (SELECT DISTINCT dpay_gc_group, merchant_group, rate_group FROM `pdh_ref_ds
         WHEN MerchantName = 'Langtons' then 'WC500'
         ELSE null
     END) = s.store_id 
-    where schemeName IN ('GIFT_CARD', 'PAYPAL') and CAST(txnTime AS DATE) >= start_date and CAST(txnTime AS DATE) <= end_date
+    where schemeName IN ('GIFT_CARD', 'PAYPAL')
+	and CAST(txnTime AS DATE) >= start_date and CAST(txnTime AS DATE) <= end_date
     AND d.responseCode = '00'
     AND trim(transactionType) <> "TOKENISE"
+	AND (LENGTH(txnRef)-LENGTH(REPLACE(txnRef,".",""))) <> 2
+	AND s.is_closed = FALSE;
+
+-------------------------------------------------------------------------------------------
+-- QUIKCILVER
+
+insert into `pdh_staging_ds.tbl_temp_billing_all`
+Select 
+	CAST(TransactionDate AS DATE) switch_tran_date,
+    'QC' tran_uid,
+	cast(concat(TransactionDate,' ',TransactionTime) as TIMESTAMP) tstamp_trans,
+	null tstamp_local,
+	CAST(CardNumber AS STRING) masked_pan,  -- MASK PAN
+    CAST(TransactionDate AS DATE) date_recon_acq,
+    POSName net_term_id,  -- Add conditions where POSNAME Is not Store number
+    Concat('01',OutletCode) rpt_lvl_id_b, -- Add conditions where POSNAME Is not Store number
+    null as mti,
+    null tran_type_id,
+    CAST(Amount_Transacting_Merchants_Currency_Or_Points*100 AS NUMERIC) amt_recon_net,
+    null act_code,
+    null response_code,
+    null account_type,
+    CAST(Amount_Transacting_Merchants_Currency_Or_Points*100 AS NUMERIC) transaction_total,
+    CAST(Amount_Transacting_Merchants_Currency_Or_Points*100 AS NUMERIC) purchase_total,
+    0 cashout_total,
+    null retrieval_ref_no,
+    null stan,
+    null original_stan,
+    null proc_id_acq_b,
+    null inst_id_recn_acq_b,
+    null card_acpt_name_loc,
+    null proc_id_iss_b,
+    null issuer_institution_id,
+    null card_owner,
+    case trim(CardEntryMode)
+		When 'Swiped' Then '2'
+		When 'Manual' Then '6' 
+		Else ''
+    End as pos_crd_dat_in_mod, --CARD ENTRY MODE CODES
+    null pos_crdhldr_presnt,
+    InvoiceNumber order_number,
+    null approval_code,
+    null adtnl_response_data,
+    null card_acpt_id,
+    null merchant_store_id,
+    null as dom_int_ind,
+    'DEBIT' as card_type,
+    null card_subtype,
+    null bin_product_code,
+    'GIFT_CARD' scheme, 
+    trim(transactionType) as tran_type_desc,
+    Case trim(transactionType)
+		WHEN 'GIFT CARD REDEEM' THEN 'REDEMPTION'
+		WHEN 'GIFT CARD CANCEL REDEEM' THEN 'REDEMPTION REVERSAL'
+		WHEN 'GIFT CARD DEACTIVATE' THEN 'DEACTIVATION'
+		WHEN 'GIFT CARD ACTIVATE' THEN 'ACTIVATION'
+		WHEN 'REACTIVATE' THEN 'REACTIVATION'
+		WHEN 'GIFT CARD CANCEL ACTIVATE' THEN 'ACTIVATION REVERSAL'
+		WHEN 'GIFT CARD REISSUE' THEN 'ACTIVATION'
+		WHEN 'RESET CARD PIN' THEN 'RESET CARD PIN'
+		WHEN 'GIFT CARD RELOAD' THEN 'ACTIVATION'
+		else ''
+	End
+	as abbr,
+    case TransactionStatus
+		when 'SUCCESS' then 'Y'
+		when 'CANCELLED' then 'N'
+		else 'N'
+	end as approval_flag,
+	'GIFT CARDS' link_route,
+	case trim(upper(Company))
+		when 'EG FUEL' THEN 'EG FUEL'
+		when 'EG APAC VENTURE 1' THEN 'EG FUEL APAC'
+		When 'ENDEAVOUR' THEN 'ENDEAVOUR'
+		Else ''
+	end	merchant_group, -- NEED TO CHECK WHAT THIS IS USED FOR
+    s.ratecard_group rate_group
+    FROM `pdh_rd_quickcilver.qc_detail_transactions` d
+	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
+    (
+        case
+            when ifnull(d.outletcode,"") <>  "" then upper(trim(d.outletcode))
+            when (upper(trim(d.descriptive_outlet_name)) = "SAP HYBRIS" and
+                upper(left(trim(d.issuer),20))  = "WOOLWORTHS GROUP LTD") then "W5975"
+            else null 
+        end
+    ) = s.store_id 
+	join `pdh_ref_ds.ref_merchant_settlement_window` msw
+    on msw.is_active = "Y"
+    and msw.division = upper(trim(s.division))
+    where cast(TransactionDate as Date) >= start_date 
+	and cast(TransactionDate as Date) <= end_date
+    AND trim(transactionType) <> "RESET CARD PIN"
+	AND s.brand <> "COUNTDOWN"
 	AND s.is_closed = FALSE;
 
 -------------------------------------------------------------------------------------------
@@ -450,9 +546,9 @@ and TRIM(proc_id_iss_b)='MC';
 Update `pdh_analytics_ds.tbl_fees_all` i
 set interchange_fees_actual= v.interchange_fee/10000/1.1,
 i.fee_indicator='A'
-from (Select mti,tstamp_local,tstamp_trans,card_acpt_term_id,rrn,stan,tran_amt,pan,
+from (Select mti,tstamp_local,card_acpt_term_id,rrn,stan,tran_amt,pan,
 SUM(ABS(interchange_fee)) interchange_fee from  `pdh_rd_data_navigator.gfs_aux_visa`
-GROUP BY 1,2,3,4,5,6,7,8) v
+GROUP BY 1,2,3,4,5,6,7) v
 --from invoice_gfs_taf.aux_visa_apr2021 v
 where i.tstamp_local = v.tstamp_local
 and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acpt_term_id), 5)

@@ -45,8 +45,8 @@ WITH result AS (
     ELSE 'Debit' END AS card_type,
     '' card_subtype, CASE WHEN TRIM(issuer) IN ('AMEX', 'FDI') THEN "0.0000"
     ELSE IFNULL(FORMAT('%.4f', vcalc_interchange_fees_invoiced_ex_gst * 100), "0.0000") END interchange_fee,
-    FORMAT('%.4f', 0.0) interchange_fee_rebate,
-    FORMAT('%.4f', vcalc_processing_fees_ex_gst *100) processing_fee
+    IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
+    IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee
     FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt`
     WHERE TRIM(acquirer) = 'LGRP'
     AND acquirer_institution_id = '000050000'
