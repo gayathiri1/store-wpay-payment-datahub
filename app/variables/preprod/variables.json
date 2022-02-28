@@ -996,7 +996,10 @@
             },
             {
                 "query_file": "reporting_queries/pdh_dml_eftpos_rates.txt"
-            }
+            },
+			{
+				"query_file":"reporting_queries/pdh_dml_qc_partner_aus.txt"
+			}
         ]
     },
     "sf_queries": {
