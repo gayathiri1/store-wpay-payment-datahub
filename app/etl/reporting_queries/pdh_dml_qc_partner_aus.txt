@@ -1,0 +1,112 @@
+
+truncate table pdh_analytics_ds.qc_partner_aus_rpt ;
+insert into pdh_analytics_ds.qc_partner_aus_rpt  
+
+With Activaction as (
+  SELECT
+    date(TransactionDate) as TransactionDate ,
+    CASE
+      WHEN Merchant LIKE 'Prezzee-AUS%' THEN CONCAT("PRE",FORMAT_DATE("%d%m%g",DATE(TransactionDate)),"ACT")
+      WHEN Merchant LIKE 'Digital Glue%' THEN CONCAT("DG",FORMAT_DATE("%d%m%g",DATE(TransactionDate)),"ACT")
+      WHEN Merchant LIKE 'Blackhawk%' THEN CONCAT("BHN",FORMAT_DATE("%d%m%g",DATE(TransactionDate)),"ACT")
+      WHEN Merchant LIKE 'Pitstop%' THEN CONCAT("PIT",FORMAT_DATE("%d%m%g",DATE(TransactionDate)),"ACT")
+  END
+    AS Reference_no,
+   
+    CASE
+      WHEN Merchant LIKE 'Prezzee-AUS%' THEN '118298'
+      WHEN Merchant LIKE 'Digital Glue%' THEN '116685'
+      WHEN Merchant LIKE 'Blackhawk%' THEN '116577'
+      WHEN Merchant LIKE 'Pitstop%' THEN '114757'
+  END
+    AS Customer_Account_No,
+    "204743" AS GL_Account_No,
+    ""AS Tax_code,
+    "" AS GST_Amount,
+    CONCAT(Merchant, " ", FORMAT_DATE("%d-%m-%g",DATE(TransactionDate)) ) AS Customer_Text,
+    CONCAT(Merchant, " ", FORMAT_DATE("%d-%m-%g",DATE(TransactionDate)) ) AS GL_text,
+    "5975" AS Profit_Centre,
+    "" AS Cost_Centre,
+    "" AS Internal_Order,
+    "" AS Merch_Trade_Dept,
+  
+   Merchant as Assignment,
+    "" AS Trans_Type,
+    "1410" AS second_Company_Code,
+    SUM(Amount) AS Amount
+  FROM
+    `pdh_rd_quickcilver.qc_partner_detail`
+  WHERE
+    Merchant != 'Prezzee-NZ'
+  GROUP BY
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15),
+ Discount as (
+  SELECT
+    date(TransactionDate) as TransactionDate,
+    CASE
+      WHEN Merchant LIKE 'Prezzee-AUS%' THEN CONCAT("PRE",FORMAT_DATE("%d%m%g",DATE(TransactionDate)),"DIS")
+      WHEN Merchant LIKE 'Digital Glue%' THEN CONCAT("DG",FORMAT_DATE("%d%m%g",DATE(TransactionDate)),"DIS")
+      WHEN Merchant LIKE 'Blackhawk%' THEN CONCAT("BHN",FORMAT_DATE("%d%m%g",DATE(TransactionDate)),"DIS")
+      WHEN Merchant LIKE 'Pitstop%' THEN CONCAT("PIT",FORMAT_DATE("%d%m%g",DATE(TransactionDate)),"DIS")
+  END
+    AS Reference_no,
+   
+    CASE
+      WHEN Merchant LIKE 'Prezzee-AUS%' THEN '118298'
+      WHEN Merchant LIKE 'Digital Glue%' THEN '116685'
+      WHEN Merchant LIKE 'Blackhawk%' THEN '116577'
+      WHEN Merchant LIKE 'Pitstop%' THEN '114757'
+  END
+    AS Customer_Account_No,
+    "400510" AS GL_Account_No,
+    ""AS Tax_code,
+    "" AS GST_Amount,
+    CONCAT(Merchant, " Commission ", FORMAT_DATE("%d-%m-%g",DATE(TransactionDate))) AS Customer_Text,
+    CONCAT(Merchant, " Commission ", FORMAT_DATE("%d-%m-%g",DATE(TransactionDate)) ) AS GL_text,
+    "5975" AS Profit_Centre,
+    "" AS Cost_Centre,
+    "" AS Internal_Order,
+   cast(" 000" as string) AS Merch_Trade_Dept,
+  
+   Merchant as Assignment,
+    "" AS Trans_Type,
+    "1410" AS second_Company_Code,
+    SUM(DiscountValue) AS Amount
+  FROM
+    `pdh_rd_quickcilver.qc_partner_detail`
+  WHERE
+    Merchant != 'Prezzee-NZ'
+  GROUP BY
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15)
+
+select *from Activaction
+union all 
+select * from Discount
