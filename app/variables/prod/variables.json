@@ -419,7 +419,10 @@
             },
             {
                 "query_file": "reporting_queries/pdh_dml_wpay_analytical_summary.txt"
-            }
+            },
+			{
+				"query_file":"reporting_queries/pdh_dml_qc_partner_aus.txt"
+			}
         ]
     },
     "sapHybris": {

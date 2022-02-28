@@ -1039,5 +1039,57 @@
             }
         },
         "project_name": "gcp-wow-wpay-paydat-dev"
+    },
+    "reporting_queries": {
+        "bucket": "pdh_preprod_etls",
+        "email_to": "dmanoharan1@tcs.woolworths.com.au,pganesan2@tcs.woolworths.com.au,gnathan1@tcs.woolworths.com.au,marumugam@tcs.woolworths.com.au",
+        "environment": "preprod",
+        "files": [
+            {
+                "query_file": "reporting_queries/pdh_aia_etl.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_ar_etl.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_store_level.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_store_trans_level.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_online_summary.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_online_missing_txns_summary.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_visa_fee_analysis_rpt.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_mastercard_fee_analysis_rpt.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_edp_missing_txns.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_edp_store_level.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_edp_txns_level.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_qc_partner.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_wpay_analytical_summary.txt"
+            },
+            {
+                "query_file": "reporting_queries/pdh_dml_eftpos_rates.txt"
+            },
+			{
+				"query_file":"reporting_queries/pdh_dml_qc_partner_aus.txt"
+			}
+        ]
     }
 }
