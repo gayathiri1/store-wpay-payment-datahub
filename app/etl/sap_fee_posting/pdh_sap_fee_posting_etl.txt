@@ -194,6 +194,120 @@ GROUP BY calender_date,settlement_date, merchant_org_id,
 merchant_location_number,caic,sap_customer_number,wpay_store_number,
 d.direct_debit_flag,currency,d.frequency,e.fp_end_date
 UNION ALL 
+SELECT '1' AS H,
+'PROCESSING' AS fee_type_description,
+CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS calender_date,
+a.settlement_date AS settlement_date,
+b.merchant_organisation_id AS merchant_org_id,
+b.merchant_store_number AS merchant_location_number,
+a.card_acpt_id AS caic,
+b.billing_sap_customer_number as sap_customer_number,
+b.wpay_store_number,
+b.wpay_store_number AS wow_loc_number,
+sum(a.vcalc_processing_fees_ex_gst) AS fee_value,
+d.frequency AS fee_frequency,
+'E' AS gst_flag,
+d.direct_debit_flag AS direct_debit_flag,
+b.currency_code AS currency,
+(
+CASE 
+WHEN d.direct_debit_flag = 'Y' AND d.frequency = 'Weekly ' THEN 
+        (CAST(FORMAT_DATE("%Y%m%d",(CASE
+      WHEN (EXTRACT(DAYOFWEEK FROM post_date) >1) AND (EXTRACT(DAYOFWEEK FROM post_date) < 6)
+        THEN DATE_ADD(DATE_TRUNC(post_date,WEEK(FRIDAY)),INTERVAL 2 WEEK)
+      ELSE 
+        DATE_ADD(DATE_TRUNC(post_date,WEEK(FRIDAY)),INTERVAL 1 WEEK)
+	  END )) AS INT64))
+WHEN d.direct_debit_flag = 'Y' AND d.frequency = 'CMonthly' THEN
+        (CAST(FORMAT_DATE("%Y%m%d",DATE_ADD(LAST_DAY(post_date),INTERVAL 7 DAY))AS INT64))
+WHEN d.direct_debit_flag = 'Y' AND d.frequency = 'RMonthly' THEN
+       (CAST(FORMAT_DATE("%Y%m%d",(CASE
+      WHEN (EXTRACT(DAYOFWEEK FROM (DATE_ADD(LAST_DAY(DATE(e.fp_end_date)),INTERVAL 1 DAY))) >=1) AND 
+                     (EXTRACT(DAYOFWEEK FROM (DATE_ADD(LAST_DAY(DATE(e.fp_end_date)),INTERVAL 1 DAY))) < 6) 
+        THEN DATE_ADD(DATE_TRUNC(LAST_DAY(DATE(e.fp_end_date)),WEEK(FRIDAY)),INTERVAL 1 WEEK)
+      WHEN (EXTRACT(DAYOFWEEK FROM (DATE_ADD(LAST_DAY(DATE(e.fp_end_date)),INTERVAL 1 DAY))) = 6) 
+        THEN DATE_ADD(LAST_DAY(DATE(e.fp_end_date)),INTERVAL 1 DAY)
+      ELSE 
+        DATE_ADD(DATE_TRUNC(LAST_DAY(DATE(e.fp_end_date)),WEEK(FRIDAY)),INTERVAL 1 WEEK)
+	  END )) AS INT64))
+WHEN d.direct_debit_flag = 'N' THEN
+        (CAST(FORMAT_DATE("%Y%m%d",DATE_ADD(LAST_DAY(post_date),INTERVAL 28 DAY))AS INT64))
+END
+) AS pay_due_date,
+'/' AS record_end_indicator,
+count(0) as record_count
+FROM
+( SELECT 
+  view_edg_fees_rpt.switch_tran_date AS switch_tran_date,
+  view_edg_fees_rpt.settlement_date AS settlement_date,
+  view_edg_fees_rpt.store_id AS store_id,
+  view_edg_fees_rpt.approval_flag AS approval_flag,
+  view_edg_fees_rpt.scheme AS scheme,
+  view_edg_fees_rpt.card_type AS card_type,
+  view_edg_fees_rpt.company AS company,
+  view_edg_fees_rpt.tran_type_description AS tran_type_description,
+  view_edg_fees_rpt.acquirer_institution_id AS acquirer_institution_id,
+  view_edg_fees_rpt.card_acpt_id AS card_acpt_id,
+  view_edg_fees_rpt.sap_filename AS sap_filename,
+  view_edg_fees_rpt.sap_post_timestamp AS sap_post_timestamp,
+  round(sum(view_edg_fees_rpt.vcalc_processing_fees_ex_gst),4) AS vcalc_processing_fees_ex_gst
+FROM
+  pdh_analytics_ds.tbl_edg_fees_rpt view_edg_fees_rpt
+  group by 1,2,3,4,5,6,7,8,9,10,11,12
+) a
+-- pdh_analytics_ds.tbl_edg_fees_rpt a
+INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
+ON  a.store_id =b.wpay_store_number 
+INNER JOIN pdh_ref_ds.ref_inst_id_config c
+ON a.acquirer_institution_id = c.merchant_institution_id
+INNER JOIN pdh_ref_ds.ref_merchant_fee_config d
+ON lower(a.company) = lower(d.company)
+INNER JOIN pdh_ref_ds.dim_date e
+ON a.switch_tran_date = e.clndr_date
+--WHERE a.switch_tran_date = '2022-02-14'
+WHERE EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = a.switch_tran_date))
+  AND c.post_to_sap = 'TRUE'
+  AND a.sap_filename is null
+  AND a.sap_post_timestamp is null
+  AND (SELECT case upper(a.scheme)
+                when "DINERS"  then "CREDIT"
+                when "AMEX"  then "CREDIT"
+                when "EFTPOS"  then "DEBIT"
+                when "FUEL CARDS" then "FUEL CARDS"
+                when "GIFT CARDS" then "GIFT CARDS" 
+                when "PAYPAL" then "APM"
+                when "MASTERCARD" then 
+                    (case (a.card_type)
+                      when "CREDIT" then "CREDIT" 
+                      when "DEBIT" then "DEBIT" 
+                      else ""
+                    end)
+                when "VISA" then 
+                    (case (a.card_type)
+                        when "CREDIT" then "CREDIT" 
+                        when "DEBIT" then "DEBIT" 
+                        else ""
+                        end)
+                when "UPI"  then "CREDIT"
+                when ''  then ''
+                when ' ' then ''
+                when null then ''
+                end)  in ('CREDIT','DEBIT','GIFT CARDS')
+  AND (a.tran_type_description is not null or a.tran_type_description != ' ' or a.tran_type_description != '')
+  AND (SELECT case a.approval_flag
+                when "A" then "Approved"
+                when "D" then "Declined"
+                when "O" then "Other"
+                when ''  then ''
+                when ' ' then ''
+                when null then ''
+                else ""
+        END) != ''
+  AND d.fee_code = 'PROCESSING'
+GROUP BY calender_date,settlement_date, merchant_org_id,
+merchant_location_number,caic,sap_customer_number,wpay_store_number,
+d.direct_debit_flag,currency,d.frequency,e.fp_end_date
+UNION ALL
 SELECT 
 '1' AS H,
 'INTERCHANGE' AS fee_type_description,
@@ -297,6 +411,110 @@ WHERE EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate =
 GROUP BY calender_date,settlement_date, merchant_org_id,
 merchant_location_number,caic,sap_customer_number,wpay_store_number,
 currency,e.fp_end_date
+UNION ALL 
+SELECT 
+'1' AS H,
+'PROCESSING' AS fee_type_description,
+CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS calender_date,
+a.settlement_date AS settlement_date,
+b.merchant_organisation_id AS merchant_org_id,
+b.merchant_store_number AS merchant_location_number,
+a.card_acpt_id AS caic,
+b.billing_sap_customer_number as sap_customer_number,
+b.wpay_store_number,
+b.wpay_store_number AS wow_loc_number,
+sum(a.vcalc_processing_fees_ex_gst) AS fee_value,
+'RMonthly' AS fee_frequency,
+'E' AS gst_flag,
+'Y'AS direct_debit_flag,
+b.currency_code AS currency,
+--Pay Due Date calculcation as per new requirement
+(
+CAST(FORMAT_DATE("%Y%m%d",(CASE
+      WHEN (EXTRACT(DAYOFWEEK FROM (DATE_ADD(LAST_DAY(DATE(e.fp_end_date)),INTERVAL 1 DAY))) >=1) AND 
+                     (EXTRACT(DAYOFWEEK FROM (DATE_ADD(LAST_DAY(DATE(e.fp_end_date)),INTERVAL 1 DAY))) < 6) 
+        THEN DATE_ADD(DATE_TRUNC(LAST_DAY(DATE(e.fp_end_date)),WEEK(FRIDAY)),INTERVAL 1 WEEK)
+      WHEN (EXTRACT(DAYOFWEEK FROM (DATE_ADD(LAST_DAY(DATE(e.fp_end_date)),INTERVAL 1 DAY))) = 6) 
+        THEN DATE_ADD(LAST_DAY(DATE(e.fp_end_date)),INTERVAL 1 DAY)
+      ELSE 
+        DATE_ADD(DATE_TRUNC(LAST_DAY(DATE(e.fp_end_date)),WEEK(FRIDAY)),INTERVAL 1 WEEK)
+	  END )) AS INT64)
+) AS pay_due_date,
+'/' AS record_end_indicator,
+count(0) as record_count
+FROM
+( SELECT 
+  view_edg_fees_rpt.switch_tran_date AS switch_tran_date,
+  view_edg_fees_rpt.settlement_date AS settlement_date,
+  view_edg_fees_rpt.store_id AS store_id,
+  view_edg_fees_rpt.approval_flag AS approval_flag,
+  view_edg_fees_rpt.scheme AS scheme,
+  view_edg_fees_rpt.card_type AS card_type,
+  view_edg_fees_rpt.company AS company,
+  view_edg_fees_rpt.tran_type_description AS tran_type_description,
+  view_edg_fees_rpt.acquirer_institution_id AS acquirer_institution_id,
+  view_edg_fees_rpt.card_acpt_id AS card_acpt_id,
+  view_edg_fees_rpt.sap_filename AS sap_filename,
+  view_edg_fees_rpt.sap_post_timestamp AS sap_post_timestamp,
+  round(sum(view_edg_fees_rpt.vcalc_processing_fees_ex_gst),4) AS vcalc_processing_fees_ex_gst
+FROM
+  pdh_analytics_ds.tbl_edg_fees_rpt view_edg_fees_rpt
+  group by 1,2,3,4,5,6,7,8,9,10,11,12
+) a
+-- pdh_analytics_ds.tbl_edg_fees_rpt a
+INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
+ON  a.store_id =b.wpay_store_number 
+--Joined with this table to identify eligible merchants for sapfee
+INNER JOIN pdh_ref_ds.ref_inst_id_config c
+ON a.acquirer_institution_id = c.merchant_institution_id
+--Joined with this table to get retail monthly date
+INNER JOIN pdh_ref_ds.dim_date e
+ON a.switch_tran_date = e.clndr_date
+-- WHERE a.switch_tran_date between trans_date1 AND trans_date2
+WHERE EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = a.switch_tran_date))
+  AND NOT EXISTS (SELECT 1 FROM  pdh_ref_ds.ref_merchant_fee_config d
+				  WHERE  lower(a.company) = lower(d.company)
+				    AND  d.fee_code = 'PROCESSING'   )
+  AND c.post_to_sap = 'TRUE'
+  AND a.sap_filename is null
+  AND a.sap_post_timestamp is null
+ AND (SELECT case upper(a.scheme)
+                when "DINERS"  then "CREDIT"
+                when "AMEX"  then "CREDIT"
+                when "EFTPOS"  then "DEBIT"
+                when "FUEL CARDS" then "FUEL CARDS"
+                when "GIFT CARDS" then "GIFT CARDS" 
+                when "PAYPAL" then "APM"
+                when "MASTERCARD" then 
+                    (case (a.card_type)
+                      when "CREDIT" then "CREDIT" 
+                      when "DEBIT" then "DEBIT" 
+                      else ""
+                    end)
+                when "VISA" then 
+                    (case (a.card_type)
+                        when "CREDIT" then "CREDIT" 
+                        when "DEBIT" then "DEBIT" 
+                        else ""
+                        end)
+                when "UPI"  then "CREDIT"
+                when ''  then ''
+                when ' ' then ''
+                when null then ''
+                end) in ('CREDIT','DEBIT','GIFT CARDS')
+  AND (a.tran_type_description is not null or a.tran_type_description != ' ' or a.tran_type_description != '')
+  AND (SELECT case a.approval_flag
+                when "A" then "Approved"
+                when "D" then "Declined"
+                when "O" then "Other"
+                when ''  then ''
+                when ' ' then ''
+                when null then ''
+                else ""
+        END) != ''
+GROUP BY calender_date,settlement_date, merchant_org_id,
+merchant_location_number,caic,sap_customer_number,wpay_store_number,
+currency,e.fp_end_date
 )
 GROUP BY H,fee_type_description, calender_date,settlement_date,  merchant_org_id,
 merchant_location_number, caic,sap_customer_number, wpay_store_number, wow_loc_number,
@@ -350,30 +568,9 @@ FROM
 pdh_analytics_ds.tbl_edg_fees_rpt a
 INNER JOIN pdh_ref_ds.ref_inst_id_config c
 ON a.acquirer_institution_id = c.merchant_institution_id
--- WHERE a.switch_tran_date between trans_date1 AND trans_date2
 WHERE EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = a.switch_tran_date))
   AND c.post_to_sap = 'TRUE'
   AND a.store_id not in (select b.wpay_store_number from pdh_ref_ds.ref_str_to_sap_customermapping b)
--- UNION ALL 
--- SELECT DISTINCT a.store_id store_id ,a.switch_tran_date switch_tran_date 
--- FROM
--- pdh_analytics_ds.tbl_sml_merchant_fees_rpt a
--- INNER JOIN pdh_ref_ds.ref_inst_id_config c
--- ON a.acquirer_institution_id = c.merchant_institution_id
--- WHERE a.switch_tran_date between trans_date1 AND trans_date2
--- -- WHERE EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = a.switch_tran_date))
---   AND c.post_to_sap = 'TRUE'
---   AND a.store_id not in (select b.wpay_store_number from pdh_ref_ds.ref_str_to_sap_customermapping b)
--- UNION ALL  
--- SELECT DISTINCT a.store_id store_id ,a.switch_tran_date switch_tran_date 
--- FROM
--- pdh_analytics_ds.tbl_egfuel_fees_rpt a
--- INNER JOIN pdh_ref_ds.ref_inst_id_config c
--- ON a.acquirer_institution_id = c.merchant_institution_id
--- WHERE a.switch_tran_date between trans_date1 AND trans_date2
--- -- WHERE EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = a.switch_tran_date))
---   AND c.post_to_sap = 'TRUE'
---   AND a.store_id not in (select b.wpay_store_number from pdh_ref_ds.ref_str_to_sap_customermapping b)
 );
 
 --Get missing store count details
@@ -403,17 +600,6 @@ SELECT  current_batch_no, merchant_org_id, wpay_store_number, file_name,
 --Create Temp table & Update Billing Engine tables
 
 CREATE OR REPLACE TABLE `pdh_staging_ds.sap_temp_table` AS
--- SELECT distinct
--- terminal_id,mti,local_timestamp,pan,transaction_amount,stan,store_id,switch_tran_date
--- FROM pdh_analytics_ds.tbl_sml_merchant_fees_rpt a,pdh_ref_ds.ref_str_to_sap_customermapping b,
---  pdh_ref_ds.ref_inst_id_config c
--- where a.store_id =b.wpay_store_number 
---   and a.acquirer_institution_id = c.merchant_institution_id
---   and sap_filename is null
---   and a.switch_tran_date between trans_date1 AND trans_date2
--- --   AND EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = a.switch_tran_date))
---   AND c.post_to_sap = 'TRUE'
--- UNION ALL
 SELECT distinct
 terminal_id,mti,local_timestamp,pan,transaction_amount,stan,store_id,switch_tran_date
 FROM pdh_analytics_ds.tbl_edg_fees_rpt a,pdh_ref_ds.ref_str_to_sap_customermapping b,
@@ -424,17 +610,6 @@ where a.store_id =b.wpay_store_number
 --   and a.switch_tran_date between trans_date1 AND trans_date2
   AND EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = a.switch_tran_date))
   AND c.post_to_sap = 'TRUE'
--- UNION ALL
--- SELECT distinct
--- terminal_id,mti,local_timestamp,pan,transaction_amount,stan,store_id,switch_tran_date
--- FROM pdh_analytics_ds.tbl_egfuel_fees_rpt a,pdh_ref_ds.ref_str_to_sap_customermapping b,
---  pdh_ref_ds.ref_inst_id_config c
--- where a.store_id =b.wpay_store_number 
---   and a.acquirer_institution_id = c.merchant_institution_id
---   and sap_filename is null
---   and a.switch_tran_date between trans_date1 AND trans_date2
--- --   AND EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = a.switch_tran_date))
---   AND c.post_to_sap = 'TRUE'
 ;
 
 UPDATE `pdh_analytics_ds.tbl_edg_fees_rpt` a
@@ -450,32 +625,6 @@ WHERE a.switch_tran_date   = b.switch_tran_date
   AND a.stan               = b.stan
   AND a.store_id           = b.store_id;
   
--- UPDATE `pdh_analytics_ds.tbl_egfuel_fees_rpt` a
---   SET sap_filename = file_name
---      ,sap_post_timestamp = sap_post_time
--- FROM pdh_staging_ds.sap_temp_table b
--- WHERE a.switch_tran_date   = b.switch_tran_date 
---   AND a.terminal_id        = b.terminal_id
---   AND a.mti                = b.mti
---   AND a.local_timestamp    = b.local_timestamp
---   AND a.pan                = b.pan
---   AND a.transaction_amount = b.transaction_amount
---   AND a.stan               = b.stan
---   AND a.store_id           = b.store_id;
-  
--- UPDATE `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a
---   SET sap_filename = file_name
---      ,sap_post_timestamp = sap_post_time
--- FROM pdh_staging_ds.sap_temp_table b
--- WHERE a.switch_tran_date   = b.switch_tran_date 
---   AND a.terminal_id        = b.terminal_id
---   AND a.mti                = b.mti
---   AND a.local_timestamp    = b.local_timestamp
---   AND a.pan                = b.pan
---   AND a.transaction_amount = b.transaction_amount
---   AND a.stan               = b.stan
---   AND a.store_id           = b.store_id;
-
 --Get batch end datetime based on AEST
 SET batch_end_time = DATETIME_TRUNC(CURRENT_DATETIME("Australia/Sydney"),SECOND);
 
