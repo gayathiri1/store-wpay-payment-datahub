@@ -62,7 +62,14 @@ trqp as (
                                         )) as tran_uid,
            cast(qpt.transactiondate as datetime) as Trans_datetime,
            qpt.file_name,
-           mw.partner_storeid store_id,
+           case 
+              when trim(ifnull(qpt.outletcode,"")) <> "" then upper(trim(ifnull(qpt.outletcode,"")))
+              when upper(trim(qpt.Merchant)) = "PREZZEE-AUS"       then "Q0009"
+              when upper(trim(qpt.Merchant)) = "DIGITAL GLUE"      then "Q0010"
+              when upper(trim(qpt.Merchant)) = "PITSTOP"           then "Q0005"
+              when upper(trim(qpt.Merchant)) = "BLACKHAWK NETWORK" then "Q0012"
+              else null 
+           end as store_id,
            upper(trim(qpt.TransactionType))  as transactiontype,
            "QP" as tran_qualifier,
            abs(ifnull(qpt.Amount,0)) tran_amount,
@@ -71,7 +78,6 @@ trqp as (
       Join `pdh_ref_ds.ref_merchant_settlement_window` mw
          on mw.division_type = "PARTNER"
         and mw.is_active = "Y"
-        and ifnull(mw.partner_storeid,"") <> ""
         and mw.division = upper(trim(qpt.Merchant))
       where QPEnabled = "Y"
         and upper(trim(qpt.TransactionType)) in ("ACTIVATION","CANCELLATION")
@@ -165,6 +171,10 @@ trnd as (
     join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
            on tt.settlement_factor <> 0
           and tt.transaction_type = trn.transactiontype
+          and tt.tran_qualifier = case left(trn.tran_uid,2)
+                                     when "QC" then msw.division_type
+                                     else trn.tran_qualifier
+                                  end
     join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
       on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
       and upper(ifnull(scm.active_flag,"")) <>  "N" 
@@ -179,12 +189,7 @@ trnd as (
                 end
     --  and  trn.Trans_datetime > cast(msw.earliest_lookback_date as datetime)
       and   trn.Trans_datetime
-            <= cast(concat(format_date("%Y-%m-%d",date_add(sys_date, INTERVAL msw.day_lag  + 1 DAY )), "T",
-                     right(concat("0",
-                                  cast(floor(msw.settlement_cutoff/100) as string)
-                                 ),2), ":",
-                     right(cast(msw.settlement_cutoff as string),2)
-                    ,":00") as datetime);
+            < cast(concat(format_date("%Y-%m-%d",sys_date), "T00:00:00") as datetime);
 --
 
 set batch_end_yyyy_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),second);
