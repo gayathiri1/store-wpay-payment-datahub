@@ -1,5 +1,4 @@
 
-
 truncate table pdh_analytics_ds.visa_fee_analysis_rpt ;
 insert into pdh_analytics_ds.visa_fee_analysis_rpt  
 SELECT
@@ -23,6 +22,9 @@ SELECT
   ref_store_details.division AS division,
   ref_store_details.brand AS brand,
   ref_store_details.store_id,
+  ref_store_details.company,
+ ref_store_details.merchant_group,
+ ref_store_details.invoice_group,
   ref_store_details.is_online,
   gfs_aux_visa.processing_code,
   ref_trans_types.abbr,
