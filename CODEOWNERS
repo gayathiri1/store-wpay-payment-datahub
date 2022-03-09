@@ -4,10 +4,12 @@
 # Unless a later match takes precedence,
 # Order is important; the last matching pattern takes the most precedence.
 
-* @rdubey1wx @kknayak1
+* @rdubey1wx @kknayak1 @vtumatiwpay
 
 # Only app owners would be requested when the any files in app floders are modified/added 
 # not the global owners.
-app/* @rdubey1wx @vtumatiwpay
 
-infra/* @kknayak1 @rdubey1wx
+app/* @rdubey1wx @kknayak1 @vtumatiwpay
+
+
+infra/* @kknayak1 @rdubey1wx @vtumatiwpay
