@@ -8,6 +8,8 @@
 
 # Only app owners would be requested when the any files in app floders are modified/added 
 # not the global owners.
+
 app/* @rdubey1wx @kknayak1 @vtumatiwpay
 
-infra/* @kknayak1 @rdubey1wx
+
+infra/* @kknayak1 @rdubey1wx @vtumatiwpay
