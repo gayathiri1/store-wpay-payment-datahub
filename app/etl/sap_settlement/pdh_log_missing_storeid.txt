@@ -212,6 +212,7 @@ trnd as (
            WHEN rsd.store_id is Null then 1
            when rsd.is_closed = true then 1
            when msw.division is null then 1
+           when msw.is_active = "N" then 0
            when scm.wpay_store_number is null then 1
          --  when ifnull(scm.wpay_company_code,"") = "" then 1
            when upper(trim(ifNull(scm.active_flag,"N"))) = "N" then 1
