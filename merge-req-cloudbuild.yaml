@@ -54,7 +54,7 @@ steps:
     # if grep app\/dags\/ /workspace/commitfiles.txt;
     #  then
       echo "*********** Dags sync to bucket: ${_GCS_BUCKET} started ************"
-      gsutil -m rsync -c -r -x "composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
+      gsutil -m rsync -c -r -x "zlibpdh/composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
       echo "*********** Dags sync end ************"
       if [[ $BRANCH_NAME == "preprod" ]];
         then 

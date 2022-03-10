@@ -81,13 +81,13 @@ trqp as (
            end as Trans_datetime,
            qpt.file_name,
            case 
-              when trim(ifnull(qpt.outletcode,"")) <> "" then upper(trim(qpt.outletcode))
+              when trim(ifnull(qpt.outletcode,"")) <> "" then upper(trim(ifnull(qpt.outletcode,"")))
               when upper(trim(qpt.Merchant)) = "PREZZEE-AUS"       then "Q0009"
               when upper(trim(qpt.Merchant)) = "DIGITAL GLUE"      then "Q0010"
               when upper(trim(qpt.Merchant)) = "PITSTOP"           then "Q0005"
               when upper(trim(qpt.Merchant)) = "BLACKHAWK NETWORK" then "Q0012"
               else null 
-           end store_id,
+           end as store_id,
            upper(trim(qpt.TransactionType))  as transactiontype,
            "QP" as tran_qualifier,
            ifnull(qpt.Amount,0) tran_amount,
@@ -97,15 +97,6 @@ trqp as (
       Join `pdh_ref_ds.ref_merchant_settlement_window` mw
          on mw.division_type = "PARTNER"
         and mw.is_active = "Y"
-        and ifnull(
-           case 
-              when trim(ifnull(qpt.outletcode,"")) <> "" then upper(trim(qpt.outletcode))
-              when upper(trim(qpt.Merchant)) = "PREZZEE-AUS"       then "Q0009"
-              when upper(trim(qpt.Merchant)) = "DIGITAL GLUE"      then "Q0010"
-              when upper(trim(qpt.Merchant)) = "PITSTOP"           then "Q0005"
-              when upper(trim(qpt.Merchant)) = "BLACKHAWK NETWORK" then "Q0012"
-              else cast(null as string)
-           end  ,"") <> ""
         and mw.division = upper(trim(qpt.Merchant))
       where QPEnabled = "Y"
         and upper(trim(qpt.TransactionType)) in ("ACTIVATION","CANCELLATION")
@@ -219,7 +210,7 @@ trnd as (
           and tt.tran_qualifier = case left(trn.tran_uid,2)
                                      when "QC" then msw.division_type
                                      else trn.tran_qualifier
-                                  end 
+                                  end
     join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
       on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
       and upper(ifnull(scm.active_flag,"")) <>  "N" 
@@ -235,8 +226,7 @@ trnd as (
                 end
       and  trn.Trans_datetime > cast(msw.earliest_date as datetime)
       and   trn.Trans_datetime
-            < cast(concat(format_date("%Y-%m-%d",sys_date), 
-                           "T00:00:00") as datetime);
+            < cast(concat(format_date("%Y-%m-%d",sys_date), "T00:00:00") as datetime);
 --
 set batch_end_yyyy_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),second);
 --Allways Create CSV Input Header
