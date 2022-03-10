@@ -52,6 +52,7 @@ WITH result AS (
     AND acquirer_institution_id = '000050000'
     AND TRIM(issuer) <> ''
     AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
+	AND action_code <> '902'
 )
 SELECT * FROM (
     SELECT * FROM result
