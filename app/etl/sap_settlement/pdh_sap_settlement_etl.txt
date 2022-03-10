@@ -14,7 +14,7 @@ declare batch_end_yyyymmddhhmmss string;
 Declare min_tran_time datetime;
 Declare max_tran_time datetime;
 
-declare interfaceidentifier string DEFAULT "WPAYFGSST";
+declare interfaceidentifier string DEFAULT "WPAYGFSST";
 declare postingfilename string;
 --Get next Batch Number
 CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
@@ -58,9 +58,31 @@ end if;
                end as f12
          from `pdh_analytics_ds.stlm_standard_settlement_table` std
          join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
-               on upper(trim(scm.wpay_store_number)) = std.store_id
-               and upper(ifnull(scm.active_flag,"")) <> "N" 
-         where std.setlmnt_result_file is null)
+                on upper(trim(scm.wpay_store_number)) = std.store_id
+               and upper(ifnull(scm.active_flag,"N")) <> "N" 
+         where std.setlmnt_result_file is null
+         Union all select 
+               cast("C" as string)  as f01,
+               scm.merchant_organisation_id as f02,
+               scm.merchant_store_name as f03,
+               scm.merchant_store_number as f04,
+               scm.sap_customer_number as f06,
+               std.store_id f07, 
+               scm.wpay_store_number as f08,
+               std.discount_amt * 100 as f09,
+               scm.currency_code as f10,
+               cast(std.transaction_timestamp as date) as f11,
+               case std.order_number
+                  when "" then null
+                  else order_number
+               end as f12
+         from `pdh_analytics_ds.stlm_standard_settlement_table` std
+         join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+                on upper(trim(scm.wpay_store_number)) = std.store_id
+               and upper(ifnull(scm.active_flag,"N")) <> "N" 
+         where std.setlmnt_result_file is null
+           and ifnull(std.discount_amt,0) <> 0
+           )
          select f01, f02, f03,f04, 
                  cast(null as string) as f05,f06,f07,f08,
                  cast(cast(round(sum(f09),0) as int64) as string) as f09,
@@ -87,10 +109,10 @@ end if;
         select batch_end_mm_dd_hh_mm_ss, *
         from `pdh_analytics_ds.stlm_settlement_result`;
 --   
---Insert audit batch records if detail exists
+--Insert audit batch records if detail exists add store_id
      insert into `pdh_analytics_ds.audit_stlm_batch`
       (batchnumber, division, record_type, batch_start,	batch_end, filename, posting_file_name,	cutoff_start, cutoff_end,
-       	first_trans_time,last_trans_time, no_trans_posted,amount_posted, comment, datetime_created,created_by)
+       	first_trans_time,last_trans_time, no_trans_posted,amount_posted, comment, datetime_created,created_by,discount_amount)
       select batch,
              std.division,
              record_type,
@@ -103,19 +125,23 @@ end if;
                     when msw.last_execution_time is null then "1900-01-01T00:00:00"
                     else msw.last_execution_time
                  end),
-              max(cast(concat(format_date("%Y-%m-%d",date_add(sys_date, INTERVAL msw.day_lag DAY)), "T",
-                              right(concat("0",
-                                  cast(floor(msw.settlement_cutoff/100) as string)
-                                 ),2), ":",
-                              right(cast(msw.settlement_cutoff as string),2)
-                             ,":00") as datetime)),
+             max(cast(case left(std.tran_uid,2) 
+                         when "QP" then concat(format_date("%Y-%m-%d",sys_date + msw.day_lag - 1),
+                                               "T23:59:59")
+                         else concat(format_date("%Y-%m-%d",sys_date + msw.day_lag), "T",
+                                          left(rpad(cast(msw.settlement_cutoff as string),6,"0"),2), ":",
+                                     substring(rpad(cast(msw.settlement_cutoff as string),6,"0"),3,2), ":",
+                                         right(rpad(cast(msw.settlement_cutoff as string),6,"0"),2))
+                     end as datetime)),
+
              cast(format_datetime("%Y-%m-%dT%H:%M:%S",min(std.transaction_timestamp)) as datetime),
              cast(format_datetime("%Y-%m-%dT%H:%M:%S",max(std.transaction_timestamp)) as datetime),
              count(*), 
              round(sum(tran_settlement_amount),2),
              max("processd transaction after cutoff_stat up to cutoff_end"),
              cast(format_date("%Y-%m-%dT%H:%M:%S", current_datetime("Australia/Sydney")) as datetime),
-             "Settlement Process"
+             "Settlement Process",
+             round(sum(ifnull(std.discount_amt,0)),2)
       from `pdh_analytics_ds.stlm_standard_settlement_table` std
       join `pdh_ref_ds.ref_merchant_settlement_window` msw
          on msw.is_active = "Y"
@@ -137,7 +163,196 @@ end if;
          from (
                select left(tran_uid,2) source,division, max(transaction_timestamp) max_transaction_timestamp
                from `pdh_analytics_ds.stlm_standard_settlement_table`
-               --where ifnull(setlmnt_result_file,"") = ""
+               where ifnull(setlmnt_result_file,"") = ""
+               group by left(tran_uid,2), division) std1
+         group by std1.division) std2
+   where upper(trim(msw.division)) = std2.division;
+--
+ --Always Insert csv output control
+   set (min_tran_time,max_tran_time) = (select AS STRUCT datetime_trunc(min(transaction_timestamp),SECOND),
+                                                         datetime_trunc(max(transaction_timestamp),SECOND)
+                                        from `pdh_analytics_ds.stlm_standard_settlement_table`
+                                        where setlmnt_result_file is null); 
+   insert into pdh_analytics_ds.file_gen_details 
+         values( batch,
+                 cast(batch_end_datetime as date), 
+                 "sapsettlement", true, null, 
+                 ifnull(min_tran_time,batch_end_mm_dd_hh_mm_ss),
+                 ifnull(max_tran_time,batch_end_mm_dd_hh_mm_ss), 
+                 batch_end_mm_dd_hh_mm_ss,
+                 null);
+ --
+--update generic settlement table if detail exists
+   update `pdh_analytics_ds.stlm_standard_settlement_table`
+         set setlmnt_result_file = postingfilename,
+             last_update_datetime = batch_end_mm_dd_hh_mm_ss, 
+             posting_date = cast(batch_end_datetime as date) 
+      where setlmnt_result_file is null; --Perform SAP Settlement Add store_id to audit_batch
+declare sys_date date default current_date("Australia/Sydney");
+declare str_sysdate string default cast(sys_date as string);
+declare strt_settlement datetime default current_datetime("Australia/Sydney");
+--
+DECLARE inp_lookup STRING DEFAULT "Sap Settlement";
+DECLARE batch string;
+--
+declare batch_start_datetime datetime default current_datetime("Australia/Sydney");
+declare batch_end_datetime datetime;
+declare batch_start_mm_dd_hh_mm_ss datetime;
+declare batch_end_mm_dd_hh_mm_ss datetime;
+declare batch_end_yyyymmddhhmmss string;
+Declare min_tran_time datetime;
+Declare max_tran_time datetime;
+
+declare interfaceidentifier string DEFAULT "WPAYGFSST";
+declare postingfilename string;
+--Get next Batch Number
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+if (ifnull(batch,"") in ("NOContRec","UpdFailed"))  then
+    return;
+end if; 
+--             
+--perform settlement
+   set batch_end_datetime = current_datetime("Australia/Sydney");
+   set batch_end_yyyymmddhhmmss = format_date("%Y%m%d%H%M%S",  batch_end_datetime);
+   set postingfilename = concat(interfaceidentifier,"_",batch_end_yyyymmddhhmmss);
+   set batch_end_mm_dd_hh_mm_ss = cast(format_date("%Y-%m-%dT%H:%M:%S",  batch_end_datetime) as datetime);
+   set batch_start_mm_dd_hh_mm_ss = cast(format_date("%Y-%m-%dT%H:%M:%S", batch_start_datetime) as datetime);
+   --
+   --Always Create CSV Header 
+   truncate table `pdh_analytics_ds.stlm_settlement_result`;
+   insert into `pdh_analytics_ds.stlm_settlement_result`
+      (f01,f02,f03,f04,f05)
+       values ("H",interfaceidentifier,left(batch_end_yyyymmddhhmmss,8),
+                                               right(batch_end_yyyymmddhhmmss,6),
+                                               postingfilename);
+ -- 
+ --Create CSV Details if exists
+   insert into `pdh_analytics_ds.stlm_settlement_result` 
+       (f01,f02,f03,f04,f05,f06,f07,f08,f09,f10,f11,f12,f13)
+       with dtl as (
+           select 
+               cast(std.record_type as string)  as f01,
+               scm.merchant_organisation_id as f02,
+               scm.merchant_store_name as f03,
+               scm.merchant_store_number as f04,
+               scm.sap_customer_number as f06,
+               std.store_id f07, 
+               scm.wpay_store_number as f08,
+               std.tran_settlement_amount * 100 as f09,
+               scm.currency_code as f10,
+               cast(std.transaction_timestamp as date) as f11,
+               case std.order_number
+                  when "" then null
+                  else order_number
+               end as f12
+         from `pdh_analytics_ds.stlm_standard_settlement_table` std
+         join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+                on upper(trim(scm.wpay_store_number)) = std.store_id
+               and upper(ifnull(scm.active_flag,"N")) <> "N" 
+         where std.setlmnt_result_file is null
+         Union all select 
+               cast("C" as string)  as f01,
+               scm.merchant_organisation_id as f02,
+               scm.merchant_store_name as f03,
+               scm.merchant_store_number as f04,
+               scm.sap_customer_number as f06,
+               std.store_id f07, 
+               scm.wpay_store_number as f08,
+               std.discount_amt * 100 as f09,
+               scm.currency_code as f10,
+               cast(std.transaction_timestamp as date) as f11,
+               case std.order_number
+                  when "" then null
+                  else order_number
+               end as f12
+         from `pdh_analytics_ds.stlm_standard_settlement_table` std
+         join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+                on upper(trim(scm.wpay_store_number)) = std.store_id
+               and upper(ifnull(scm.active_flag,"N")) <> "N" 
+         where std.setlmnt_result_file is null
+           and ifnull(std.discount_amt,0) <> 0
+           )
+         select f01, f02, f03,f04, 
+                 cast(null as string) as f05,f06,f07,f08,
+                 cast(cast(round(sum(f09),0) as int64) as string) as f09,
+                 f10,
+                 format_date("%Y%m%d",f11) as f11,
+                 f12,
+                 "/" as f13
+          from dtl
+          group by f01,f02,f03,f04,f06,f07,f08,f10,f11,f12;
+--
+--Always create CSV Trailor
+    insert into `pdh_analytics_ds.stlm_settlement_result` 
+       (f01,f02,f03,f04)
+        Select 
+           "T",
+           ifnull(cast(Count(*) as string),"0"),
+           ifnull(cast(Sum(cast(f09 as int64)) as string),"0"),
+            "/"
+        From `pdh_analytics_ds.stlm_settlement_result`
+        where f01 <> "H";
+   --  
+   -- Copy CSV inout to History
+     insert into `pdh_analytics_ds.stlm_settlement_result_history`
+        select batch_end_mm_dd_hh_mm_ss, *
+        from `pdh_analytics_ds.stlm_settlement_result`;
+--   
+--Insert audit batch records if detail exists add store_id
+     insert into `pdh_analytics_ds.audit_stlm_batch`
+      (batchnumber, division, record_type, batch_start,	batch_end, filename, posting_file_name,	cutoff_start, cutoff_end,
+       	first_trans_time,last_trans_time, no_trans_posted,amount_posted, comment, datetime_created,created_by,discount_amount)
+      select batch,
+             std.division,
+             record_type,
+             batch_start_mm_dd_hh_mm_ss,
+             batch_end_mm_dd_hh_mm_ss,
+             filename,
+             postingfilename,
+             min( 
+                 case 
+                    when msw.last_execution_time is null then "1900-01-01T00:00:00"
+                    else msw.last_execution_time
+                 end),
+             max(cast(case left(std.tran_uid,2) 
+                         when "QP" then concat(format_date("%Y-%m-%d",sys_date + msw.day_lag - 1),
+                                               "T23:59:59")
+                         else concat(format_date("%Y-%m-%d",sys_date + msw.day_lag), "T",
+                                          left(rpad(cast(msw.settlement_cutoff as string),6,"0"),2), ":",
+                                     substring(rpad(cast(msw.settlement_cutoff as string),6,"0"),3,2), ":",
+                                         right(rpad(cast(msw.settlement_cutoff as string),6,"0"),2))
+                     end as datetime)),
+
+             cast(format_datetime("%Y-%m-%dT%H:%M:%S",min(std.transaction_timestamp)) as datetime),
+             cast(format_datetime("%Y-%m-%dT%H:%M:%S",max(std.transaction_timestamp)) as datetime),
+             count(*), 
+             round(sum(tran_settlement_amount),2),
+             max("processd transaction after cutoff_stat up to cutoff_end"),
+             cast(format_date("%Y-%m-%dT%H:%M:%S", current_datetime("Australia/Sydney")) as datetime),
+             "Settlement Process",
+             round(sum(ifnull(std.discount_amt,0)),2)
+      from `pdh_analytics_ds.stlm_standard_settlement_table` std
+      join `pdh_ref_ds.ref_merchant_settlement_window` msw
+         on msw.is_active = "Y"
+        and msw.division = std.division
+      where std.setlmnt_result_file is null
+      group by std.division,
+               std.record_type,
+               batch_start_mm_dd_hh_mm_ss,
+               batch_end_mm_dd_hh_mm_ss,
+               std.filename,
+               postingfilename,
+               cast(format_date("%Y-%m-%dT%H:%M:%S", current_datetime("Australia/Sydney")) as datetime);
+--
+--update settlement window if detail exists
+   update `pdh_ref_ds.ref_merchant_settlement_window` msw
+       set msw.last_execution_time = std2.min_transaction_timestamp,
+           msw.last_updated_datetime = DATETIME_TRUNC(CURRENT_DATETIME("Australia/Sydney"),SECOND)
+   from (select std1.division, min(std1.max_transaction_timestamp) min_transaction_timestamp
+         from (
+               select left(tran_uid,2) source,division, max(transaction_timestamp) max_transaction_timestamp
+               from `pdh_analytics_ds.stlm_standard_settlement_table`
+               where ifnull(setlmnt_result_file,"") = ""
                group by left(tran_uid,2), division) std1
          group by std1.division) std2
    where upper(trim(msw.division)) = std2.division;
