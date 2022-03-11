@@ -136,6 +136,7 @@ dn.inst_id_recn_acq_b,
 dn.card_acpt_name_loc,
 dn.proc_id_iss_b,
 dn.issuer_institution_id,
+dn.inst_id_recon_iss_name,
 dn.card_owner,
 dn.pos_crd_dat_in_mod,
 dn.pos_crdhldr_presnt,
@@ -173,12 +174,14 @@ when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account
 else proc_id_iss_b
 end link_route,
 i.merchant_group,
-s.ratecard_group rate_group
+s.ratecard_group rate_group,
+c.cur_symbol currency_code
 from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn  
 Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
 left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
 JOIN `pdh_ref_ds.ref_inst_id_config` i on dn.inst_id_recn_acq_b = i.merchant_institution_id AND i.active = 'TRUE'
 LEFT JOIN `pdh_ref_ds.ref_store_details` s ON LEFT(dn.net_term_id, 5) = s.store_id 
+LEFT JOIN `pdh_ref_ds.ref_currency_code` c ON dn.currency_code = c.currency_code
 WHERE (i.merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC")
 OR i.merchant_type = 'SMALL')
 AND cast(dn.tstamp_trans as date) >= start_date AND cast(dn.tstamp_trans as date) <= end_date
@@ -227,6 +230,7 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
     MerchantName card_acpt_name_loc,
     null proc_id_iss_b,
     null issuer_institution_id,
+	null inst_id_recon_iss_name,
     null card_owner,
     null pos_crd_dat_in_mod,
     '0' pos_crdhldr_presnt,
@@ -251,7 +255,8 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
         WHEN 'PAYPAL' THEN 'PAYPAL' 
     end link_route,
     i.merchant_group,
-    s.ratecard_group rate_group
+    s.ratecard_group rate_group,
+	NULL currency_code
     FROM `pdh_rd_data_navigator.digitalpay_gc_txns` d
 JOIN (SELECT DISTINCT dpay_gc_group, merchant_group, rate_group FROM `pdh_ref_ds.ref_inst_id_config` WHERE (merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC") OR merchant_type = 'SMALL') AND active = 'TRUE') i
     ON TRIM(d.MerchantName) = i.dpay_gc_group
@@ -300,6 +305,7 @@ Select
     null card_acpt_name_loc,
     null proc_id_iss_b,
     null issuer_institution_id,
+	null inst_id_recon_iss_name,
     null card_owner,
     case trim(CardEntryMode)
 		When 'Swiped' Then '2'
@@ -343,7 +349,8 @@ Select
 		When 'ENDEAVOUR' THEN 'ENDEAVOUR'
 		Else ''
 	end	merchant_group, -- NEED TO CHECK WHAT THIS IS USED FOR
-    s.ratecard_group rate_group
+    s.ratecard_group rate_group,
+	NULL currency_code
     FROM `pdh_rd_quickcilver.qc_detail_transactions` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     (
@@ -615,6 +622,7 @@ END IF;
 INSERT INTO `pdh_analytics_ds.tbl_edg_fees_rpt`
 SELECT
    switch_tran_date,
+   tran_uid,
    FORMAT_TIMESTAMP('%Y%m%d%H%M%S00', tstamp_trans) switch_timestamp,
    FORMAT_TIMESTAMP('%Y%m%d%H%M%S', tstamp_local) local_timestamp,
    LEFT(i.net_term_id,5) store_id,
@@ -630,6 +638,7 @@ SELECT
    inst_id_recn_acq_b acquirer_institution_id,
    proc_id_iss_b issuer,
    issuer_institution_id issuer_institution_id,
+   inst_id_recon_iss_name,
    CAST(mti AS INT64) mti,
    card_owner,
    order_number transaction_desc,
@@ -687,7 +696,8 @@ SELECT
 	m.country,
 	null sap_filename,
 	null sap_post_timestamp,
-	fy_start_date
+	fy_start_date,
+	currency_code
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -719,6 +729,7 @@ END IF;
 INSERT INTO `pdh_analytics_ds.tbl_egfuel_fees_rpt`
 SELECT
    switch_tran_date,
+   tran_uid,
    FORMAT_TIMESTAMP('%Y%m%d%H%M%S00', tstamp_trans) switch_timestamp,
    --2021030219355774
    FORMAT_TIMESTAMP('%Y%m%d%H%M%S', tstamp_local) local_timestamp,
@@ -735,6 +746,7 @@ SELECT
    inst_id_recn_acq_b acquirer_institution_id,
    proc_id_iss_b issuer,
    issuer_institution_id issuer_institution_id,
+   inst_id_recon_iss_name,
    CAST(mti AS INT64) mti,
    card_owner,
    order_number transaction_desc,
@@ -792,7 +804,8 @@ SELECT
     m.country,
 	null sap_filename,
 	null sap_post_timestamp,
-	fy_start_date
+	fy_start_date,
+	currency_code
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -822,8 +835,9 @@ IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_sml_merchant`) 
 END IF;
 
 INSERT INTO `pdh_analytics_ds.tbl_sml_merchant_fees_rpt`
-SELECT  ---TRAN_UID to be added
+SELECT
    switch_tran_date,
+   tran_uid,
    FORMAT_TIMESTAMP('%Y%m%d%H%M%S00', tstamp_trans) switch_timestamp,
    --2021030219355774
    FORMAT_TIMESTAMP('%Y%m%d%H%M%S', tstamp_local) local_timestamp,
@@ -840,6 +854,7 @@ SELECT  ---TRAN_UID to be added
    inst_id_recn_acq_b acquirer_institution_id,
    proc_id_iss_b issuer,
    issuer_institution_id issuer_institution_id,
+   inst_id_recon_iss_name,
    CAST(mti AS INT64) mti,
    card_owner,
    order_number transaction_desc,
@@ -897,7 +912,8 @@ SELECT  ---TRAN_UID to be added
 	m.country,
     null sap_filename,
     null sap_post_timestamp,
-    fy_start_date
+    fy_start_date,
+	currency_code
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
