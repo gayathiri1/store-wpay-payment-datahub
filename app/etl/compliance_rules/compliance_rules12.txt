@@ -1,0 +1,154 @@
+--Rule12
+Declare backMonth INT64 Default -15;
+DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
+DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
+if Exists(Select File_Date 
+          From `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          Where File_Date  = Current_Date("Australia/Sydney") - 1
+          Limit 1) Then
+--
+Truncate Table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule12_Output`;
+Insert into `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule12_Output` 
+--
+With  TrnDET as (
+         Select Upper(Trim(Case 
+                     When IFNUll(rc0.Merchant_to_report,"") <> "" then rc0.Merchant_to_report
+                     Else mh.division
+                  End)) as Merchant,
+                  DATE_TRUNC(Date(tstamp_local),month) as FirstOfMonth,
+                  1 as Count_Card_Present,
+                  Case
+                         When trn.pos_crd_dat_in_mod	in ("B","C") then 1
+                         Else 0
+                      End Count_Tech_Fallback
+           FROM `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface` trn
+           Join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.ref_store_details` mh 
+                on left(trn.Net_Term_ID,5) = mh.store_id 
+               and mh.division is not Null 
+               and mh.division <> "" 
+           left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc0
+                   on rc0.Rule_ID = 0
+                  and rc0.Attribute ="Merge" 
+                  and Upper(Trim(rc0.Merchant)) = Upper(Trim(mh.division))
+           Where IfNull(trn.Net_Term_ID,"") <> ""
+             and trn.pos_crdhldr_presnt = "0"
+             and Date(trn.tstamp_local) >= StartDate 
+             and Date(trn.tstamp_local) < EndDate
+),
+TrnSum as (
+           Select Merchant,
+                  FirstOfMonth,
+                  Sum(Count_Card_Present) Count_Card_Present,
+                  Sum(Count_Tech_Fallback) Count_Tech_Fallback
+           FROM trnDET
+           Group By Merchant,
+                  FirstOfMonth
+             ),
+ History_Combined as ( 
+      Select Upper(Trim(Case 
+                When cp_hist.Merchant is Null then tfb_hist.Merchant
+                ELSE cp_hist.Merchant
+             End)) Merchant,
+             Case
+                When cp_hist.FirstOfMonth is Null then tfb_hist.FirstOfMonth
+                Else cp_hist.FirstOfMonth
+             End FirstOfMonth,
+             IFNULL(cp_hist.Count_card_presnt,0) as Count_Card_Present,
+             IFNULL(tfb_hist.Count_card_Presnt,0) as Count_Tech_Fallback
+     From `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Card_Present_Count_History` cp_hist 
+     Full Join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Technical_Fallback_Count_History` tfb_hist 
+           On Upper(Trim(tfb_hist.Merchant)) = Upper(Trim(cp_hist.Merchant))
+          and tfb_hist.FirstOfMonth = cp_hist.FirstOfMonth
+          ),
+ HistGrouped As (
+    Select Case 
+              When IFNUll(rc00.Merchant_to_report,"") <> "" then Upper(Trim(rc00.Merchant_to_report))
+              Else hist.Merchant
+           End as Merchant,
+           hist.FirstOfMonth,
+           hist.Count_card_present,
+           hist.Count_Tech_Fallback
+    From History_Combined hist
+    left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc00
+                   on rc00.Rule_ID = 0
+                  and rc00.Attribute ="Merge" 
+                  and Upper(Trim(rc00.Merchant)) = hist.Merchant
+ ),
+ HistSum as (
+           Select Merchant,
+                  FirstOfMonth,
+                  Sum(Count_Card_Present) Count_Card_Present,
+                  Sum(Count_Tech_Fallback) Count_Tech_Fallback
+           FROM HistGrouped
+           Group By Merchant,
+                  FirstOfMonth
+             ),
+ Monthly_Combined as ( 
+      Select Case 
+                When hs.Merchant is Null then mct.Merchant
+                Else hs.Merchant
+             End Merchant,
+             Case
+                When hs.FirstOfMonth is Null then mct.FirstOfMonth
+                Else hs.FirstOfMonth
+             End FirstOfMonth,
+             Case
+                When IFNULL(hs.Count_card_present,0) <> 0 then hs.Count_card_present
+                Else IfNull(mct.Count_Card_Present,0)
+            End Count_Card_Present,
+            Case
+                When IFNULL(hs.Count_Tech_Fallback,0) <> 0 then hs.Count_Tech_Fallback
+                Else ifNull(mct.Count_Tech_Fallback,0)
+            End Count_Tech_Fallback
+     From TrnSum mct
+     Full Join HistSum hs 
+           On hs.Merchant = mct.Merchant
+          and hs.FirstOfMonth = mct.FirstOfMonth
+           )
+    Select m.Merchant,
+           m.FirstOfMonth,
+           m.Count_Card_Present,
+           m.Count_Tech_Fallback,
+           Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Count_Card_Present,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Count_Card_Present,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Count_Card_Present,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Count_Card_Present,0) + 
+                 IFNULL(p2.Count_Card_Present,0) + 
+                 IFNULL(p3.Count_Card_Present,0)) * 1.0 /
+                    ((Case When IFNULL(p1.Count_Card_Present,0) = 0 then 0 Else 1 End) +
+                     (Case When IFNULL(p2.Count_Card_Present,0) = 0 then 0 Else 1 End) +
+                     (Case When IFNULL(p3.Count_Card_Present,0) = 0 then 0 Else 1 End))
+          End As Rollin_avg_CP,
+          Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Count_Tech_Fallback,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Count_Tech_Fallback,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Count_Tech_Fallback,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Count_Tech_Fallback,0) + 
+                 IFNULL(p2.Count_Tech_Fallback,0) + 
+                 IFNULL(p3.Count_Tech_Fallback,0)) * 1.0 /
+                    ((Case When IFNULL(p1.Count_Tech_Fallback,0) = 0 then 0 Else 1 End) +
+                     (Case When IFNULL(p2.Count_Tech_Fallback,0) = 0 then 0 Else 1 End) +
+                     (Case When IFNULL(p3.Count_Tech_Fallback,0) = 0 then 0 Else 1 End))
+          End As Rollin_avg_TFB,
+          rc1.value * 0.01 as Threshold1,
+          rc2.value * 0.01 as Threshold2,
+          Current_Datetime() As Datetime_Created
+   From Monthly_Combined m
+   Left Join Monthly_Combined p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
+   Left Join Monthly_Combined p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
+   Left Join Monthly_Combined p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
+     left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc1
+            on rc1.Rule_ID = 12
+           and rc1.Attribute ="Ratio_Technical Fallback per month to Average Technical Fallback last 3 months_Low"
+  left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc2
+            on rc2.Rule_ID = 12
+           and rc2.Attribute ="Ratio_Technical Fallback per month to Average Technical Fallback last 3 months_High"
+  Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate;
+End if
