@@ -9,8 +9,8 @@ declare min_transaction_timestamp datetime;
 declare max_transaction_timestamp datetime;
 --
 Declare LKEnabled string default      
-   (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` 
-    where data_source = "LK");
+   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
+    where data_source = "LK"),"N");
 Declare QCEnabled string default          
    ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
            where data_source = "QC"),"N") ;
