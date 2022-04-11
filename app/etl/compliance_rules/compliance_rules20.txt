@@ -1,0 +1,96 @@
+--Rule 20 Deposit(Settlement amount) by Merchant by Month
+Declare backMonth INT64 Default -15;
+DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
+DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
+Declare Sys_Datetime Datetime DEFAULT Current_Date("Australia/Sydney");
+--
+if Exists(Select File_Date 
+          From `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          Where File_Date  = Current_Date("Australia/Sydney") - 1
+          Limit 1) Then
+--
+Insert into `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule20_Bkup`
+   Select * From `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule20_Output`
+   Where Date(Datetime_created) < Current_Date("Australia/Sydney");
+--
+Truncate Table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule20_Output`;
+Insert into    `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule20_Output` 
+--
+With Monthly As ( 
+   SELECT Merchant,
+          FirstOfMonth,
+   	    Sum(Settlement_amount) as Deposit_Value 
+   FROM `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.BillingTrnByMerchantScheme` 
+   Where FirstOfMonth >= StartDate and FirstOfMonth < EndDate
+   Group By Merchant,
+            FirstOfMonth),
+    History_Grouped as (
+       Select Upper(Trim(Case 
+                          When IFNUll(rc00.Merchant_to_report,"") <> "" then rc00.Merchant_to_report
+                          Else hist.Merchant
+                       End)) as Merchant,
+              hist.FirstOfMonth,
+              hist.Deposit_Value
+       From `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Deposit_History` hist
+       left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc00
+                   on upper(trim(rc00.Merchant)) =  upper(trim(hist.Merchant))
+               and rc00.Rule_ID = 22
+               and rc00.Attribute = "Total_Transaction volume per scheme for each merchant_CARD PRESENT"),
+   HistorySum As (
+      Select Merchant, FirstOfMonth, sum(Deposit_Value) as Deposit_Value
+      From History_Grouped
+      Group By  Merchant, FirstOfMonth),
+    Month_Combined as ( 
+      Select Case 
+                When hist.Merchant is Null then mct.Merchant
+                Else hist.Merchant
+             End as Merchant,
+             Case
+                When hist.FirstOfMonth is  Null then mct.FirstOfMonth
+                Else hist.FirstOfMonth
+             End as FirstOfMonth,
+             Case
+                When IFNULL(hist.Deposit_Value,0) = 0 then IFNull(mct.Deposit_Value,0)
+                Else IfNull(hist.Deposit_Value,0) * 1000000
+             End as Deposit_Value
+     From Monthly  mct
+     Full Join HistorySum hist 
+           On hist.Merchant = mct.Merchant
+          and hist.FirstOfMonth = mct.FirstOfMonth
+           )
+      Select m.Merchant,
+           m.FirstOfMonth,
+           m.Deposit_Value,
+           Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Deposit_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Deposit_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Deposit_Value,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Deposit_Value,0) + 
+                 IFNULL(p2.Deposit_Value,0) + 
+                 IFNULL(p3.Deposit_Value,0)) * 1.0 /
+                    ((Case When IFNULL(p1.Deposit_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Deposit_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Deposit_Value,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon,
+          rc1.value * 0.01 as Threshold1,
+          rc2.value * 0.01 as Threshold2,
+          Sys_Datetime as Datetime_Created
+   From Month_Combined m
+   Left Join Month_Combined p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
+   Left Join Month_Combined p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
+   Left Join Month_Combined p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
+   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc1
+            on rc1.Rule_ID = 20
+            and rc1.Merchant = "Default"
+           and Trim(rc1.Attribute) ="Ratio_Deposit per month to Average transactionslast 3 months_Low"
+   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc2
+            on rc2.Rule_ID = 20
+           and rc2.Merchant = "Default"
+           and Trim(rc2.Attribute) ="Ratio_Deposit per month to Average transactionslast 3 months_High"
+   Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate;
+--
+End if
