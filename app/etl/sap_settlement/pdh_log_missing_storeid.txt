@@ -1,12 +1,25 @@
---Log missing Store Information Activate Alipay, Everydaypay(Block), Add duplicate check
+--Log missing Store Information_Split By company 
 declare sys_datetime datetime default
  cast(format_datetime("%Y-%m-%dT%H:%M:%S",current_datetime("Australia/Sydney")) as datetime);
 declare sys_date date DEFAULT current_date("Australia/Sydney");
 DECLARE inp_lookup STRING DEFAULT "MST Settlement";
-Declare AlipayEnabled string default (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "LK");
-Declare QCEnabled string default (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "QC");
-Declare DigiPayEnabled string default (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "DP");
-Declare QPEnabled string default (Select ifnull(enabled,"N") from `pdh_ref_ds.ref_settlement_Sources` where data_source = "QP");
+--
+Declare AlipayEnabled string default      
+   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
+           where data_source = "LK"),"N");
+Declare QCEnabled string default          
+   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
+           where data_source = "QC"),"N") ;
+Declare DigiPayEnabled string default 
+   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
+           where data_source = "DP"),"N") ;
+Declare QPEnabled string default          
+   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
+           where data_source = "QP"),"N") ;
+Declare EDEnabled string default          
+   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
+           where data_source = "ED"),"N");         
+--
 --Select AlipayEnabled LK,DigiPayEnabled as DP, QCEnabled QC, QPEnabled as QP;
 
 DECLARE batch string;
@@ -22,7 +35,7 @@ Where create_by = "Settlement Process";
 --Add Missing Store Details
 insert into `pdh_analytics_ds.sap_missing_store_log`
 (batchnumber,store_id,switch_tran_date,comment,create_datetime,create_by,data_source,division, transaction_datetime )
-with trnq as (
+with trqc as (
      Select concat("QC_",trim(ifnull(qct.ApprovalCode,"Null")),"_",
                    trim(ifnull(qct.ReferenceNumber,"Null")),"_",
                    cast(ifnull(qct.BatchNumber,0) as string),"_",
@@ -42,16 +55,19 @@ with trnq as (
                            when qct.transactiontime is null then "00:00:00"
                            else format_time("%H:%M:%S",qct.transactiontime)
                         end) as datetime)  as transaction_timestamp,
-            case
-               when ifnull(qct.outletcode,"") <> "" then upper(trim(qct.outletcode))
+            case 
+               when ifnull(qct.outletcode,"") <>  "" then upper(trim(qct.outletcode))
                when (upper(trim(qct.descriptive_outlet_name)) = "SAP HYBRIS" and
-                    upper(left(trim(qct.issuer),20)) = "WOOLWORTHS GROUP LTD") then "W5975"
-               else cast(Null as string)
-            end store_id,
+                     upper(left(trim(qct.issuer),20))  = "WOOLWORTHS GROUP LTD") 
+                     then "W5975"
+               when upper(trim(qct.outlet)) in ("COUNTDOWN QWIKSERV","COUNTDOWN-SERVICES") 
+                    and upper(trim(qct.issuer)) = "WOOLWORTHS NEW ZEALAND LIMITED" 
+                    then "N9999"
+               else cast(null as string)
+            end  store_id,
             upper(trim(qct.transactiontype)) as transactiontype,
             "" as tran_qualifier
       from `pdh_rd_quickcilver.qc_detail_transactions`  qct
-           --`pdh_staging_ds.qc_detail_transactions`  qct  --DEV
       left Join `pdh_ref_ds.ref_merchant_settlement_window` mw
               on mw.division_type = "PARTNER"
              and mw.division = upper(trim(qct.Merchant))
@@ -62,7 +78,15 @@ with trnq as (
   ),
 trqp as (
      Select concat("QP_",trim(ifnull(qpt.InvoiceNumber,"Null")),"_",
-                         trim(ifnull(qpt.CardNumber,"Null")),"_",
+                         case 
+                            when qpt.CardNumber is Null then "NULL"
+                            when length(trim(qpt.CardNumber)) < 10 then trim(qpt.CardNumber)
+                            else concat(left(trim(qpt.CardNumber),6),
+                                   repeat("*",length(trim(qpt.CardNumber)) - 9),
+                                   right(trim(qpt.CardNumber),3)
+                                       )
+                         end,"_",
+                         upper(trim(qpt.TransactionType)), "_",
                          case 
                             when qpt.TransactionDate is null then "19000101T000000"
                             else format_datetime("%Y%m%dT%H%M%S",
@@ -91,20 +115,13 @@ trqp as (
    and upper(trim(qpt.TransactionType)) in ("ACTIVATION","CANCELLATION")
    and (ifnull(qpt.Amount,0) <> 0 or ifnull(qpt.DiscountValue,0) <> 0)
     ), 
-trnd as (
+trdp as (
  Select concat("DP_",trim(txnRef)) as tran_uid,
         case 
            when txnTime is null then cast("1900-01-01T00:00:00" as datetime)
            else DATETIME_TRUNC(datetime(txnTime),SECOND)
         end as transaction_timestamp,
-        CASE upper(trim(MerchantName))
-           WHEN "WOWONLINE" then "W8843"
-           WHEN "BWSONLINE" then "W6802"
-           WHEN "DANMURPHYSONLINE" then "W8305"
-           WHEN "SCANGOSUPER" then "W6134"
-           WHEN "LANGTONS" then "WC500"
-           ELSE upper(left(trim(terminal_id),5))
-        end as store_id,
+        upper(left(trim(terminal_id),5)) as store_id,
         upper(trim(transactiontype)) as transactiontype,
         case
            when length(txnRef) = length(replace(txnRef,".","")) then "WEX"
@@ -119,7 +136,7 @@ trnd as (
    and (length(txnRef) - length(replace(txnRef,".",""))) in (0,2)
    and ifnull(amount,0) <> 0
     ),
- trnl as (
+ trlk as (
    Select concat("LK_",
                   trim(ifNull(ResRef,"NULL")),"_",
                   case 
@@ -142,7 +159,6 @@ trnd as (
           upper(trim(ReqType)) as transactiontype,
           "" as tran_qualifier
    from `pdh_rd_apm.alipay_linkly`
-       -- `pdh_staging_ds.alipay_linkly` --DEV
    where AlipayEnabled = "Y"
      and ReqAmt <> 0
      and ResRT = "TRANSACTION APPROVED"
@@ -150,10 +166,33 @@ trnd as (
      and upper(trim(ReqType)) in ("N","N-","P","R","30001000","30002000")
      and ReqDate is not NULL
      and OrigData = "Alipay"),
- tran_combined as (           select * from trnq where ifnull(store_id,"") <> ""
-                    Union all Select * from trnd where ifnull(store_id,"") <> ""
-                    union all Select * from trnl where ifnull(store_id,"") <> ""
-                    union all Select * from trqp where ifnull(store_id,"") <> ""),
+ tred as (
+ Select concat("ED_",ifnull(retrieval_ref_num,"NULL"),"_",
+                    (case 
+                       when pan is Null then "NULL"
+                       when length(trim(pan)) < 10 then trim(pan)
+                       else concat(left(trim(pan),6),
+                                   repeat("*",length(trim(pan)) - 9),
+                                   right(trim(pan),3)
+                                  )
+                     end),"_",
+                    format_datetime("%Y%m%dT%H%M%S",datetime(local_timestamp))) as tran_uid,
+        datetime_trunc(datetime(local_timestamp), second) as transaction_timestamp,
+        upper(left(trim(card_acceptor_terminal_id),5)) as store_id,
+        Upper(cast(txn_type_indicator as string)) as transactiontype,
+        "EDP" as tran_qualifier
+ from `pdh_rd_data_navigator.edwp_txnact` 
+    where EDEnabled = "Y"
+      and txn_disposition = 1
+      and local_timestamp is not NULL
+      and ifnull(amount_txn,0)  <> 0
+      and right(cast(txn_type_indicator as string),4) in ("1000","2000")
+    ),
+ tran_combined as (           select * from trqc where ifnull(store_id,"") <> ""
+                    Union all Select * from trdp where ifnull(store_id,"") <> ""
+                    union all Select * from trlk where ifnull(store_id,"") <> ""
+                    union all Select * from trqp where ifnull(store_id,"") <> ""
+                    union all Select * from tred where ifnull(store_id,"") <> ""),
  trn_seq as (select *, row_number() over(partition by tran_uid) tran_uid_seq
              from tran_combined)
  select distinct
@@ -214,7 +253,7 @@ trnd as (
            when msw.division is null then 1
            when msw.is_active = "N" then 0
            when scm.wpay_store_number is null then 1
-         --  when ifnull(scm.wpay_company_code,"") = "" then 1
+           when ifnull(scm.wpay_company_code,"") = "" then 1
            when upper(trim(ifNull(scm.active_flag,"N"))) = "N" then 1
            when tt.transaction_type is null then 1
            when tt.settlement_factor not in (0,-1,1) then 1
@@ -236,13 +275,12 @@ trnd as (
                                           then 0
         else 1
      end ) = 1;
-
+--
 if (Select count(*)
  From `pdh_analytics_ds.sap_missing_store_log`
  where create_by = "Settlement Process") > 0 then
  return;
 end if;
-
 --add control rec to specify missing store is logged
 insert into pdh_analytics_ds.file_gen_details
  values( batch,
