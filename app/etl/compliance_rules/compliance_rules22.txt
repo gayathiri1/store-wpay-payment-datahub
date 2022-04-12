@@ -1,0 +1,61 @@
+--Rule 22
+Declare Sys_Datetime Datetime DEFAULT Current_Datetime("Australia/Sydney");
+Declare backMonth INT64 Default -15;
+DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date(), month),  INTERVAL backMonth MONTH);
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
+DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
+--
+if Exists(Select File_Date 
+          From `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          Where File_Date  = Current_Date("Australia/Sydney") - 1
+          Limit 1) Then
+--
+
+Insert into `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule22_Bkup`
+   Select * from `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule22_Output` Where Date(Datetime_Created) < Current_Date();
+--
+Truncate Table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule22_Output`;
+Insert into    `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule22_Output` 
+--
+With Monthly AS (
+           Select trn.Merchant,
+                  trn.FirstOfMonth,
+                  trn.scheme,
+                  IfNULL(trn.Settlement_amount,0) as Deposit_Value
+           FROM `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.BillingTrnByMerchantScheme` trn
+           Where trn.FirstOfMonth >= StartDate 
+             and trn.FirstOfMonth < EndDate
+    )
+    Select m.Merchant,
+           m.FirstOfMonth,
+           m.scheme,
+           m.Deposit_Value,
+           Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Deposit_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Deposit_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Deposit_Value,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Deposit_Value,0) + 
+                 IFNULL(p2.Deposit_Value,0) + 
+                 IFNULL(p3.Deposit_Value,0)) /
+                    ((Case When IFNULL(p1.Deposit_Value,0) = 0 then 0 Else 1 End) +
+                     (Case When IFNULL(p2.Deposit_Value,0) = 0 then 0 Else 1 End) +
+                     (Case When IFNULL(p3.Deposit_Value,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon_DV,
+          0 as Threshold_DV_Low,
+          0 as Threshold_DV_High,
+          Sys_Datetime DateTime_Created
+   From Monthly m
+   Left Join Monthly p1 on m.Merchant = p1.Merchant and 
+                           m.scheme   = p1.scheme and 
+                           m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
+   Left Join Monthly p2 on m.Merchant = p2.Merchant and 
+                           m.scheme   = p2.scheme and 
+                                   m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
+   Left Join Monthly p3 on m.Merchant = p3.Merchant and 
+                           m.scheme   = p3.scheme and 
+                           m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
+   Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate;
+End if

@@ -1,0 +1,74 @@
+--SQL Rule1
+if Exists(Select File_Date 
+          From `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          Where File_Date  = Current_Date() - 1
+          Limit 1) Then
+
+Truncate table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule1_Output`;
+--
+Insert into `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule1_Output`
+With d as (Select left(Net_Term_ID,5) as store_id,
+                  Date(tstamp_local) as Transaction_date,
+                  pos_crdhldr_presnt
+           FROM `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
+         Where Net_Term_ID is not NULL and Net_Term_ID <> "" ), 
+StoreSummary as (
+        SELECT d.store_id,
+                d.Transaction_date,
+                Sum(Case d.pos_crdhldr_presnt
+                      When "0" Then 1
+                      Else 0
+                   End) As  SS_Card_Present,
+               Sum(Case d.pos_crdhldr_presnt
+                      When "0" Then 0
+                      Else 1
+                   End) As  SS_Card_NotPresent
+         FROM d
+         Group BY d.store_id, d.Transaction_date
+        )
+     SELECT Case
+             When rc1.Merchant_to_report is Not Null and
+                  rc1.Merchant_to_report <> "" then rc1.Merchant_to_report
+             When rc2.Merchant_to_report is Not Null and
+                  rc2.Merchant_to_report <> "" then rc2.Merchant_to_report
+             Else mh.division
+          End as Merchant,
+          SS.store_id,
+          SS.Transaction_Date,
+          Case
+             When rc1.value is not Null then rc1.value * 0.01 
+             When df1.value is not Null then df1.value * 0.01 
+             Else .2
+          End as Threshold1,
+          Case
+             When rc2.value is not Null then rc2.value * 0.01
+             When df2.value is not Null then df2.value * 0.01 
+             Else .3
+          End as Threshold2,
+          SS_Card_Present As card_presnt,
+          SS_Card_NotPresent As Card_NotPresent,
+          Current_Datetime() As Datetime_Created
+            
+    FROM StoreSummary  SS
+    Join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.ref_store_details` mh 
+         on SS.store_id = mh.store_id 
+         and mh.division is not Null 
+         and mh.division <> "" 
+   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc1
+         on trim(rc1.Merchant) =  trim(mh.division)
+        and rc1.Rule_ID = 1
+        and rc1.Attribute = "Ratio_NotPresent To Total_Low" 
+   left join  `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc2
+         on trim(rc2.Merchant) =  trim(mh.division) 
+        and rc2.Rule_ID = 1
+        and rc2.Attribute = "Ratio_NotPresent To Total_High"
+    left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` df1
+         on df1.Merchant =  "*"
+        and rc1.Rule_ID = 1
+        and rc1.Attribute = "Default_Low" 
+    left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` df2
+         on df1.Merchant =  "*"
+        and rc1.Rule_ID = 1
+        and rc1.Attribute = "Default_High" 
+  Order By 1,2,3;
+End if
