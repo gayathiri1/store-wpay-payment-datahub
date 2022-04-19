@@ -48,3 +48,6 @@ env-config*.json
 *.tfstate
 *.tfstate.*
 **/infra/terraform/id_github*
+
+# Ignore service account file changes
+**/zlibpdh/pdh_utilities.py
