@@ -1,4 +1,7 @@
 --Rule 20 Deposit(Settlement amount) by Merchant by Month
+--Remove project reference and point store_details to ref_ds
+--Depends on Rule22_p1_Monthly
+
 Declare backMonth INT64 Default -15;
 DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
 DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
@@ -7,22 +10,22 @@ DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
 Declare Sys_Datetime Datetime DEFAULT Current_Date("Australia/Sydney");
 --
 if Exists(Select File_Date 
-          From `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
           Where File_Date  = Current_Date("Australia/Sydney") - 1
           Limit 1) Then
 --
-Insert into `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule20_Bkup`
-   Select * From `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule20_Output`
+Insert into `pdh_staging_ds.Rule20_Bkup`
+   Select * From `pdh_staging_ds.Rule20_Output`
    Where Date(Datetime_created) < Current_Date("Australia/Sydney");
 --
-Truncate Table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule20_Output`;
-Insert into    `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule20_Output` 
+Truncate Table `pdh_staging_ds.Rule20_Output`;
+Insert into    `pdh_staging_ds.Rule20_Output` 
 --
 With Monthly As ( 
    SELECT Merchant,
           FirstOfMonth,
    	    Sum(Settlement_amount) as Deposit_Value 
-   FROM `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.BillingTrnByMerchantScheme` 
+   FROM `pdh_staging_ds.BillingTrnByMerchantScheme` 
    Where FirstOfMonth >= StartDate and FirstOfMonth < EndDate
    Group By Merchant,
             FirstOfMonth),
@@ -33,8 +36,8 @@ With Monthly As (
                        End)) as Merchant,
               hist.FirstOfMonth,
               hist.Deposit_Value
-       From `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Deposit_History` hist
-       left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc00
+       From `pdh_staging_ds.Deposit_History` hist
+       left join `pdh_staging_ds.Compliance_Control_Table` rc00
                    on upper(trim(rc00.Merchant)) =  upper(trim(hist.Merchant))
                and rc00.Rule_ID = 22
                and rc00.Attribute = "Total_Transaction volume per scheme for each merchant_CARD PRESENT"),
@@ -83,11 +86,11 @@ With Monthly As (
    Left Join Month_Combined p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
    Left Join Month_Combined p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
    Left Join Month_Combined p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc1
+   left join `pdh_staging_ds.Compliance_Control_Table` rc1
             on rc1.Rule_ID = 20
             and rc1.Merchant = "Default"
            and Trim(rc1.Attribute) ="Ratio_Deposit per month to Average transactionslast 3 months_Low"
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc2
+   left join `pdh_staging_ds.Compliance_Control_Table` rc2
             on rc2.Rule_ID = 20
            and rc2.Merchant = "Default"
            and Trim(rc2.Attribute) ="Ratio_Deposit per month to Average transactionslast 3 months_High"

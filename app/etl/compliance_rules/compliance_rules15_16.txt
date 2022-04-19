@@ -1,4 +1,5 @@
---Refund AND Purchase by Merchant by Month
+--Refund AND Purchase by Merchant by Month 
+--Remove project reference and point store_details and response_code to ref_ds
 Declare backMonth INT64 Default -15;
 DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
 DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
@@ -6,12 +7,12 @@ DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
 DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
 DECLARE SysDateTime datetime DEFAULT current_datetime("Australia/Sydney");
 if Exists(Select File_Date 
-          From `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
           Where File_Date  = Current_Date("Australia/Sydney") - 1
           Limit 1) Then
 --
-Truncate Table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule15_16_output`;
-Insert into    `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule15_16_output` 
+Truncate Table `pdh_staging_ds.Rule15_16_output`;
+Insert into    `pdh_staging_ds.Rule15_16_output` 
 --
 With DET as (
         Select Upper(trim(Case 
@@ -37,16 +38,16 @@ With DET as (
                          IfNull(trn.transaction_total,0) <> 0 then 1
                     Else 0
                   End Refund_Count
-           FROM `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface` trn
-           Join `gcp-wow-wpay-paydathub-uat.pdh_analytics_ds.ref_transaction_types` tt 
+           FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` trn
+           Join `pdh_analytics_ds.ref_transaction_types` tt 
                 on safe_cast(trn.tran_type_id as int64) = cast(tt.dn_tran_code as int64)
                and  Upper(left(trim(tt.abbr),6)) in ("REFUND","PURCHA")
-           Join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.ref_store_details` mh 
+           Join `pdh_ref_ds.ref_store_details` mh 
                 on left(trn.Net_Term_ID,5) = mh.store_id 
                and ifNull(mh.division,"") <> "" 
-           left join `gcp-wow-wpay-paydathub-uat.pdh_analytics_ds.ref_response_code` rrc
+           left join `pdh_ref_ds.ref_response_code` rrc
                 on rrc.action_code = trn.act_code
-           left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc0
+           left join `pdh_staging_ds.Compliance_Control_Table` rc0
                    on rc0.Rule_ID = 0
                   and rc0.Attribute ="Merge" 
                   and upper(trim(rc0.Merchant)) = upper(trim(mh.division))
@@ -132,22 +133,22 @@ Monthly AS (
    Left Join Monthly p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
    Left Join Monthly p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
    Left Join Monthly p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rcvd1
+   left join `pdh_staging_ds.Compliance_Control_Table` rcvd1
             on rcvd1.Rule_ID = 15
            and Trim(rcvd1.Attribute) ="Value Difference_Low"
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rcvd2
+   left join `pdh_staging_ds.Compliance_Control_Table` rcvd2
             on rcvd2.Rule_ID = 15
            and Trim(rcvd2.Attribute) ="Value Difference_High"
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rcavp1
+   left join `pdh_staging_ds.Compliance_Control_Table` rcavp1
             on rcavp1.Rule_ID = 16
            and Trim(rcavp1.Attribute) ="Ratio_Purchase per month to Average transactionslast 3 months_Low"
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rcavp2
+   left join `pdh_staging_ds.Compliance_Control_Table` rcavp2
             on rcavp2.Rule_ID = 16
            and Trim(rcavp2.Attribute) ="Ratio_Purchase per month to Average transactionslast 3 months_High"
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rcavr1
+   left join `pdh_staging_ds.Compliance_Control_Table` rcavr1
             on rcavr1.Rule_ID = 16
            and Trim(rcavr1.Attribute) ="Ratio_Refund per month to Average transactionslast 3 months_Low"
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rcavr2
+   left join `pdh_staging_ds.Compliance_Control_Table` rcavr2
             on rcavr2.Rule_ID = 16
            and Trim(rcavr2.Attribute) ="Ratio_Refund per month to Average transactionslast 3 months_High"
   Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate;
