@@ -1,0 +1,57 @@
+Declare yyyy_mm_dd_hh_mm_ss datetime default datetime_trunc(current_datetime("Australia/Sydney"),second);
+Declare tx_file_name string default format_datetime("pdh_wpay_tender_token_transactions_weekly_%Y%m%d%H%M%S",yyyy_mm_dd_hh_mm_ss);
+DECLARE inp_lookup STRING DEFAULT "WPE Wpay_EDPAY";
+DECLARE batch string;
+Declare Today date Default cast(yyyy_mm_dd_hh_mm_ss as date); 
+Declare Weekday_today Int64 default (EXTRACT (DAYOFWEEK FROM Today));
+Declare EndDate date Default (
+           Today  - case 
+         when Weekday_today > 4 then Weekday_today - 4
+         when Weekday_today = 4 then 7
+         else Weekday_today + 3
+       end); 
+Declare StartDate date Default (EndDate - 6);
+
+-----------------Get next Batch Number
+
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+if (ifnull(batch,"") in ("NOContRec","UpdFailed"))  then
+    return;
+end if; 
+
+----------------Select  Today, Weekday_today, StartDate, EndDate;
+truncate table `pdh_analytics_ds.edp_wpay_txns`;
+
+-----------------Load edp_wpay data
+Insert into `pdh_analytics_ds.edp_wpay_txns` 
+  SELECT tx_file_name as file_name,
+         format_date("%Y-%m-%d",date(local_timestamp)) local_tran_date,
+       substr(ntwrk_terminal_id,2,4) store_nbr, 
+       substr(ntwrk_terminal_id,6,3) pos,
+       retrieval_ref_num,
+       time(local_timestamp) transaction_local_timestamp,
+       account_id_1 pci_token,
+       amount_txn/100 dollar_tendered_pci
+ FROM `pdh_rd_data_navigator.edwp_txnact` 
+ where (pan like '436380%' or pan like '436383%' or pan like '436384%')
+ and date(local_timestamp) between StartDate and EndDate 
+ and (amount_txn/100) > 0.01
+ order by local_timestamp;
+ 
+---------------Insert into History
+insert into `pdh_analytics_ds.edp_wpay_txns_history`
+ Select * From `pdh_analytics_ds.edp_wpay_txns` 
+  order by local_tran_date;
+  
+---------------Always add control record  
+    insert into pdh_analytics_ds.edp_file_gen_details  
+         values(concat(batch,replace(substr(cast(yyyy_mm_dd_hh_mm_ss as string),12),":","")),
+                cast(yyyy_mm_dd_hh_mm_ss as date), 
+                "wpayedpay",
+                true,
+                null, 
+                cast(StartDate as datetime),
+                cast(EndDate as datetime),
+                yyyy_mm_dd_hh_mm_ss,
+                null);
+ 
