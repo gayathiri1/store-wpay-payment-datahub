@@ -14,6 +14,7 @@ import pandas as pd
 from email.mime.text import MIMEText
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
+from google.oauth2 import service_account                       
 from google.auth.transport.requests import Request
 from google.cloud import bigquery
 from jinja2 import Template
@@ -83,6 +84,8 @@ class PDHUtils:
         source_objects = ''
         bucket = kwargs['run_config']['bucket']
         file_name = kwargs['run_config']['file_name']
+        delimiter=kwargs['delimiter_used']
+        print(f'delimiter :=>{delimiter}')
         object_name = file_name.split('/')[2]
         load_type = kwargs[object_name]['load_type']
         if load_type == 'H':
@@ -117,7 +120,7 @@ class PDHUtils:
             schema_object=kwargs[object_name]['schema'],
             schema_fields=None,
             skip_leading_rows=1,
-            field_delimiter=',',
+            field_delimiter=delimiter,                             
             autodetect=False,
             dag=dag
         )
@@ -196,25 +199,12 @@ class PDHUtils:
 
     @classmethod
     def upload_gs_to_bq(cls,SPREADSHEET_ID,RANGE_NAME,table_id,project_name):
-        SCOPES = ['https://www.googleapis.com/auth/spreadsheets.readonly']
-        creds = None
-        gs_key_path = '/home/airflow/gcs/data/token.json'
-        api_key_path = '/home/airflow/gcs/data/pdh_GoogleSheet_API_Key.json'
-        if os.path.exists(gs_key_path):
-            creds = Credentials.from_authorized_user_file(gs_key_path, SCOPES)
-        if not creds or not creds.valid:
-            if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
-                flow = InstalledAppFlow.from_client_secrets_file(
-                    api_key_path, SCOPES)
-                creds = flow.run_local_server(port=0)
-            # Save the credentials for the next run
-            with open(gs_key_path, 'w') as token:
-                token.write(creds.to_json())
-
+        SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/spreadsheets.readonly']
+        secret_file = os.path.join(os.getcwd(), '/home/airflow/gcs/data/gcp-wow-wpay-paydathub-prod-07bbd8b2b461.json')
+        creds = service_account.Credentials.from_service_account_file(secret_file, scopes=SCOPES)
+        
         service = build('sheets', 'v4', credentials=creds)
-
+        
         # Call the Sheets API
         sheet = service.spreadsheets()
         result = sheet.values().get(spreadsheetId=SPREADSHEET_ID,

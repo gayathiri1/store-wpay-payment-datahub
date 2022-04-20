@@ -37,7 +37,13 @@ def load_config_and_validate_run(**kwargs):
     if 'gfs' in object_name:
         config = Variable.get("v_gfs_datasets",deserialize_json=True)
         print(f'config:=>{config}')
-        curate_flag = config[lkp_config]['curate_flag']
+        curate_flag = config[lkp_config]['curate_flag']        
+        if "delimiter" in config[lkp_config]: 
+            print("Delimiter condition satisfied")
+            delimiter=config[lkp_config]['delimiter']# Get delimiter from variable 
+        else:
+            print("Delimiter condition is not satisfied")
+            delimiter=','
         if lkp_config in config and curate_flag[0:1] == 'Y' and 'curated' not in file_name:
             src_file = input_params['conf']['bucket'] + '/' + file_name
             trgt_file = src_file.replace('landing','curated')
@@ -49,7 +55,13 @@ def load_config_and_validate_run(**kwargs):
             return 'skip_dataproc'
     else:
         config = Variable.get("v_non_gfs_load_params", deserialize_json=True)
-        curate_flag = config[lkp_config]['curate_flag']
+        curate_flag = config[lkp_config]['curate_flag']        
+        if "delimiter" in config[lkp_config]: 
+            print("Delimiter condition satisfied")
+            delimiter=config[lkp_config]['delimiter']# Get delimiter from variable
+        else:
+            print("Delimiter condition is not satisfied")
+            delimiter=','
         if lkp_config in config and curate_flag[0:1] == 'Y' and 'curated' not in file_name:
             src_file = input_params['conf']['bucket'] + '/' + file_name
             trgt_file = src_file.replace('landing', 'curated')
@@ -60,6 +72,7 @@ def load_config_and_validate_run(**kwargs):
         else:
             return 'skip_dataproc'
     config['run_config'] = run_config
+    config['delimiter_used'] = delimiter
     print(f'config is :{config}')
     flag = pu.PDHUtils.check_delta(dataset, table_name, file_name)
     if flag != 1:
@@ -69,8 +82,8 @@ def load_config_and_validate_run(**kwargs):
         dataproc = du.ListDataProcClusters(config['project_name'], 'us-central1')
         dataproc_status = dataproc.list_clusters()
         dataproc_jobs = dataproc.list_jobs()
-        if pattern == 'csv':
-            return 'load_csv_file'
+        if pattern == 'csv' or (pattern == 'txt' and delimiter == '|'):
+            return 'load_csv_file'        
         elif dataproc_status is None:
             return 'start_cluster'
         elif dataproc_jobs <= 2:
