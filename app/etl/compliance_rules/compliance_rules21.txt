@@ -1,0 +1,98 @@
+--Rule21 Remove project reference and point store_details to ref_ds
+Declare backMonth INT64 Default -15;
+DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
+DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
+if Exists(Select File_Date 
+          From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          Where File_Date = Current_Date("Australia/Sydney") - 1 
+          Limit 1) Then
+
+Truncate Table `pdh_staging_ds.Rule21_Output`;
+Insert into `pdh_staging_ds.Rule21_Output` 
+With TrnDET as (
+           Select Upper(Trim(Case 
+                                When IFNUll(rc0.Merchant_to_report,"") <> "" then rc0.Merchant_to_report
+                                Else mh.division
+                             End)) as Merchant,
+                  DATE_TRUNC(Date(trn.tstamp_local),month) as FirstOfMonth,
+                  Upper(Trim(IfNull(trn.scheme,""))) scheme,
+                  Case trn.pos_crdhldr_presnt
+                         When "0" then 1
+                         Else 0
+                      End Count_card_presnt,
+                  Case trn.pos_crdhldr_presnt
+                         When "0" then 0
+                         Else 1
+                      End Count_card_Notpresnt
+           FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` trn
+           Join `pdh_ref_ds.ref_store_details` mh 
+                on upper(left(trim(trn.Net_Term_ID),5)) = upper(trim(mh.store_id)) 
+               and ifNull(mh.division,"") <> "" 
+           left join `pdh_staging_ds.Compliance_Control_Table` rc0
+                   on rc0.Rule_ID = 0
+                  and rc0.Attribute ="Merge" 
+                  and Upper(Trim(rc0.Merchant)) = Upper(Trim(mh.division))
+           Where ifNull(trn.Net_Term_ID,"") <> ""
+             and Date(trn.tstamp_local) >= StartDate 
+             and Date(trn.tstamp_local) < EndDate
+            ),
+    Monthly_Trn as (
+          Select Merchant,FirstOfMonth,scheme, sum(Count_card_presnt) as Count_card_presnt,
+                                               sum(Count_card_Notpresnt) as Count_card_Notpresnt
+          From TrnDET 
+          Group By Merchant,FirstOfMonth,scheme
+    )
+    Select m.Merchant,
+           m.FirstOfMonth,
+           m.scheme,
+           m.Count_card_presnt,
+           m.Count_card_Notpresnt,
+           Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Count_card_presnt,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Count_card_presnt,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Count_card_presnt,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Count_card_presnt,0) + 
+                 IFNULL(p2.Count_card_presnt,0) + 
+                 IFNULL(p3.Count_card_presnt,0)) * 1.0 /
+                   ((Case When IFNULL(p1.Count_card_presnt,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Count_card_presnt,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Count_card_presnt,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon_CP,
+          Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Count_card_Notpresnt,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Count_card_Notpresnt,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Count_card_Notpresnt,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Count_card_Notpresnt,0) + 
+                 IFNULL(p2.Count_card_Notpresnt,0) + 
+                 IFNULL(p3.Count_card_Notpresnt,0)) * 1.0 /
+                  ((Case When IFNULL(p1.Count_card_Notpresnt,0) = 0 then 0 Else 1 End) +
+                   (Case When IFNULL(p2.Count_card_Notpresnt,0) = 0 then 0 Else 1 End) +
+                   (Case When IFNULL(p3.Count_card_Notpresnt,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon_CNP,
+          rc1.value * 0.01 as Threshold1,
+          rc2.value * 0.01 as Threshold2,
+          Current_Datetime("Australia/Sydney") Datetime_Created
+   From Monthly_Trn m
+   Left Join Monthly_Trn p1 on m.Merchant = p1.Merchant and 
+                               m.scheme   = p1.scheme   and
+                               m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
+   Left Join Monthly_Trn p2 on m.Merchant = p2.Merchant and
+                               m.scheme   = p2.scheme   and 
+                               m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
+   Left Join Monthly_Trn p3 on m.Merchant = p3.Merchant and 
+                               m.scheme   = p3.scheme   and
+                               m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
+   left join `pdh_staging_ds.Compliance_Control_Table` rc1
+            on rc1.Rule_ID = 21
+           and rc1.Attribute ="Total_Transactions per scheme for each merchant_Low"
+   left join `pdh_staging_ds.Compliance_Control_Table` rc2
+            on rc2.Rule_ID = 21
+           and rc2.Attribute ="Total_Transactions per scheme for each merchant_High"
+  Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate;
+End if

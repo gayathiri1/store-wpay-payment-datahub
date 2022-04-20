@@ -17,7 +17,7 @@ default_args = {
 logging.info("constructing dag - using airflow as owner")
 
 
-dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "00 23 * * *")
+dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "00 00 * * *")
 
 
 def readexecuteQuery(**kwargs):
