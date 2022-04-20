@@ -162,7 +162,7 @@ trdp as (
    where AlipayEnabled = "Y"
      and ReqAmt <> 0
      and ResRT = "TRANSACTION APPROVED"
-     and ReqMT in (200,400)
+     and ReqMT in (200)
      and upper(trim(ReqType)) in ("N","N-","P","R","30001000","30002000")
      and ReqDate is not NULL
      and OrigData = "Alipay"),
