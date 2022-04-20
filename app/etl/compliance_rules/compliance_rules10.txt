@@ -1,4 +1,4 @@
---Rule10
+--Rule10 Remove project referene and point store_details to ref_ds
 Declare backMonth INT64 Default -15;
 DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
 DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
@@ -6,11 +6,11 @@ DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
 DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
 --
 if Exists(Select File_Date 
-          From `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
           Where File_Date = Current_Date("Australia/Sydney") - 1 
           Limit 1) Then
-Truncate Table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule10_Output`;
-Insert into `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule10_Output` 
+Truncate Table `pdh_staging_ds.Rule10_Output`;
+Insert into `pdh_staging_ds.Rule10_Output` 
 With  Monthly_Trn as (
          Select Upper(Trim(Case 
                               When IFNUll(rc0.Merchant_to_report,"") <> "" then rc0.Merchant_to_report
@@ -25,11 +25,11 @@ With  Monthly_Trn as (
                   When "0" then 0
                   Else 1
                   End as Count_card_Notpresnt
-           FROM `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface` trn
-           Join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.ref_store_details` mh 
+           FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` trn
+           Join `pdh_ref_ds.ref_store_details` mh 
                 on left(trn.Net_Term_ID,5) = mh.store_id 
                and ifNull(mh.division,"") <> "" 
-           left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc0
+           left join `pdh_staging_ds.Compliance_Control_Table` rc0
                    on rc0.Rule_ID = 0
                   and rc0.Attribute ="Merge" 
                   and Upper(Trim(rc0.Merchant)) = Upper(Trim(mh.division))
@@ -54,8 +54,8 @@ With  Monthly_Trn as (
                 End As FirstOfMonth,
                 IFNULL(hist_cp.Count_card_presnt,0) As Count_card_presnt,
                 IFNULL(hist_cnp.Count_card_Notpresnt,0) As Count_card_Notpresnt
-        From `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Card_Present_History` hist_cp 
-        Full Join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Card_NotPresent_History` hist_cnp 
+        From `pdh_staging_ds.Card_Present_History` hist_cp 
+        Full Join `pdh_staging_ds.Card_NotPresent_History` hist_cnp															
              On Upper(Trim(hist_cnp.Merchant)) = Upper(Trim(hist_cp.Merchant))
             and hist_cnp.FirstOfMonth = hist_cp.FirstOfMonth), 
  History_Grouped as (
@@ -67,7 +67,7 @@ With  Monthly_Trn as (
             hc.Count_card_presnt,
             hc.Count_card_Notpresnt
     From History_Combined hc
-    left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc00
+    left join `pdh_staging_ds.Compliance_Control_Table` rc00
                    on rc00.Rule_ID = 0
                   and rc00.Attribute ="Merge" 
                   and Upper(Trim(rc00.Merchant)) = Upper(Trim(hc.Merchant))),
@@ -135,10 +135,10 @@ With  Monthly_Trn as (
    Left Join Monthly_Combined p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
    Left Join Monthly_Combined p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
    Left Join Monthly_Combined p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc1
+   left join `pdh_staging_ds.Compliance_Control_Table` rc1
             on rc1.Rule_ID = 10
            and rc1.Attribute ="Ratio_transactions per month to Average transactionslast 3 months_Low"
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc2
+   left join `pdh_staging_ds.Compliance_Control_Table` rc2
             on rc2.Rule_ID = 10
            and rc2.Attribute ="Ratio_transactions per month to Average transactionslast 3 months_High"
   Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate; 

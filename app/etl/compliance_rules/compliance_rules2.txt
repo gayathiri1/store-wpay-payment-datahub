@@ -1,18 +1,18 @@
---SQL Rule2
+--SQL Rule2 Remove project reference, point store_details to ref_ds
 If Exists(Select File_Date 
-          From `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
-          Where File_date = Current_Date() - 1
+          From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          Where File_date = Current_Date("Australia/Sydney") - 1
           Limit 1) Then
 --
-Truncate table `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule2_Output`;
+Truncate table `pdh_staging_ds.Rule2_Output`;
 --
-Insert into `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Rule2_Output`
+Insert into `pdh_staging_ds.Rule2_Output`
 With d as ( 
        Select left(net_term_id,5) as store_id,
               Date(tstamp_local) As Transaction_Date,
               pos_crd_dat_in_mod,
               pos_crdhldr_presnt
-        FROM `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_pdh_txn_interface`
+        FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`
          Where net_term_id is not NULL 
            and net_term_id <> ""
            and pos_crdhldr_presnt = "0"),     
@@ -50,23 +50,23 @@ StoreSummary as (
           SS_ManualCount  AS ManualCount,
           Current_Datetime() As Datetime_Created
    FROM StoreSummary SS
-   Join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.ref_store_details` mh
+   Join `pdh_ref_ds.ref_store_details` mh
          ON SS.store_id = mh.store_id
          and mh.division is not Null
          and mh.division <> ""
-  left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc1
+  left join `pdh_staging_ds.Compliance_Control_Table` rc1
          on trim(rc1.Merchant) =  trim(mh.division)
         and rc1.Rule_ID = 2
         and rc1.Attribute = "Ratio_ManualToCardPresent_Low" 
-  left join  `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` rc2
+  left join  `pdh_staging_ds.Compliance_Control_Table` rc2
          on trim(rc2.Merchant) =  trim(mh.division) 
         and rc2.Rule_ID = 2
         and rc2.Attribute = "Ratio_ManualToCardPresent_High"
-   left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` df1
+   left join `pdh_staging_ds.Compliance_Control_Table` df1
          on df1.Merchant =  "*"
         and rc1.Rule_ID = 2
         and rc1.Attribute = "Default_Low" 
-    left join `gcp-wow-wpay-paydathub-uat.pdh_staging_ds.Compliance_Control_Table` df2
+    left join `pdh_staging_ds.Compliance_Control_Table` df2
          on df1.Merchant =  "*"
         and rc1.Rule_ID = 2
         and rc1.Attribute = "Default_High" 
