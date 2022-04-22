@@ -1,185 +1,183 @@
 steps:
-# Cloudbuild only clone the current commit, it won't clone the history. 
-# So added below 3 steps to clone the complete history from the Github.
-# Also added the Git branch name validation.
-- name: 'gcr.io/cloud-builders/git'
-  secretEnv: ['SSH_KEY']
-  entrypoint: 'bash'
-  args:
-  - -c
-  - |
-    echo 'Build:$BUILD_ID is triggered for the Pull request:$_PR_NUMBER'
-    echo 'The Base Branch is: $_BASE_BRANCH'
-    echo 'The Head Branch is: $_HEAD_BRANCH'
-    valid_branch_regex="^feature\/DATPAY-([0-9]{4})$"
-    releae_branch_regex="^release\/DATPAY-([0-9]{4})-([0-9]{1}).([0-9]{1})$"
-    if [[ $_BASE_BRANCH == "dev" ]]
-    then
-      if [[ ! $_HEAD_BRANCH =~ $valid_branch_regex ]]
-      then
-          echo "There is something wrong with your feature branch name. Feature branch names must adhere to this contract: $valid_branch_regex. You should rename your branch to a valid name and try again."
-          exit 1
-      fi
-    else [[ $_BASE_BRANCH == "preprod" || $_BASE_BRANCH == "prod" ]]
-      if [[ ! $_HEAD_BRANCH =~ $releae_branch_regex ]]
-      then
-          echo "There is something wrong with your release branch name. Release branch names must adhere to this contract: $releae_branch_regex. You should rename your branch to a valid name and try again."
-          exit 1
-      fi
-    fi  
-    echo "Git Branch name validation passed."
-    echo "$$SSH_KEY" >> /root/.ssh/id_rsa
-    chmod 400 /root/.ssh/id_rsa
-    cp known_hosts.github /root/.ssh/known_hosts
+  # Cloudbuild only clone the current commit, it won't clone the history.
+  # So added below 3 steps to clone the complete history from the Github.
+  # Also added the Git branch name validation.
+  - name: "gcr.io/cloud-builders/git"
+    secretEnv: ["SSH_KEY"]
+    entrypoint: "bash"
+    args:
+      - -c
+      - |
+        echo 'Build:$BUILD_ID is triggered for the Pull request:$_PR_NUMBER'
+        echo 'The Base Branch is: $_BASE_BRANCH'
+        echo 'The Head Branch is: $_HEAD_BRANCH'
+        valid_branch_regex="^feature\/DATPAY-([0-9]{4})$"
+        releae_branch_regex="^release\/DATPAY-([0-9]{4})-([0-9]{1}).([0-9]{1})$"
+        if [[ $_BASE_BRANCH == "dev" ]]
+        then
+          if [[ ! $_HEAD_BRANCH =~ $valid_branch_regex ]]
+          then
+              echo "There is something wrong with your feature branch name. Feature branch names must adhere to this contract: $valid_branch_regex. You should rename your branch to a valid name and try again."
+              exit 1
+          fi
+        else [[ $_BASE_BRANCH == "preprod" || $_BASE_BRANCH == "prod" ]]
+          if [[ ! $_HEAD_BRANCH =~ $releae_branch_regex ]]
+          then
+              echo "There is something wrong with your release branch name. Release branch names must adhere to this contract: $releae_branch_regex. You should rename your branch to a valid name and try again."
+              exit 1
+          fi
+        fi  
+        echo "Git Branch name validation passed."
+        echo "$$SSH_KEY" >> /root/.ssh/id_rsa
+        chmod 400 /root/.ssh/id_rsa
+        cp known_hosts.github /root/.ssh/known_hosts
 
-  volumes:
-  - name: 'ssh'
-    path: /root/.ssh
+    volumes:
+      - name: "ssh"
+        path: /root/.ssh
 
-# This just gets current branch history of the repository. But this will not copy/clone other branches.
-- name: 'gcr.io/cloud-builders/git'
-  args: 
-  - fetch
-  - --unshallow
-  - git@github.com:w-pay/$REPO_NAME
-  volumes:
-  - name: 'ssh'
-    path: /root/.ssh
+  # This just gets current branch history of the repository. But this will not copy/clone other branches.
+  - name: "gcr.io/cloud-builders/git"
+    args:
+      - fetch
+      - --unshallow
+      - git@github.com:w-pay/$REPO_NAME
+    volumes:
+      - name: "ssh"
+        path: /root/.ssh
 
+  # This to clone the whole repository including all branches.
+  - name: "gcr.io/cloud-builders/git"
+    args:
+      - clone
+      - --recurse-submodules
+      - git@github.com:w-pay/$REPO_NAME
+    volumes:
+      - name: "ssh"
+        path: /root/.ssh
 
-# This to clone the whole repository including all branches.
-- name: 'gcr.io/cloud-builders/git'
-  args: 
-  - clone
-  - --recurse-submodules
-  - git@github.com:w-pay/$REPO_NAME
-  volumes:
-  - name: 'ssh'
-    path: /root/.ssh
+  # list the files which are changed in the current commit/pull request.
+  - name: gcr.io/cloud-builders/gcloud
+    entrypoint: /bin/sh
+    args:
+      - "-c"
+      - |
+        ls -ltra
+        git diff --name-only HEAD~1 HEAD > /workspace/commitfiles.txt
+        echo '########## Files changed in Current Commit are listed below ##########'
+        cat /workspace/commitfiles.txt
+        echo '########## Commit List End ##########'
+        cd $REPO_NAME
+        git branch -a
+        git diff --name-only remotes/origin/$_BASE_BRANCH remotes/origin/$_HEAD_BRANCH > /workspace/branchfiles.txt
+        echo '########## Files changed in Pull Request are listed below ##########'
+        cat /workspace/branchfiles.txt
+        echo '########## Pull Request List End ##########'
 
-# list the files which are changed in the current commit/pull request.
-- name: gcr.io/cloud-builders/gcloud
-  entrypoint: /bin/sh
-  args: 
-    - '-c'
-    - | 
-      ls -ltra
-      git diff --name-only HEAD~1 HEAD > /workspace/commitfiles.txt
-      echo '########## Files changed in Current Commit are listed below ##########'
-      cat /workspace/commitfiles.txt
-      echo '########## Commit List End ##########'
-      cd $REPO_NAME
-      git branch -a
-      git diff --name-only remotes/origin/$_BASE_BRANCH remotes/origin/$_HEAD_BRANCH > /workspace/branchfiles.txt
-      echo '########## Files changed in Pull Request are listed below ##########'
-      cat /workspace/branchfiles.txt
-      echo '########## Pull Request List End ##########'
+  # - name: hashicorp/terraform:1.1.2
+  #   dir: "app/terraform/"
+  #   args: ['init']
 
-# - name: hashicorp/terraform:1.1.2
-#   dir: "app/terraform/"
-#   args: ['init']
+  # # Validating the ETL
+  # # 1. Check if the Table/View already exist. Then exit the pipeline with failure.
+  # # 2. If tables/view doesn't exit then, run the terraform plan to validate what changes are goind to heppen in bq.
+  # # Can refer https://cloud.google.com/architecture/managing-infrastructure-as-code for terraform invocation.
+  # - name: hashicorp/terraform:1.1.2
+  #   entrypoint: sh
+  #   args:
+  #   - '-c'
+  #   - |
+  #     cd app/terraform/
+  #     terraform init -backend-config "bucket=${_TF_BACKEND_BUCKET}" -backend-config "prefix=${_TF_BACKEND_PREFIX}"
+  #     # terraform workspace select ${_BASE_BRANCH} || terraform workspace new ${_BASE_BRANCH}
+  #     terraform plan
+  #     if grep "bq\/tables\/\|bq\/views\/\|bq/etl\/" /workspace/commitfiles.txt  /workspace/branchfiles.txt;
+  #     then
+  #       echo "bq deployment is required";
+  #       if grep bq\/tables\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
+  #       then
+  #         echo "bq table deployment is required. Also check if table is already required.";
 
-# # Validating the ETL 
-# # 1. Check if the Table/View already exist. Then exit the pipeline with failure.
-# # 2. If tables/view doesn't exit then, run the terraform plan to validate what changes are goind to heppen in bq.
-# # Can refer https://cloud.google.com/architecture/managing-infrastructure-as-code for terraform invocation.
-# - name: hashicorp/terraform:1.1.2
-#   entrypoint: sh
-#   args: 
-#   - '-c'
-#   - |
-#     cd app/terraform/
-#     terraform init -backend-config "bucket=${_TF_BACKEND_BUCKET}" -backend-config "prefix=${_TF_BACKEND_PREFIX}"
-#     # terraform workspace select ${_BASE_BRANCH} || terraform workspace new ${_BASE_BRANCH}
-#     terraform plan
-#     if grep "bq\/tables\/\|bq\/views\/\|bq/etl\/" /workspace/commitfiles.txt  /workspace/branchfiles.txt; 
-#     then 
-#       echo "bq deployment is required"; 
-#       if grep bq\/tables\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
-#       then
-#         echo "bq table deployment is required. Also check if table is already required."; 
+  #       else
+  #         echo "bq table deployment is not required in current build.";
+  #       fi
+  #       if grep bq\/views\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
+  #       then
+  #         echo "bq views deployment is required. Also check f the table already exist.";
+  #       else
+  #         echo "bq views deployment is not required in current build.";
+  #       fi
+  #       if grep bq\/etl\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
+  #       then
+  #         echo "bq etl deployment is required. Also check if etl execution is required.";
+  #       else
+  #         echo "bq etl deployment is not required in current build.";
+  #       fi
+  #     else
+  #       echo "No bq files modified in current commit, hence bq deployment is not required.";
+  #     fi
 
-#       else
-#         echo "bq table deployment is not required in current build.";
-#       fi
-#       if grep bq\/views\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
-#       then
-#         echo "bq views deployment is required. Also check f the table already exist."; 
-#       else
-#         echo "bq views deployment is not required in current build.";
-#       fi
-#       if grep bq\/etl\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
-#       then
-#         echo "bq etl deployment is required. Also check if etl execution is required."; 
-#       else
-#         echo "bq etl deployment is not required in current build.";
-#       fi   
-#     else 
-#       echo "No bq files modified in current commit, hence bq deployment is not required."; 
-#     fi
+  # -n option would check the difference without performing the sync
+  # Synch the Dags with the GCS bucket. It creates the directories if it doesn't exists.
+  # In gsutil -c option is used to do the checksum comparison rather than mtime check,
+  # as mtime always gets changed when repo gets cloned to cloudbuild workspace.
+  # The -d option will delete files from the destination folder if they don't exist in the source folder.
+  # -x to exclude files. Example: -x "zlibpdh/__init__.py|airflow_monitoring.py$"
+  - name: gcr.io/cloud-builders/gsutil
+    entrypoint: bash
+    args:
+      - "-c"
+      - |
+        # if grep app\/dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
+        #  then
+          echo "*********** Dags modified in the repo are list below ************"
+          gsutil -m rsync -c -r -n -x "zlibpdh/composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
+          echo "*********** Dags list end ************"
+          if [[ $_BASE_BRANCH == "preprod" ]];
+            then 
+              echo "********* Copying the preprod only files*******"
+              gsutil -m rsync -c -r -n app/dags/preprod gs://${_GCS_BUCKET}/dags;
+              echo "********* End of preprod copy files*******"
+          fi
+        #  else
+        #   echo "Dags are not modified, hence dags sync with gcs: ${_GCS_BUCKET} is not required.";
+        # fi
 
-# -n option would check the difference without performing the sync 
-# Synch the Dags with the GCS bucket. It creates the directories if it doesn't exists.
-# In gsutil -c option is used to do the checksum comparison rather than mtime check, 
-# as mtime always gets changed when repo gets cloned to cloudbuild workspace. 
-# The -d option will delete files from the destination folder if they don't exist in the source folder.
-# -x to exclude files. Example: -x "zlibpdh/__init__.py|airflow_monitoring.py$"
-- name: gcr.io/cloud-builders/gsutil
-  entrypoint: bash
-  args: 
-  - '-c'
-  - | 
-    # if grep app\/dags\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
-    #  then
-      echo "*********** Dags modified in the repo are list below ************"
-      gsutil -m rsync -c -r -n -x "zlibpdh/composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
-      echo "*********** Dags list end ************"
-      if [[ $_BASE_BRANCH == "preprod" ]];
-        then 
-          echo "********* Copying the preprod only files*******"
-          gsutil -m rsync -c -r -n app/dags/preprod gs://${_GCS_BUCKET}/dags;
-          echo "********* End of preprod copy files*******"
-      fi
-    #  else
-    #   echo "Dags are not modified, hence dags sync with gcs: ${_GCS_BUCKET} is not required.";
-    # fi
-
-
-# Loading ETL files to GCS bucket. 
-# This step is to present the difference to the approver before merging the pull request.
-- name: gcr.io/cloud-builders/gsutil
-  entrypoint: bash
-  args: 
-  - '-c'
-  - | 
-      # if grep app\/etl\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
-      # then
-        echo "*********** Following ETL Files would be laoded to the bucket: ${_ETL_BUCKET}************"
-        if [[ $_BASE_BRANCH == "preprod" ]];
-          then 
-            gsutil -m rsync -c -r -n  app/etl gs://${_ETL_BUCKET};     
-          else
-            gsutil -m rsync -c -r -n -x "prod_replicator\/.*$" app/etl gs://${_ETL_BUCKET};
-        fi
-        echo "*********** ETL Files list end ************"
-      # else
-      #   echo "etl files are not modified/added, hence etl sync with gcs: ${_ETL_BUCKET} is not required.";
-      # fi
-# # Checking if any variables are modfied. 
+  # Loading ETL files to GCS bucket.
+  # This step is to present the difference to the approver before merging the pull request.
+  - name: gcr.io/cloud-builders/gsutil
+    entrypoint: bash
+    args:
+      - "-c"
+      - |
+        # if grep app\/etl\/ /workspace/commitfiles.txt  /workspace/branchfiles.txt;
+        # then
+          echo "*********** Following ETL Files would be laoded to the bucket: ${_ETL_BUCKET}************"
+          if [[ $_BASE_BRANCH == "preprod" ]];
+            then 
+              gsutil -m rsync -c -r -n  app/etl gs://${_ETL_BUCKET};     
+            else
+              gsutil -m rsync -c -r -n -x "prod_replicator\/.*$" app/etl gs://${_ETL_BUCKET};
+          fi
+          echo "*********** ETL Files list end ************"
+        # else
+        #   echo "etl files are not modified/added, hence etl sync with gcs: ${_ETL_BUCKET} is not required.";
+        # fi
+# # Checking if any variables are modfied.
 # As connectivity between the composer and cloudbuild is not available, can't do the deployment using cloudbuild.
 # - name: gcr.io/cloud-builders/gcloud
 #   entrypoint: bash
-#   args: 
+#   args:
 #   - '-c'
-#   - | 
+#   - |
 #       echo "*********** Exporting the composer variables ************"
 #       # gcloud composer environments run ${_COMPOSER_NAME} --location ${_COMPOSER_LOC} variables -- --export /home/airflow/gcs/data/airflow-var-$BUILD_ID-$COMMIT_SHA.json;
-#       gcloud composer environments run ${_COMPOSER_NAME} --location ${_COMPOSER_LOC} variables -- --export /home/airflow/gcs/data/airflow-var-backup.json; 
+#       gcloud composer environments run ${_COMPOSER_NAME} --location ${_COMPOSER_LOC} variables -- --export /home/airflow/gcs/data/airflow-var-backup.json;
 #       echo "*********** Variable export end ************"
 # logsBucket: "gs://${_LOGS_BUCKET}"
 
 availableSecrets:
   secretManager:
-  # - versionName: projects/$PROJECT_NUMBER/secrets/$REPO_NAME-github-key/versions/latest
-  - versionName: projects/$PROJECT_NUMBER/secrets/cloudbuild-github-ssh-key/versions/latest
-    env: 'SSH_KEY'
+    # - versionName: projects/$PROJECT_NUMBER/secrets/$REPO_NAME-github-key/versions/latest
+    - versionName: projects/$PROJECT_NUMBER/secrets/cloudbuild-github-ssh-key/versions/latest
+      env: "SSH_KEY"

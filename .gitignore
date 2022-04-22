@@ -51,3 +51,6 @@ env-config*.json
 
 # Ignore service account file changes
 **/zlibpdh/pdh_utilities.py
+app/requirements.txt
+.gitignore
+venv/
