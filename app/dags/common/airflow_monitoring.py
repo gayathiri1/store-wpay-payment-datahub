@@ -4,6 +4,14 @@ from airflow import DAG
 from airflow.operators.bash_operator import BashOperator
 from datetime import timedelta
 
+import pytz
+
+import pendulum
+
+tz = pytz.timezone("Australia/Melbourne")
+startdatetime = tz.localize(datetime.now())
+yesterday = startdatetime - timedelta(days=1)
+
 default_args = {
     'start_date': airflow.utils.dates.days_ago(0),
     'retries': 1,
