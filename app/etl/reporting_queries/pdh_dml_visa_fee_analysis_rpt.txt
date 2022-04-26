@@ -1,4 +1,3 @@
-
 truncate table pdh_analytics_ds.visa_fee_analysis_rpt ;
 insert into pdh_analytics_ds.visa_fee_analysis_rpt  
 SELECT
@@ -29,7 +28,8 @@ SELECT
   gfs_aux_visa.processing_code,
   ref_trans_types.abbr,
   ref_trans_types.tran_type,
-  ref_trans_types.connex
+  ref_trans_types.connex,
+  ref_str_to_sap_customermapping.currency_code
 FROM
   `pdh_rd_data_navigator.gfs_aux_visa` gfs_aux_visa
   
@@ -41,3 +41,8 @@ LEFT JOIN
   `pdh_ref_ds.ref_transaction_types` ref_trans_types
   on 
   cast (gfs_aux_visa.processing_code as Numeric) =CAST(ref_trans_types.connex as NUMERIC)
+  LEFT JOIN 
+  `pdh_ref_ds.ref_str_to_sap_customermapping` ref_str_to_sap_customermapping
+ on 
+ ref_str_to_sap_customermapping.wpay_store_number = LEFT(gfs_aux_visa.card_acpt_term_id,5)
+ 
