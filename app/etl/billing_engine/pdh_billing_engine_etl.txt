@@ -371,6 +371,75 @@ Select
 	AND s.is_closed = FALSE;
 
 -------------------------------------------------------------------------------------------
+-- LINKLY
+
+Select 
+	ReqDate switch_tran_date,
+    'LL' tran_uid,
+	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_trans,
+	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_local,
+	ReqPAN masked_pan,
+    ReqDate date_recon_acq,
+    CONCAT(ReqStore, "000") net_term_id,
+    Concat('01', ReqStore) rpt_lvl_id_b,
+    null as mti,
+    null tran_type_id,
+    CAST(ReqAmt*100 AS NUMERIC) amt_recon_net,
+    null act_code,
+    ResRC response_code,
+    null account_type,
+    CAST(ReqAmt*100 AS NUMERIC) transaction_total,
+    CAST(ReqAmt*100 AS NUMERIC) purchase_total,
+    0 cashout_total,
+    null retrieval_ref_no,
+    null stan,
+    null original_stan,
+    null proc_id_acq_b,
+    null inst_id_recn_acq_b,
+    null card_acpt_name_loc,
+    null proc_id_iss_b,
+    null issuer_institution_id,
+	null inst_id_recon_iss_name,
+    null card_owner,
+    null pos_crd_dat_in_mod,
+    null pos_crdhldr_presnt,
+    null order_number,
+    null approval_code,
+    null adtnl_response_data,
+    null card_acpt_id,
+    null merchant_store_id,
+    null as dom_int_ind,
+    'APM' as card_type,
+    null card_subtype,
+    null bin_product_code,
+    OrigData scheme,
+    CASE WHEN ReqMT = 200 AND TRIM(ReqType) = 'N' THEN "PURCHASE"
+    WHEN ReqMT = 200 AND TRIM(ReqType) = 'R' THEN "REFUND"
+    WHEN ReqMT = 400 AND TRIM(ReqType) = 'N-' THEN "PURCHASE REVERSAL"
+    ELSE "" END tran_type_desc,
+    CASE WHEN ReqMT = 200 AND TRIM(ReqType) = 'N' THEN "PURCHASE"
+    WHEN ReqMT = 200 AND TRIM(ReqType) = 'R' THEN "REFUND"
+    WHEN ReqMT = 400 AND TRIM(ReqType) = 'N-' THEN "PURCHASE REVERSAL"
+    ELSE "" END abbr,
+    case ResRC
+		when '00' then 'Y'
+		else 'N'
+	end as approval_flag,
+    'ALIPAY' link_route,
+    i.merchant_group,
+    s.ratecard_group rate_group,
+	NULL currency_code
+    FROM `pdh_rd_apm.alipay_linkly` d
+LEFT JOIN (SELECT DISTINCT dpay_gc_group, merchant_group, rate_group FROM `pdh_ref_ds.ref_inst_id_config` WHERE (merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC") OR merchant_type = 'SMALL') AND active = 'TRUE') i
+    ON TRIM(d.OrigData) = i.dpay_gc_group
+	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
+    d.ReqStore = s.store_id 
+    where TRIM(d.OrigData) = 'Alipay'
+	and ReqDate >= start_date and ReqDate <= end_date
+    AND ReqMT IN (200, 400)
+	AND s.is_closed = FALSE;
+
+-------------------------------------------------------------------------------------------
 
 IF (SELECT COUNT(*) FROM `pdh_staging_ds.tbl_temp_billing_all` WHERE rate_group IS NULL) > 0 Then
     SELECT ERROR("Store ID(s) missing from store details table");
