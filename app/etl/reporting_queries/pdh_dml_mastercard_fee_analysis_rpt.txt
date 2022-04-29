@@ -1,3 +1,4 @@
+
 truncate table pdh_analytics_ds.mastercard_fee_analysis_rpt ;
 insert into pdh_analytics_ds.mastercard_fee_analysis_rpt  
 
@@ -11,7 +12,7 @@ WITH
     r.invoice_group,
     r.store_id,
     p.card_type,
-    s.currency_code,
+    cast(s.currency_code as string) Currency_code,
     CAST(
       CASE processing_code
         WHEN 0 THEN 'Purchase'
@@ -28,8 +29,15 @@ WITH
     AS Type_of_the_card,
     CAST(RIGHT(additional_amnt,6) AS int64)/100 Cash_out,
     CAST(amount_txn AS int64)/100 amount_txn,
+    cast(amount_txn_fee as int64)/100 amount_txn_fee,
     CAST(extended_interchange_amount_fee AS int64 )/1000000 fees,
-    (CAST(extended_interchange_amount_fee AS int64 )/1000000)/(CAST(amount_txn AS int64)/100 ) *100 avg_amt
+    --(CAST(extended_interchange_amount_fee AS int64 )/1000000)/(CAST(amount_txn AS int64)/100 ) *100 avg_amt
+   
+     (if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee/1000000,amount_txn_fee/100)  / (CAST(amount_txn AS int64)/100 ) ) *100 as avg_amt
+     
+
+
+
   FROM
     `pdh_rd_data_navigator.mastercard_T1G0` s
   INNER JOIN
@@ -52,7 +60,7 @@ WITH
     r.invoice_group,
     r.store_id,
     p.card_type,
-    s.currency_code,
+     cast(s.currency_code as string) Currency_code,
     CAST(
       CASE processing_code
         WHEN 0 THEN 'Purchase'
@@ -69,7 +77,9 @@ WITH
     AS Type_of_the_card,
     CAST(RIGHT(additional_amnt,6) AS int64)/100 Cash_out,
     CAST(amount_txn AS int64)/100 amt_txn,
+    cast(amount_txn_fee as int64)/100 amount_txn_fee,
     CAST(extended_interchange_amount_fee AS int64)/1000000 AS fees,
+   cast(if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee/1000000,amount_txn_fee/100) as float64) Avg_fees,
     1 AS tran_cnt
   FROM
     `pdh_rd_data_navigator.mastercard_T1G0` s
@@ -86,7 +96,7 @@ WITH
     card_type='Debit' )
 SELECT
   file_date,
-    division,
+  division,
   company,
   merchant_group,
   invoice_group,
@@ -129,7 +139,7 @@ SELECT
   Transaction_Type,
   Type_of_the_card,
   0 AS avg_fee_percent,
-  fees AS average_fees,
+  Avg_fees AS average_fees,
   SUM(amt_txn) AS total_Amount_Txn,
   (SUM(amt_txn)-SUM(Cash_out)) AS TXN_amount,
   SUM(Cash_out) AS Cash_out,
