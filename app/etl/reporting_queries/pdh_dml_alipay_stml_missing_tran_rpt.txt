@@ -1,0 +1,74 @@
+truncate table pdh_analytics_ds.alipay_stml_missing_tran_rpt;
+insert into pdh_analytics_ds.alipay_stml_missing_tran_rpt
+(
+
+
+WITH
+  alipay AS (
+  SELECT
+    SUBSTRING(Alipay.Reqstore,2,4) AS Alipay_StoreNumber,
+    Alipay.ReqTxRef AS Alipay_Ordernumber,
+    Alipay.reqdate AS Alipay_OrderDate,
+    CAST( Alipay.reqtime AS STRING) AS Alipay_OrderTime,
+  IF
+    (FORMAT_TIME('%R',
+        TIME(Alipay.reqtime)) <= "18:00:00",
+      SUM((Alipay.ReqTotalAmt)),
+      0) AS Alipay_CUTOFF_BEFORE_6,
+  IF
+    (FORMAT_TIME('%R',
+        TIME(Alipay.reqtime)) > "18:00:00",
+      SUM((Alipay.ReqTotalAmt)),
+      0)AS Alipay_CUTOFF_AFTER_6
+  FROM
+    `pdh_rd_apm.alipay_linkly` Alipay
+  WHERE
+    Alipay.ReqMT = 200
+    OR Alipay.ReqMT = 400
+    AND Alipay.reqtype IN ('N',
+      'N-',
+      'R',
+      'P')
+  GROUP BY
+    1,
+    2,
+    3,
+    reqtime),
+  a_stlm AS(
+  SELECT
+   cast(Transaction_id as string) AS Astlm_order_number,
+    store_id AS astlm_store_Number,
+    Datetime(Payment_time) AS astlm_order_date_time,
+    SUM(Amount) AS astlm_Amount
+  FROM
+    pdh_rd_apm.alipay_stlm
+  GROUP BY
+    1,
+    2,
+    3 )
+SELECT
+  DISTINCT AP.Alipay_StoreNumber,
+  AP.Alipay_Ordernumber,
+  AP.Alipay_OrderDate,
+  AP.Alipay_OrderTime,
+  Ast.Astlm_order_number,
+  ast.astlm_order_date_time,
+  ast.astlm_store_Number,
+  ast. astlm_Amount,
+  AP.Alipay_CUTOFF_BEFORE_6,
+  AP.Alipay_CUTOFF_After_6,
+  CASE
+    WHEN Alipay_Ordernumber IS NULL THEN "Missing in Alipay Linky"
+    WHEN Astlm_order_number IS NULL THEN " Missing in Alipay Settlement"
+  ELSE
+  "Not Missing"
+END
+  AS Flag
+FROM
+  Alipay AP
+FULL OUTER JOIN
+  a_stlm ast
+ON
+  Alipay_Ordernumber = Astlm_order_number
+
+)
