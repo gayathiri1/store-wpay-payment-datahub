@@ -1,4 +1,4 @@
---Perform SAP Settlement
+--Perform SAP Settlement, Stop QP
 declare sys_date date default CURRENT_DATE("Australia/Sydney");
 declare str_sysdate string default cast(sys_date as string);
 declare strt_settlement datetime default DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
@@ -102,7 +102,8 @@ end if;
                end as f12
          from `pdh_analytics_ds.stlm_standard_settlement_table` std
          join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
-               on upper(trim(scm.wpay_store_number)) = std.store_id
+               on  left(std.tran_uid,2) <> "QP"   --stop QC Partners
+               and upper(trim(scm.wpay_store_number)) = std.store_id
                and upper(ifnull(scm.active_flag,"")) <> "N" 
          join  company_sequence cs on cs.company_code = trim(scm.wpay_company_code)
          where std.setlmnt_result_file is null)
@@ -190,6 +191,7 @@ end if;
       join `pdh_ref_ds.ref_merchant_settlement_window` msw
          on msw.is_active = "Y"
         and msw.division = std.division
+        and trim(msw.division_type) <> "PARTNER"   --stop QC partner
       join pdh_ref_ds.ref_str_to_sap_customermapping scm
            on upper(trim(scm.wpay_store_number)) = std.store_id
                and upper(ifnull(scm.active_flag,"")) <> "N" 
@@ -210,6 +212,7 @@ end if;
          from (
                select left(tran_uid,2) source,division, max(transaction_timestamp) max_transaction_timestamp
                from `pdh_analytics_ds.stlm_standard_settlement_table`
+               where left(tran_uid,2) <> "QP"
                group by left(tran_uid,2), division) std1
          group by std1.division) std2
    where upper(trim(msw.division)) = std2.division;
@@ -218,7 +221,8 @@ end if;
    set (min_tran_time,max_tran_time) = (select AS STRUCT datetime_trunc(min(transaction_timestamp),SECOND),
                                                          datetime_trunc(max(transaction_timestamp),SECOND)
                                         from `pdh_analytics_ds.stlm_standard_settlement_table`
-                                        where setlmnt_result_file is null); 
+                                        where setlmnt_result_file is null
+                                          and left(tran_uid,2) <> "QP" ); 
   --Add file_gen_details control 
    insert into pdh_analytics_ds.file_gen_details 
       (batch_number,processing_date,merchant_name,etl_complete,extract_wf_complete,extract_start_datetime,
@@ -255,6 +259,7 @@ end if;
            on upper(trim(scm.wpay_store_number)) = std.store_id
                and upper(ifnull(scm.active_flag,"")) <> "N" 
    join company_sequence cs on cs.company_code = trim(scm.wpay_company_code)
+   where left(std.tran_uid,2) <> "QP"
    Group By cs.company_code, cs.company_seq;
  --
 --update generic settlement table if detail exists
@@ -284,6 +289,7 @@ end if;
                  and upper(ifnull(scm.active_flag,"N")) <> "N" 
              join company_sequence cs on cs.company_code = trim(scm.wpay_company_code)
              where ifnull(st.setlmnt_result_file,"") = ""
+               and left(st.tran_uid,2) <> "QP"
                       
         )  pf
    where pf.tran_uid = std.tran_uid;
