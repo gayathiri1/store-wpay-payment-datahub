@@ -1,0 +1,320 @@
+--Perform SAP Settlement, Stop QP
+declare sys_date date default CURRENT_DATE("Australia/Sydney");
+declare str_sysdate string default cast(sys_date as string);
+--
+declare strt_settlement datetime default DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
+--
+DECLARE inp_lookup STRING DEFAULT "PS PartnerSettlement";
+DECLARE batch string;
+--
+declare batch_start_datetime datetime default DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
+declare batch_end_datetime datetime;
+declare batch_start_mm_dd_hh_mm_ss datetime;
+declare batch_end_mm_dd_hh_mm_ss datetime;
+declare batch_end_yyyymmddhhmmss string;
+Declare min_tran_time datetime;
+Declare max_tran_time datetime;
+
+declare interfaceidentifier string DEFAULT "WPAYFEES";
+Declare companies ARRAY <string>;
+--
+--Get next Batch Number
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+if (ifnull(batch,"") in ("NOContRec","UpdFailed"))  then
+    return;
+end if; 
+--             
+--perform settlement
+   set batch_end_datetime = DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
+   set batch_end_yyyymmddhhmmss = format_date("%Y%m%d%H%M%S",  batch_end_datetime);
+   --
+   set batch_end_mm_dd_hh_mm_ss = cast(format_date("%Y-%m-%dT%H:%M:%S",  batch_end_datetime) as datetime);
+   set batch_start_mm_dd_hh_mm_ss = cast(format_date("%Y-%m-%dT%H:%M:%S", batch_start_datetime) as datetime);
+   --
+   set companies = ARRAY(Select distinct trim(wpay_company_code)
+                         from `pdh_ref_ds.ref_str_to_sap_customermapping`
+                         where upper(ifnull(active_flag,"N")) <> "N"
+                           and ifnull(wpay_company_code,"") <> "");
+   
+   --Always Create CSV Header 
+   truncate table `pdh_analytics_ds.sap_fee_posting_partner`;
+   insert into `pdh_analytics_ds.sap_fee_posting_partner`
+      (file_name, --1
+       merchant, --2
+       company_code, --3
+       H, --4
+       fee_type_description, --5
+       merchant_org_id,--6
+       merchant_location_number, --7
+       caic, --8
+       sap_customer_number, --9
+       record_end_indicator) --10
+      with company_sequence as 
+             (select  companies[SAFE_OFFSET(offset)] as company_code,offset as company_seq 
+              from unnest(companies) with OFFSET
+             )
+      select concat(interfaceidentifier,"_",
+                    format_datetime("%Y%m%d%H%M%S",
+                                    datetime_add(batch_end_datetime, 
+                                                 Interval 
+                                                 company_seq second))) as file_name, --1
+             concat("partnerfeeposting",
+                    case company_code
+                       when "1410" then "aus"
+                       when "2025" then "nzl"
+                       else "oth"
+                    end,
+                    company_code) as merchant, --2
+             company_code as company_code, --3
+             "H"  as H,--4
+             interfaceidentifier as fee_type_description, --5
+             company_code as merchant_org_id,	--6
+             format_datetime("%Y%m%d",
+                             datetime_add(batch_end_datetime, 
+                                          Interval 
+                                          company_seq second)) as merchant_location_number, --7	
+             format_datetime("%H%M%S",
+                             datetime_add(batch_end_datetime, 
+                                          Interval 
+                                          company_seq second)) as caic, --8	
+             concat(interfaceidentifier,"_",
+                    format_datetime("%Y%m%d%H%M%S",
+                                    datetime_add(batch_end_datetime, 
+                                                 Interval 
+                                                 company_seq second))) as sap_customer_number,--9
+             "/" as record_end_indicator --10
+         from company_sequence;   
+   --                       
+    insert into `pdh_analytics_ds.sap_fee_posting_partner`
+       with company_sequence as 
+             (select  companies[SAFE_OFFSET(offset)] as company_code,offset as company_seq 
+              from unnest(companies) with OFFSET
+              ),
+       tmp_prtr_sap_posting  as (
+       	  Select cs.company_code,  --1
+                  cs.company_seq,  --2
+                  "1" as record_type, --3
+		             cast(std.transaction_timestamp as date) as calendar_date, --4
+		             cast(std.transaction_timestamp as date) as settlement_date, --5
+		             sap.merchant_organisation_id AS merchant_org_id, --6
+		             sap.merchant_store_number AS merchant_location_number, --7
+		             str.site_name as caic, --8
+		             sap.sap_customer_number, --9
+		             std.store_id, --10
+		             std.store_id AS wow_loc_number, --11
+		             fee.frequency, --12
+		             'E' AS gst_flag, --13
+		             fee.direct_debit_flag, --14
+		             sap.currency_code, --15
+		            (
+			           CASE 
+				            WHEN fee.direct_debit_flag = 'Y' AND upper(trim(fee.frequency)) = 'WEEKLY' THEN 
+		 	                  (CAST(FORMAT_DATE("%Y%m%d",(
+                              CASE
+			                           WHEN     (EXTRACT(DAYOFWEEK FROM cast(std.transaction_timestamp as date)) >1) 
+                                      AND (EXTRACT(DAYOFWEEK FROM cast(std.transaction_timestamp as date)) < 6)
+				                              THEN DATE_ADD(DATE_TRUNC(cast(std.transaction_timestamp as date),
+                                                                        WEEK(THURSDAY)),INTERVAL 2 WEEK)
+				                         ELSE DATE_ADD(DATE_TRUNC(cast(std.transaction_timestamp as date),
+                                                                        WEEK(THURSDAY)),INTERVAL 1 WEEK)
+				                      END )) AS INT64))
+			           END) AS pay_due_date, --16
+		             sum(tran_settlement_amount) + sum(discount_amt) as net_tran_amount,
+		             sum(discount_amt) as discount_amount,
+                   count(*) record_count
+	      from `pdh_analytics_ds.stlm_standard_settlement_table` std
+         join `pdh_ref_ds.ref_str_to_sap_customermapping` sap
+               on  upper(trim(sap.wpay_store_number)) = std.store_id
+               and upper(ifnull(sap.active_flag,"")) <> "N" 
+		   join `pdh_ref_ds.ref_store_details` str on upper(trim(str.store_id)) = std.store_id
+                                           and str.is_closed = False
+         join pdh_ref_ds.ref_merchant_fee_config fee on upper(trim(fee.company)) = upper(trim(str.company)) 
+                                                and upper(trim(fee.fee_code)) = 'GCNETRECOVERY'
+         join  company_sequence cs on cs.company_code = trim(sap.wpay_company_code)		 
+		   where std.tran_uid like "QP%"
+           and std.setlmnt_result_file is null
+         group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16), 
+      dtl as (
+          select company_code, --1
+                 company_seq, --2
+                 record_type, --3
+			        calendar_date,--4
+			        settlement_date,--5
+			        merchant_org_id,--6
+			        merchant_location_number, --7
+			        caic, --8
+			        sap_customer_number, --9
+			        store_id, --10
+			        wow_loc_number, --11
+			        'GCNETRECOVERY' as fee_type_description, --12
+			        CAST(round(net_tran_amount ,2) * 100 as NUMERIC) as fee_value, --13
+			        frequency, --14
+			        gst_flag, --15
+			        direct_debit_flag, --16
+			        currency_code, --17
+			        pay_due_date, --18
+                 record_count --19
+			   from tmp_prtr_sap_posting
+			union all
+			   select company_code,
+                   company_seq,
+                   record_type,
+			          calendar_date,
+			          settlement_date,
+			          merchant_org_id,
+			          merchant_location_number,
+			          caic,
+			          sap_customer_number,
+			          store_id,
+			          wow_loc_number,
+			          'GCPARTNERDISC' as fee_type_description,
+			          CAST(round(discount_amount,2) * 100 as NUMERIC) as fee_value,
+			          frequency,
+			          gst_flag,
+			          direct_debit_flag,
+			          currency_code,
+			          pay_due_date,
+                   record_count
+			from tmp_prtr_sap_posting
+		            )
+         select concat(interfaceidentifier,"_",
+                     format_datetime("%Y%m%d%H%M%S",
+                                     datetime_add(batch_end_datetime, 
+                                                  Interval 
+                                                  company_seq second))) as file_name, --1
+                 concat("partnerfeeposting",
+                    case company_code
+                       when "1410" then "aus"
+                       when "2025" then "nzl"
+                       else "oth"
+                    end,
+                    company_code) as merchant, --2
+                 company_code as company, --3
+                 record_type, --4
+                 fee_type_description, --5
+				     cast(format_date("%Y%m%d",calendar_date) as INT64)   as calendar_date, --6
+				     cast(format_date("%Y%m%d",settlement_date) as INT64) as settlement_date, --7
+				     merchant_org_id, --8
+			        merchant_location_number, --9
+			        caic, --10
+			        sap_customer_number, --11
+			        store_id, --12
+			        wow_loc_number,--13
+                 fee_value, --14
+                 frequency, --15
+			        gst_flag, --16
+			        direct_debit_flag, --17
+			        currency_code, --18
+			        pay_due_date, --19
+                 "/" as record_end_indicator, --20
+                 record_count --21
+          from dtl;
+--
+--Always create CSV Trailor
+    insert into `pdh_analytics_ds.sap_fee_posting_partner`
+      (file_name,merchant,company_code,H, merchant_org_id,merchant_location_number,record_end_indicator)
+        Select file_name,merchant,company_code,
+               "T",
+               ifnull(cast(Count(*) - 1 as string),"0"),
+               ifnull(cast(Sum(case H
+                               when "H" then 0
+                               else fee_value
+                            end) as string),"0"),
+               "/"
+        From `pdh_analytics_ds.sap_fee_posting_partner`
+        Group By file_name,merchant,company_code;
+    --
+   -- Copy CSV inout to History
+     insert into `pdh_analytics_ds.sap_fee_posting_partner_history`
+        select batch_end_mm_dd_hh_mm_ss, *
+        from `pdh_analytics_ds.sap_fee_posting_partner`;
+ 
+--update settlement window if detail exists
+   update `pdh_ref_ds.ref_merchant_settlement_window` msw
+       set msw.last_execution_time = std2.min_transaction_timestamp,
+           msw.last_updated_datetime = DATETIME_TRUNC(CURRENT_DATETIME("Australia/Sydney"),SECOND)
+   from (select std1.division, min(std1.max_transaction_timestamp) min_transaction_timestamp
+         from (
+               select left(tran_uid,2) source,division, max(transaction_timestamp) max_transaction_timestamp
+               from `pdh_analytics_ds.stlm_standard_settlement_table`
+               where left(tran_uid,2) = "QP"
+               group by left(tran_uid,2), division) std1
+         group by std1.division) std2
+   where upper(trim(msw.division)) = std2.division;
+--
+ --Always Insert csv output control
+   set (min_tran_time,max_tran_time) = (select AS STRUCT datetime_trunc(min(transaction_timestamp),SECOND),
+                                                         datetime_trunc(max(transaction_timestamp),SECOND)
+                                        from `pdh_analytics_ds.stlm_standard_settlement_table`
+                                        where setlmnt_result_file is null
+                                          and left(tran_uid,2) = "QP" ); 
+  --Add file_gen_details control 
+   insert into pdh_analytics_ds.file_gen_details 
+      (batch_number,processing_date,merchant_name,etl_complete,extract_wf_complete,extract_start_datetime,
+      	extract_end_datetime,file_date)
+      with company_sequence as 
+             (select  companies[SAFE_OFFSET(offset)] as company_code,offset as company_seq 
+              from unnest(companies) with OFFSET
+              )
+      select batch as batch_number,
+             cast(datetime_add(batch_end_datetime, 
+                               Interval 
+                               cs.company_seq second) as date) as processing_date,
+             concat("partnerfeeposting",
+                    case cs.company_code
+                       when "1410" then "aus"
+                       when "2025" then "nzl"
+                       else "oth"
+                    end,
+                    cs.company_code) as merchant_name,
+             true etl_complete, 
+             cast(null as boolean) extract_wf_complete,
+             ifnull(datetime_trunc(min(std.transaction_timestamp),SECOND),
+                    datetime_add(batch_end_datetime, 
+                                 Interval 
+                                 cs.company_seq second)) extract_start_datetime,
+      	   ifnull(datetime_trunc(max(std.transaction_timestamp),SECOND),
+                    datetime_add(batch_end_datetime, 
+                                 Interval cs.company_seq second)) extract_end_datetime,
+            datetime_add(batch_end_datetime, 
+                         Interval 
+                         cs.company_seq second) file_date
+   from `pdh_analytics_ds.stlm_standard_settlement_table` std
+   join pdh_ref_ds.ref_str_to_sap_customermapping scm
+           on upper(trim(scm.wpay_store_number)) = std.store_id
+               and upper(ifnull(scm.active_flag,"")) <> "N" 
+   join company_sequence cs on cs.company_code = trim(scm.wpay_company_code)
+   where left(std.tran_uid,2) = "QP"
+   Group By cs.company_code, cs.company_seq;
+ --
+--update generic settlement table if detail exists
+   
+   update `pdh_analytics_ds.stlm_standard_settlement_table` std
+         set std.setlmnt_result_file = pf.postingfilename,
+             std.last_update_datetime = pf.batch_end, 
+             std.posting_date = cast(pf.batch_end as date) 
+   from (with company_sequence as 
+             (select  companies[SAFE_OFFSET(offset)] as company_code,offset as company_seq 
+              from unnest(companies) with OFFSET
+              )
+        select st.tran_uid,
+                     concat(interfaceidentifier,"_",
+                           format_datetime("%Y%m%d%H%M%S",
+                               datetime_add(batch_end_datetime, 
+                                            Interval 
+                                            cs.company_seq second)
+                                          )
+                           ) as postingfilename,
+                     datetime_add(batch_end_datetime, 
+                                  Interval 
+                                  cs.company_seq second) as batch_end
+             from pdh_analytics_ds.stlm_standard_settlement_table st
+             join pdh_ref_ds.ref_str_to_sap_customermapping scm
+                  on upper(trim(scm.wpay_store_number)) = st.store_id
+                 and upper(ifnull(scm.active_flag,"N")) <> "N" 
+             join company_sequence cs on cs.company_code = trim(scm.wpay_company_code)
+             where ifnull(st.setlmnt_result_file,"") = ""
+               and left(st.tran_uid,2) = "QP"
+                      
+        )  pf
+   where pf.tran_uid = std.tran_uid;
