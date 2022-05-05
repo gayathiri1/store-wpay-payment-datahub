@@ -123,7 +123,8 @@ def load_target_table(**kwargs):
         file_date = file_name.split('.')[0][-19:-9].replace('_','')
     elif 'merfee' in file_name.lower():
         file_date = file_name.split('/')[3].split('.')[0][-15:-7]
-    elif 'isg_wpay' in file_name.lower() or 'tn70_mc' in file_name.lower():
+    elif 'isg_wpay' in file_name.lower() or 'tn70_mc' in file_name.lower()\
+    or 'tc33_visa' in file_name.lower():
         file_date = file_name.split('/')[3].split('.')[0][-10:-2]
     else:
         file_date = file_name.split('/')[3].split('.')[0][-8:]
