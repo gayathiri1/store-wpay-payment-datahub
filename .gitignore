@@ -50,7 +50,7 @@ env-config*.json
 **/infra/terraform/id_github*
 
 # Ignore service account file changes
-**/zlibpdh/pdh_utilities.py
+# **/zlibpdh/pdh_utilities.py
 app/requirements.txt
 .gitignore
 venv/
