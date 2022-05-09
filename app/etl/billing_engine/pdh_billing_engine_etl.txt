@@ -377,12 +377,13 @@ Select
 -------------------------------------------------------------------------------------------
 -- LINKLY
 
+insert into `pdh_staging_ds.tbl_temp_billing_all`
 Select 
 	ReqDate switch_tran_date,
     'LL' tran_uid,
 	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_trans,
 	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_local,
-	ReqPAN masked_pan,
+	CAST(ReqPAN AS STRING) masked_pan,
     ReqDate date_recon_acq,
     CONCAT(ReqStore, "000") net_term_id,
     Concat('01', ReqStore) rpt_lvl_id_b,
@@ -430,81 +431,10 @@ Select
 		else 'N'
 	end as approval_flag,
     'ALIPAY' link_route,
-    i.merchant_group,
+    UPPER(s.ratecard_group) merchant_group,
     s.ratecard_group rate_group,
 	NULL currency_code
     FROM `pdh_rd_apm.alipay_linkly` d
-LEFT JOIN (SELECT DISTINCT dpay_gc_group, merchant_group, rate_group FROM `pdh_ref_ds.ref_inst_id_config` WHERE (merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC") OR merchant_type = 'SMALL') AND active = 'TRUE') i
-    ON TRIM(d.OrigData) = i.dpay_gc_group
-	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
-    d.ReqStore = s.store_id 
-    where TRIM(d.OrigData) = 'Alipay'
-	and ReqDate >= start_date and ReqDate <= end_date
-    AND ReqMT IN (200, 400)
-	AND s.is_closed = FALSE;
-
--------------------------------------------------------------------------------------------
--- LINKLY
-
-Select 
-	ReqDate switch_tran_date,
-    'LL' tran_uid,
-	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_trans,
-	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_local,
-	ReqPAN masked_pan,
-    ReqDate date_recon_acq,
-    CONCAT(ReqStore, "000") net_term_id,
-    Concat('01', ReqStore) rpt_lvl_id_b,
-    null as mti,
-    null tran_type_id,
-    ABS(CAST(ReqAmt*100 AS NUMERIC)) amt_recon_net,
-    null act_code,
-    ResRC response_code,
-    null account_type,
-    ABS(CAST(ReqAmt*100 AS NUMERIC)) transaction_total,
-    ABS(CAST(ReqAmt*100 AS NUMERIC)) purchase_total,
-    0 cashout_total,
-    null retrieval_ref_no,
-    null stan,
-    null original_stan,
-    null proc_id_acq_b,
-    null inst_id_recn_acq_b,
-    null card_acpt_name_loc,
-    null proc_id_iss_b,
-    null issuer_institution_id,
-	null inst_id_recon_iss_name,
-    null card_owner,
-    null pos_crd_dat_in_mod,
-    null pos_crdhldr_presnt,
-    null order_number,
-    null approval_code,
-    null adtnl_response_data,
-    null card_acpt_id,
-    null merchant_store_id,
-    null as dom_int_ind,
-    'APM' as card_type,
-    null card_subtype,
-    null bin_product_code,
-    OrigData scheme,
-    CASE WHEN ReqMT = 200 AND TRIM(ReqType) = 'N' THEN "PURCHASE"
-    WHEN ReqMT = 200 AND TRIM(ReqType) = 'R' THEN "REFUND"
-    WHEN ReqMT = 400 AND TRIM(ReqType) = 'N-' THEN "PURCHASE REVERSAL"
-    ELSE "" END tran_type_desc,
-    CASE WHEN ReqMT = 200 AND TRIM(ReqType) = 'N' THEN "PURCHASE"
-    WHEN ReqMT = 200 AND TRIM(ReqType) = 'R' THEN "REFUND"
-    WHEN ReqMT = 400 AND TRIM(ReqType) = 'N-' THEN "PURCHASE REVERSAL"
-    ELSE "" END abbr,
-    case ResRC
-		when '00' then 'Y'
-		else 'N'
-	end as approval_flag,
-    'ALIPAY' link_route,
-    i.merchant_group,
-    s.ratecard_group rate_group,
-	NULL currency_code
-    FROM `pdh_rd_apm.alipay_linkly` d
-LEFT JOIN (SELECT DISTINCT dpay_gc_group, merchant_group, rate_group FROM `pdh_ref_ds.ref_inst_id_config` WHERE (merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC") OR merchant_type = 'SMALL') AND active = 'TRUE') i
-    ON TRIM(d.OrigData) = i.dpay_gc_group
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     d.ReqStore = s.store_id 
     where TRIM(d.OrigData) = 'Alipay'
@@ -547,6 +477,7 @@ SELECT
         when 'MASTERCARD' then 'MASTERCARD'
         when 'EFTPOS' then 'EFTPOS'
         when 'PAYPAL' then 'PAYPAL'
+        when 'ALIPAY' then 'ALIPAY'
         else ''
     end calc_scheme,
     case link_route
@@ -561,6 +492,7 @@ SELECT
         when 'CRD' then 'CREDIT'
         when 'DBT' then 'DEBIT'
         when 'PAYPAL' then 'OTHER'
+        when 'ALIPAY' then 'OTHER'
         else card_type
     end calc_card_type,
     from `pdh_staging_ds.tbl_temp_billing_all` dn;
@@ -638,9 +570,9 @@ IF(LEFT(net_term_id,5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNULL(
 000000 as settled_datetime,
 000000 as fncl_posted_datetime
 from `temp_billing_all` d
-left join `pdh_ref_ds.ref_rate_card` r on upper(d.calc_scheme)=upper(r.scheme) 
-and Upper(d.calc_card_type)=upper(r.card_type)
-AND upper(d.rate_group) = upper(r.merchant)
+left join `pdh_ref_ds.ref_rate_card` r on trim(upper(d.calc_scheme))=trim(upper(r.scheme)) 
+and trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
+AND trim(upper(d.rate_group)) = trim(upper(r.merchant))
 AND d.switch_tran_date BETWEEN r.from_date AND IFNULL(r.to_date, '2999-12-31');
 
 ---------------------------------------------------------------------------------------------------------------------------------

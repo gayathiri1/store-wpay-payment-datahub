@@ -165,7 +165,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
              "EDP" as tran_qualifier,
              upper(left(trim(card_acceptor_terminal_id),5)) as store_id,
              "" as invoicenumber,
-             ifnull(amount_txn,0) as trans_amt,
+             ifnull(amount_txn,0) * 0.01 as trans_amt,
              0 as discount_amt
     from `pdh_rd_data_navigator.edwp_txnact` 
     where txn_disposition = 1
@@ -253,7 +253,6 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
            or (left(trn.tran_uid,2) = "QC" and ifnull(tlf.qc_flag,"N") = "Y")      
            or (left(trn.tran_uid,2) = "ED" and ifnull(tlf.edp_flag,"N") = "Y")    
            or (left(trn.tran_uid,2) = "DP" and ifnull(tlf.dpay_flag,"N") = "Y") 
-           or (left(trn.tran_uid,2) = "QP")    
           )
       and trn.transaction_timestamp
               > (case 
