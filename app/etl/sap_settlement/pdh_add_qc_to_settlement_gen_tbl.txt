@@ -1,35 +1,18 @@
 --
 --Start of Script
---Add QC,QP,LK,DP data to generic settlement table Exit if Duplicate transactionc exist, Add QC Partner
+--Add QC,QP,LK,DP data to generic settlement table Exit if Duplicate transactionc exist, Remove QC Partner
 --Block if company is null
 declare sys_date date default current_date("Australia/Sydney");
 declare batch_end_datetime datetime;
 declare batch_end_mm_dd_hh_mm_ss datetime;
 declare min_transaction_timestamp datetime;
 declare max_transaction_timestamp datetime;
---
-Declare LKEnabled string default      
-   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
-    where data_source = "LK"),"N");
-Declare QCEnabled string default          
-   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
-           where data_source = "QC"),"N") ;
-Declare DPEnabled string default 
-   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
-           where data_source = "DP"),"N") ;
-Declare QPEnabled string default          
-   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
-           where data_source = "QP"),"N") ;
-Declare EDEnabled string default          
-   ifnull((Select enabled from `pdh_ref_ds.ref_settlement_Sources` 
-           where data_source = "ED"),"N");
---
 DECLARE inp_lookup STRING DEFAULT "QC Settlement";
 DECLARE batch string;
---select LKEnabled LK,QCEnabled QC,DPEnabled DP,QPEnabled QP,EDEnabled ED;
-
+--
 if (Select count(*) from `pdh_analytics_ds.sap_missing_store_log`
-           Where create_by = "Settlement Process") > 0  then
+           Where create_by = "Settlement Process"
+             and data_source in ("QC","LK","DP","ED","CY")) > 0  then
     return;
 end if; 
 --
@@ -102,56 +85,11 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
          left Join `pdh_ref_ds.ref_merchant_settlement_window` mw
               on mw.division_type = "PARTNER"
              and mw.division = upper(trim(qct.Merchant))
-         where QCEnabled = "Y" 
-           and ifnull(mw.division,"") = ""
+         where ifnull(mw.division,"") = ""
            and upper(trim(qct.transactionstatus)) =  "SUCCESS"
            and qct.amount_transacting_merchants_currency_or_points <> 0
         ),
-    QPTran as (
-           Select concat("QP_",trim(ifnull(qpt.InvoiceNumber,"Null")),"_",
-                         case 
-                            when qpt.CardNumber is Null then "NULL"
-                            when length(trim(qpt.CardNumber)) < 10 then trim(qpt.CardNumber)
-                            else concat(left(trim(qpt.CardNumber),6),
-                                   repeat("*",length(trim(qpt.CardNumber)) - 9),
-                                   right(trim(qpt.CardNumber),3)
-                                       )
-                         end,"_",
-                         upper(trim(qpt.TransactionType)), "_",
-                         case 
-                            when qpt.TransactionDate is null then "19000101T000000"
-                            else format_datetime("%Y%m%dT%H%M%S",
-                                                 cast(qpt.TransactionDate as datetime)
-                                                )
-                         end) as tran_uid,
-                  qpt.file_name,
-                  case 
-                     when qpt.TransactionDate is null then cast("1900-01-01T00:00:00" as datetime)
-                     else datetime_trunc(cast(qpt.TransactionDate as datetime),second)
-                  end as transaction_timestamp,
-                  upper(trim(qpt.TransactionType)) as transactiontype,
-                  "QP" as tran_qualifier,
-                  case 
-                     when trim(ifnull(qpt.outletcode,"")) <> "" then upper(trim(qpt.outletcode))
-                     when upper(trim(qpt.Merchant)) = "PREZZEE-AUS"       then "Q0009"
-                     when upper(trim(qpt.Merchant)) = "DIGITAL GLUE"      then "Q0010"
-                     when upper(trim(qpt.Merchant)) = "PITSTOP"           then "Q0005"
-                     when upper(trim(qpt.Merchant)) = "BLACKHAWK NETWORK" then "Q0012"
-                     else null 
-                  end as store_id,
-                  qpt.InvoiceNumber as invoicenumber,
-                  ifnull(qpt.Amount,0) as trans_amt,
-                  ifnull(qpt.DiscountValue,0) as discount_amt
-         from `pdh_rd_quickcilver.qc_partner_detail` qpt
-         Join `pdh_ref_ds.ref_merchant_settlement_window` mw
-              on mw.division_type = "PARTNER"
-             and mw.is_active = "Y"
-             and mw.division = upper(trim(qpt.Merchant))
-        where QPEnabled = "Y"
-        and upper(trim(qpt.TransactionType)) in ("ACTIVATION","CANCELLATION")
-        and (ifnull(qpt.Amount,0) <> 0 or ifnull(qpt.DiscountValue,0) <> 0)
-        ),
-  LKTran as (
+    LKTran as (
          select concat("LK_",
                   trim(ifNull(ResRef,"NULL")),"_",
                   case 
@@ -178,8 +116,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                 ifnull(ReqAmt,0) tran_amt,
                 0 as discount_amt
    from  `pdh_rd_apm.alipay_linkly` 
-    where LKEnabled = "Y"
-      and ifnull(ReqStore,"NULL") <> "NULL"
+    where ifnull(ReqStore,"NULL") <> "NULL"
       and ReqAmt <> 0
       and ResRT =    "TRANSACTION APPROVED"
       and ReqMT in (200) --stop 400
@@ -204,8 +141,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
              ifnull(amount,0) as trans_amt,
              0 as discount_amt
     from `pdh_rd_data_navigator.digitalpay_gc_txns` 
-    where DPEnabled = "Y"
-      and ifnull(amount,0) <> 0
+    where ifnull(amount,0) <> 0
       and upper(trim(MerchantName)) = "EVERYDAY PAY"
       and upper(trim(transactiontype)) in ("PURCHASE","REFUND") 
       and ifnull(responseCodeContainer,"") = "00" 
@@ -229,20 +165,41 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
              "EDP" as tran_qualifier,
              upper(left(trim(card_acceptor_terminal_id),5)) as store_id,
              "" as invoicenumber,
-             ifnull(amount_txn,0) as trans_amt,
+             ifnull(amount_txn,0) * 0.01 as trans_amt,
              0 as discount_amt
     from `pdh_rd_data_navigator.edwp_txnact` 
-    where EDEnabled = "Y"
-      and txn_disposition = 1
+    where txn_disposition = 1
       and local_timestamp is not NULL
       and ifnull(amount_txn,0)  <> 0
       and right(cast(txn_type_indicator as string),4) in ("1000","2000")
               ),
+ CYTran as (
+ Select concat("CY_",cast(tran_uid as string)) as tran_uid,
+        file_name,
+        cast(Concat(left(cast(trasnaction_timestamp as string),4), "-",
+               substring(cast(trasnaction_timestamp as string),5,2), "-",
+               substring(cast(trasnaction_timestamp as string),7,2), "T",
+               substring(cast(trasnaction_timestamp as string),9,2), ":",
+               substring(cast(trasnaction_timestamp as string),11,2), ":",
+               substring(cast(trasnaction_timestamp as string),13,2)
+              ) as datetime) as transaction_timestamp,
+        upper(trim(transaction_type)) as transactiontype,
+        "CY" as tran_qualifier,
+        upper(left(trim(terminal_id),5)) as store_id,
+        cast(order_num as string) as invoicenumber,
+        ifnull(transaction_amount,0) * 0.01 as trans_amt,
+             0 as discount_amt
+ from `pdh_rd_data_navigator.isg_wpay_tran`
+ where upper(trim(transaction_type)) in ("PURCHASE","REFUND")
+   and transaction_approval_status = 0
+   and ifnull(transaction_amount,0) <> 0
+   ), 
    tran_combined as (         select * from QCTran where ifnull(store_id,"") <> ""
                     Union all Select * from DPTran where ifnull(store_id,"") <> ""
                     union all Select * from LKTran where ifnull(store_id,"") <> ""
-                    union all Select * from QPTRAN where ifnull(store_id,"") <> ""
-                    union all Select * from EDTran where ifnull(store_id,"") <> ""),
+                    union all Select * from EDTran where ifnull(store_id,"") <> ""
+                    union all Select * from CYTran where ifnull(store_id,"") <> ""
+                    ),
    trn_seq as (select *, row_number() over(partition by tran_uid) tran_uid_seq
              from tran_combined),
    --Eliminate duplicate tran_uid
@@ -286,9 +243,17 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                                      when "QC" then msw.division_type
                                      else trn.tran_qualifier
                                   end
+    left join `pdh_ref_ds.ref_stlm_tlf_config` tlf on tlf.division = upper(trim(rsd.division))
+                    
     left join `pdh_analytics_ds.stlm_standard_settlement_table` std
          on std.tran_uid = trn.tran_uid
     where  std.tran_uid is null
+      and ((left(trn.tran_uid,2) = "LK" and ifnull(tlf.alipay_flag,"N") = "Y")
+           or (left(trn.tran_uid,2) = "CY" and ifnull(tlf.cybsy_flag,"N") = "Y")  
+           or (left(trn.tran_uid,2) = "QC" and ifnull(tlf.qc_flag,"N") = "Y")      
+           or (left(trn.tran_uid,2) = "ED" and ifnull(tlf.edp_flag,"N") = "Y")    
+           or (left(trn.tran_uid,2) = "DP" and ifnull(tlf.dpay_flag,"N") = "Y") 
+          )
       and trn.transaction_timestamp
               > (case 
                     when msw.last_execution_time is null then cast("1900-01-01T00:00:00" as datetime)
