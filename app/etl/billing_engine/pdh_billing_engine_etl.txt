@@ -380,7 +380,7 @@ Select
 insert into `pdh_staging_ds.tbl_temp_billing_all`
 Select 
 	ReqDate switch_tran_date,
-    'LL' tran_uid,
+    ReqTxRef tran_uid,
 	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_trans,
 	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_local,
 	CAST(ReqPAN AS STRING) masked_pan,
@@ -420,14 +420,13 @@ Select
     OrigData scheme,
     CASE WHEN ReqMT = 200 AND TRIM(ReqType) = 'N' THEN "PURCHASE"
     WHEN ReqMT = 200 AND TRIM(ReqType) = 'R' THEN "REFUND"
-    WHEN ReqMT = 400 AND TRIM(ReqType) = 'N-' THEN "PURCHASE REVERSAL"
+    WHEN ReqMT = 400 AND TRIM(ReqType) = 'N-' THEN "PURCHASE"
     ELSE "" END tran_type_desc,
     CASE WHEN ReqMT = 200 AND TRIM(ReqType) = 'N' THEN "PURCHASE"
     WHEN ReqMT = 200 AND TRIM(ReqType) = 'R' THEN "REFUND"
-    WHEN ReqMT = 400 AND TRIM(ReqType) = 'N-' THEN "PURCHASE REVERSAL"
+    WHEN ReqMT = 400 AND TRIM(ReqType) = 'N-' THEN "PURCHASE"
     ELSE "" END abbr,
-    case ResRC
-		when '00' then 'Y'
+    case when ReqMT = 200 AND ResRC = '00' then 'Y'
 		else 'N'
 	end as approval_flag,
     'ALIPAY' link_route,
@@ -660,6 +659,20 @@ and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
 AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
 and link_route = 'EFTPOS'
 ;
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+--ALIPAY UPDATE
+
+Update `pdh_analytics_ds.tbl_fees_all` i
+set interchange_fees_actual = s.Fee * 100,
+i.fee_indicator = 'A'
+from `pdh_rd_apm.alipay_stlm` s
+where i.tran_uid = CAST(s.transaction_id AS STRING)
+and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+and (case i.calc_tran_type_abbr when 'PURCHASE' THEN 'P' WHEN 'REFUND' then 'R' else null end) = TRIM(s.Type)
+and i.approval_flag = 'Y';
+
+-------------------------------------------------------------------------------------------------------------------------------------------
 
 update `pdh_analytics_ds.tbl_fees_all` set interchange_fees_invoiced=interchange_fees_actual
 where fee_indicator='A'
