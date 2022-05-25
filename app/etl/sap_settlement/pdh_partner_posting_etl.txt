@@ -112,7 +112,7 @@ end if;
 		 	                  (CAST(FORMAT_DATE("%Y%m%d",(
                               CASE
 			                           WHEN     (EXTRACT(DAYOFWEEK FROM cast(std.transaction_timestamp as date)) >1) 
-                                      AND (EXTRACT(DAYOFWEEK FROM cast(std.transaction_timestamp as date)) < 6)
+                                      AND (EXTRACT(DAYOFWEEK FROM cast(std.transaction_timestamp as date)) < 5)
 				                              THEN DATE_ADD(DATE_TRUNC(cast(std.transaction_timestamp as date),
                                                                         WEEK(THURSDAY)),INTERVAL 2 WEEK)
 				                         ELSE DATE_ADD(DATE_TRUNC(cast(std.transaction_timestamp as date),

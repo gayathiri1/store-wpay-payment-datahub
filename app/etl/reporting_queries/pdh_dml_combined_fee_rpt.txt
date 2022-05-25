@@ -1,0 +1,135 @@
+truncate table pdh_analytics_ds.tbl_combined_fee_rpt ;
+insert into pdh_analytics_ds.tbl_combined_fee_rpt
+(
+with fee as(
+(SELECT
+  `view_sml_merchant_fees_rpt`.`switch_tran_date` AS `switch_tran_date`,
+  `view_sml_merchant_fees_rpt`.`store_id` AS `store_id`,
+  `view_sml_merchant_fees_rpt`.`tran_uid` as `tran_uid`,
+  `view_sml_merchant_fees_rpt`.`issuer` AS `issuer`,
+  `view_sml_merchant_fees_rpt`.`approval_flag` AS `approval_flag`,
+  `view_sml_merchant_fees_rpt`.`account` AS `account`,
+  `view_sml_merchant_fees_rpt`.`link_route` AS `link_route`,
+  `view_sml_merchant_fees_rpt`.`scheme` AS `scheme`,
+  `view_sml_merchant_fees_rpt`.`card_type` AS `card_type`,
+  `view_sml_merchant_fees_rpt`.`orig_card_type` AS `orig_card_type`,
+  `view_sml_merchant_fees_rpt`.`dom_int_ind` AS `dom_int_ind`,
+  `view_sml_merchant_fees_rpt`.`tran_type_description` AS `tran_type_description`,
+  `view_sml_merchant_fees_rpt`.`fee_indicator` AS `fee_indicator`,
+  `view_sml_merchant_fees_rpt`.`vcalc_transaction_count` AS `vcalc_transaction_count`,
+  CAST(`view_sml_merchant_fees_rpt`.`vcalc_settlement_amount_inc_gst` AS FLOAT64) AS `vcalc_settlement_amount_inc_gst`,
+  `view_sml_merchant_fees_rpt`.`vcalc_interchange_fees_invoiced_ex_gst` AS `vcalc_interchange_fees_invoiced_ex_gst`,
+  `view_sml_merchant_fees_rpt`.`vcalc_interchange_fees_tran_count` AS `vcalc_interchange_fees_tran_count`,
+   CAST(`view_sml_merchant_fees_rpt`.`vcalc_processing_fees_ex_gst` AS FLOAT64) AS `vcalc_processing_fees_ex_gst`,
+  `view_sml_merchant_fees_rpt`.`vcalc_processing_fees_tran_count` AS `vcalc_processing_fees_tran_count`,
+  CAST(`view_sml_merchant_fees_rpt`.`fraud_fees_inc_gst` AS FLOAT64) AS `fraud_fees_inc_gst`,
+  CAST(`view_sml_merchant_fees_rpt`.`fraud_fees_ex_gst` AS FLOAT64) AS `fraud_fees_ex_gst`,
+  `view_sml_merchant_fees_rpt`.`company` AS `company`,
+  `view_sml_merchant_fees_rpt`.`invoice_group` AS `invoice_group`,
+  `view_sml_merchant_fees_rpt`.`merchant_group` AS `merchant_group`,
+  `view_sml_merchant_fees_rpt`.`division` AS `division`,
+  `view_sml_merchant_fees_rpt`.`brand` AS `brand`,
+  `view_sml_merchant_fees_rpt`.`fy_start_date` AS `fy_start_date`,
+  `view_sml_merchant_fees_rpt`.`currency_code` AS `currency_code`,
+
+FROM
+   `pdh_reporting_ds`.`view_sml_merchant_fees_rpt` `view_sml_merchant_fees_rpt`
+ where switch_tran_date >= (current_date("Australia/Sydney")-120)
+ 
+)
+union all 
+(
+   SELECT
+  `view_edg_fees_rpt`.`switch_tran_date` AS `switch_tran_date`,
+  `view_edg_fees_rpt`.`store_id` AS `store_id`,
+  `view_edg_fees_rpt`.`tran_uid` as `tran_uid`,
+  `view_edg_fees_rpt`.`issuer` AS `issuer`,
+  `view_edg_fees_rpt`.`approval_flag` AS `approval_flag`,
+  `view_edg_fees_rpt`.`account` AS `account`,
+  `view_edg_fees_rpt`.`link_route` AS `link_route`,
+  `view_edg_fees_rpt`.`scheme` AS `scheme`,
+  `view_edg_fees_rpt`.`card_type` AS `card_type`,
+  `view_edg_fees_rpt`.`orig_card_type` AS `orig_card_type`,
+  `view_edg_fees_rpt`.`dom_int_ind` AS `dom_int_ind`,
+  `view_edg_fees_rpt`.`tran_type_description` AS `tran_type_description`,
+  `view_edg_fees_rpt`.`fee_indicator` AS `fee_indicator`,
+    `view_edg_fees_rpt`.`vcalc_transaction_count` AS `vcalc_transaction_count`,
+  CAST(`view_edg_fees_rpt`.`vcalc_settlement_amount_inc_gst` AS FLOAT64) AS `vcalc_settlement_amount_inc_gst`,
+  `view_edg_fees_rpt`.`vcalc_interchange_fees_invoiced_ex_gst` AS `vcalc_interchange_fees_invoiced_ex_gst`,
+  `view_edg_fees_rpt`.`vcalc_interchange_fees_tran_count` AS `vcalc_interchange_fees_tran_count`,
+  CAST(`view_edg_fees_rpt`.`vcalc_processing_fees_ex_gst` AS FLOAT64) AS `vcalc_processing_fees_ex_gst`,
+  `view_edg_fees_rpt`.`vcalc_processing_fees_tran_count` AS `vcalc_processing_fees_tran_count`,
+  CAST(`view_edg_fees_rpt`.`fraud_fees_inc_gst` AS FLOAT64) AS `fraud_fees_inc_gst`,
+  CAST(`view_edg_fees_rpt`.`fraud_fees_ex_gst` AS FLOAT64) AS `fraud_fees_ex_gst`,  
+  `view_edg_fees_rpt`.`company` AS `company`,
+  `view_edg_fees_rpt`.`invoice_group` AS `invoice_group`,
+  `view_edg_fees_rpt`.`merchant_group` AS `merchant_group`,
+  `view_edg_fees_rpt`.`division` AS `division`,
+  `view_edg_fees_rpt`.`brand` AS `brand`,
+  `view_edg_fees_rpt`.`fy_start_date` AS `fy_start_date`,
+  `view_edg_fees_rpt`.`currency_code` AS `currency_code`,
+  
+FROM
+  `pdh_reporting_ds`.`view_edg_fees_rpt` `view_edg_fees_rpt`
+  where switch_tran_date >= (current_date("Australia/Sydney")-120) 
+)
+
+UNION ALL 
+(
+ SELECT
+  
+  `view_egfuel_fees_rpt`.`switch_tran_date` AS `switch_tran_date`,
+  `view_egfuel_fees_rpt`.`store_id` AS `store_id`,
+  `view_egfuel_fees_rpt`.`tran_uid` as `tran_uid`,
+  `view_egfuel_fees_rpt`.`issuer` AS `issuer`,
+  `view_egfuel_fees_rpt`.`approval_flag` AS `approval_flag`,
+  `view_egfuel_fees_rpt`.`account` AS `account`,
+  `view_egfuel_fees_rpt`.`link_route` AS `link_route`,
+  `view_egfuel_fees_rpt`.`scheme` AS `scheme`,
+  `view_egfuel_fees_rpt`.`card_type` AS `card_type`,
+  `view_egfuel_fees_rpt`.`orig_card_type` AS `orig_card_type`,
+  `view_egfuel_fees_rpt`.`dom_int_ind` AS `dom_int_ind`,
+  `view_egfuel_fees_rpt`.`tran_type_description` AS `tran_type_description`,
+  `view_egfuel_fees_rpt`.`fee_indicator` AS `fee_indicator`,
+  `view_egfuel_fees_rpt`.`vcalc_transaction_count` AS `vcalc_transaction_count`,
+  CAST(`view_egfuel_fees_rpt`.`vcalc_settlement_amount_inc_gst` AS FLOAT64) AS `vcalc_settlement_amount_inc_gst`,
+  `view_egfuel_fees_rpt`.`vcalc_interchange_fees_invoiced_ex_gst` AS `vcalc_interchange_fees_invoiced_ex_gst`,
+  `view_egfuel_fees_rpt`.`vcalc_interchange_fees_tran_count` AS `vcalc_interchange_fees_tran_count`,
+  `view_egfuel_fees_rpt`.`vcalc_processing_fees_ex_gst` AS `vcalc_processing_fees_ex_gst`,
+  `view_egfuel_fees_rpt`.`vcalc_processing_fees_tran_count` AS `vcalc_processing_fees_tran_count`,
+  CAST(`view_egfuel_fees_rpt`.`fraud_fees_inc_gst` AS FLOAT64) AS `fraud_fees_inc_gst`,
+  CAST(`view_egfuel_fees_rpt`.`fraud_fees_ex_gst` AS FLOAT64) AS `fraud_fees_ex_gst`,
+  `view_egfuel_fees_rpt`.`company` AS `company`,
+  `view_egfuel_fees_rpt`.`invoice_group` AS `invoice_group`,
+  `view_egfuel_fees_rpt`.`merchant_group` AS `merchant_group`,
+  `view_egfuel_fees_rpt`.`division` AS `division`,
+  `view_egfuel_fees_rpt`.`brand` AS `brand`,
+  `view_egfuel_fees_rpt`.`fy_start_date` AS `fy_start_date`,
+  `view_egfuel_fees_rpt`.`currency_code` AS `currency_code`,
+  FROM
+  `pdh_reporting_ds`.`view_egfuel_fees_rpt` `view_egfuel_fees_rpt`
+   where switch_tran_date >= (current_date("Australia/Sydney")-120)   
+)),
+
+
+
+scheme AS (
+    SELECT
+      Division AS SF_Division,
+      Card_Type AS SF_Card_Type,
+      Scheme_fee AS SF_Scheme_fee,
+      Scheme_Fee_Percentage AS SF_Scheme_Fee_Percentage
+    FROM
+      `pdh_ref_ds.ref_scheme_fee` SF )
+
+      SELECT
+    fee.*,
+    scheme.*,
+  
+  FROM
+    fee
+      LEFT JOIN
+    SCHEME
+  ON
+    UPPER(fee.scheme) = UPPER(SF_Division)
+    AND UPPER(fee.card_type) = UPPER(SF_Card_Type) )

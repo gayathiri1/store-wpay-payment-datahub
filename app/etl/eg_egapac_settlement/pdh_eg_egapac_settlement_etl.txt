@@ -300,14 +300,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                     when "QC" then cast(null as string)
                     else rsd.caid
                  end  as card_acceptor_id,
-                 Concat(
-                   case
-                    When trn.trans_amt < 0 then "-"
-                    else ""
-                   End,
-                   right(concat(repeat("0",18), 
-                                cast(cast(abs(trn.trans_amt) * 100 as Int64)
-                                                as string)),18)) as transaction_amount,
+                 lpad(cast(cast(abs(trn.trans_amt) * 100 as int64) as string),18,"0") as transaction_amt,
                  format_datetime("%Y%m%d%H%M%S", trn.transaction_timestamp) transaction_timestamp,
                  trn.timestamp_local,
                  case 
@@ -321,23 +314,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                  trn.original_stan,
                  trn.mti,
                  trn.CardEntryMode,
-                 Concat(
-                   case
-                    When trn.sale_amt < 0 then "-"
-                    else ""
-                   End,
-                   right(concat(repeat("0",18), 
-                              cast(cast(abs(trn.sale_amt) * 100 as Int64)
-                                                as string)),18)) as sale_amt,
-                 Concat(
-                   case
-                    When trn.cashout_amt < 0 then "-"
-                    else ""
-                   End,
-                   right(concat(repeat("0",18), 
-                              cast(cast(abs(trn.cashout_amt) * 100 as Int64)
-                                                as string)),18)) as cashout_amt,
-                 
+                 lpad(cast(cast(abs(trn.sale_amt) * 100 as int64) as string),18,"0")  as sale_amt,
+                 lpad(cast(cast(abs(trn.cashout_amt) * 100 as int64) as string),18,"0") as cashout_amt,
                  upper(trim(trn.transactiontype)) as transaction_type_desc,
                  trn.scheme,
                  trn.card_type,
@@ -354,22 +332,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                  end card_acceptor_name_location, 
                  upper(trim(scm.merchant_store_number)) as merchant_store_id,
                  trn.account_type,
-                 Concat(
-                   case
-                    When trn.surcharge_amt < 0 then "-"
-                    else ""
-                   End,
-                   right(concat(repeat("0",18), 
-                                cast(cast(abs(trn.surcharge_amt) * 100 as Int64)
-                                      as string)),18)) as sale_amt,
-                Concat(
-                 case
-                    When trn.tip_amt< 0 then "-"
-                    else ""
-                   End,
-                   right(concat(repeat("0",18), 
-                                cast(cast(abs(trn.tip_amt) * 100 as Int64)
-                                                as string)),18)) as tip_amt,
+                 lpad(cast(cast(abs(trn.surcharge_amt) * 100 as int64) as string),18,"0")  as surcharge_amt,
+                 lpad(cast(cast(abs(trn.tip_amt) * 100 as int64) as string),18,"0") as tip_amt,
                  trn.moto_type,
                  trn.original_scheme,
                  trn.mcr_ind

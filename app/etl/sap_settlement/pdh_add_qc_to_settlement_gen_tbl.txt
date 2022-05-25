@@ -64,21 +64,69 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                   "" as tran_qualifier,
                   case 
                      when ifnull(qct.outletcode,"") <>  "" then upper(trim(qct.outletcode))
-                     when (upper(trim(qct.descriptive_outlet_name)) = "SAP HYBRIS" and
-                          upper(left(trim(qct.issuer),20))  = "WOOLWORTHS GROUP LTD") 
-                          then "W5975"
+
+                     when (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA" 
+                           and upper(trim(qct.outlet)) = "WOW GC ONLINE"
+                           and upper(trim(qct.POSName)) in ("WOWSAPHYBRISXNP"))  then "W5975"
+                    --
+                     when (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA"     
+                           and upper(trim(qct.outlet)) = "BIG W-SERVICES" 
+                           and upper(trim(qct.POSName)) in ("QWIKJ-BIGW-POS-01",
+                                                        "QWIKJ-BIGW-POS-02")) then "W6673"
+                     --
+                     when (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA"     
+                           and upper(trim(qct.outlet)) = "BWS-SERVICES" 
+                           and upper(trim(qct.POSName)) in ("QWIKJ-BWS-POS-01",
+                                                        "QWIKJ-BWS-POS-02")) then "W6673"
+                     --
+                     when (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA"     
+                           and upper(trim(qct.outlet)) = "DAN MURPHYS-SERVICES"
+                           and upper(trim(qct.POSName)) in ("QWIKJ-DM-POS-01")) then "W6673"
+                     --
+                     when (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA"     
+                           and upper(trim(qct.outlet)) = "EG GROUP-SERVICES"
+                           and upper(trim(qct.POSName)) in ("QWIKJ-EGGRP-POS-01")) then "W6673"
+                     --     
+                     when (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA"     
+                           and upper(trim(qct.outlet)) = "SUPERMARKETS-SERVICES"
+                           and upper(trim(qct.POSName)) in ("QWIKJ-SMKT-POS-01",
+                                                        "QWIKJ-SMKT-POS-02",
+                                                        "QWIKPOS-SUPERMARKETS-01")) then "W6673"
+                     --     
+                     when (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA"     
+                           and upper(trim(qct.outlet)) = "WOOLWORTHS GROUP LTD-SERVICES"
+                           and upper(trim(qct.POSName)) in ("QWIKJ-WGL-POS-01",
+                                                        "QWIKJ-WGL-POS-02",
+                                                        "WOWAU-QWIKPOS2")) then "W6673"
+                    --
+                     when (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA"     
+                           and upper(trim(qct.outlet)) = "WOOLWORTHS PLACARD WAREHOUSE"
+                           and upper(trim(qct.POSName)) in ("QWIKJ-WGL-POS-01",
+                                                        "QWIKJ-WGL-POS-02",
+                                                        "WOWAU-QWIKPOS2")) then "W6673"
+                    --
+                     when (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA"     
+                           and upper(trim(qct.outlet)) = "WOW GC ONLINE"
+                           and upper(trim(qct.POSName)) in ("QWIKJ-WGL-POS-01",
+                                                        "QWIKJ-WGL-POS-02",
+                                                        "WOWAU-QWIKPOS2")) then "W6673"
+
                      when upper(trim(qct.outlet)) in ("COUNTDOWN QWIKSERV","COUNTDOWN-SERVICES") 
                           and upper(trim(qct.issuer)) = "WOOLWORTHS NEW ZEALAND LIMITED" 
                           then "N9999"
                      else cast(null as string)
                   end  store_id,
+                 -- qct.invoicenumber,
                   case 
-                     when ifnull(qct.outletcode,"") =  "" 
-                          and upper(trim(qct.descriptive_outlet_name)) = "SAP HYBRIS" 
-                          and upper(left(trim(qct.issuer),20))  = "WOOLWORTHS GROUP LTD"
+                     when (upper(trim(qct.outletcode )) = "W5975"
+                           or (upper(trim(qct.Issuer)) = "WOOLWORTHS GROUP LTD AUSTRALIA" 
+                              and upper(trim(qct.outlet)) = "WOW GC ONLINE"
+                              and upper(trim(qct.POSName)) in ("WOWSAPHYBRISXNP")))   
                           then substring(qct.notes,9,8)
+
                      else qct.invoicenumber
                   end as invoicenumber,
+
                   ifnull(qct.amount_transacting_merchants_currency_or_points,0) trans_amt,
                   0 as discount_amt
          from `pdh_rd_quickcilver.qc_detail_transactions` qct

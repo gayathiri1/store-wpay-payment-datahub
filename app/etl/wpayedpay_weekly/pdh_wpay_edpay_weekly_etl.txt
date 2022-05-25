@@ -34,6 +34,8 @@ Insert into `pdh_analytics_ds.edp_wpay_txns`
        amount_txn/100 dollar_tendered_pci
  FROM `pdh_rd_data_navigator.edwp_txnact` 
  where (pan like '436380%' or pan like '436383%' or pan like '436384%')
+ --Remove declined transactions
+ and action_code = 0
  and date(local_timestamp) between StartDate and EndDate 
  and (amount_txn/100) > 0.01
  order by local_timestamp;
