@@ -182,7 +182,7 @@ left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
 JOIN `pdh_ref_ds.ref_inst_id_config` i on dn.inst_id_recn_acq_b = i.merchant_institution_id AND i.active = 'TRUE'
 LEFT JOIN `pdh_ref_ds.ref_store_details` s ON LEFT(dn.net_term_id, 5) = s.store_id 
 LEFT JOIN `pdh_ref_ds.ref_currency_code` c ON dn.currency_code = c.currency_code
-WHERE (i.merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC")
+WHERE (i.merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC", "COUNTDOWN")
 OR i.merchant_type = 'SMALL')
 AND cast(dn.tstamp_trans as date) >= start_date AND cast(dn.tstamp_trans as date) <= end_date
 AND s.is_closed = FALSE
@@ -911,11 +911,119 @@ IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_egfuel_fees_rpt`) < 
     SELECT ERROR("EG Fuel reporting table not fully updated");
 END IF;
 
+-- WPAY NZ SPECIFIC TABLES
+INSERT INTO `pdh_analytics_ds.tbl_fees_wpaynz`
+SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
+WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
+AND merchant_group = 'COUNTDOWN';
+
+IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_wpaynz`) < end_date THEN
+    SELECT ERROR("WPay NZ billing table not fully updated");
+END IF;
+
+-- This table is used in Tableau Report
+INSERT INTO `pdh_analytics_ds.tbl_wpaynz_fees_rpt`
+SELECT
+   switch_tran_date,
+   tran_uid,
+   FORMAT_TIMESTAMP('%Y%m%d%H%M%S00', tstamp_trans) switch_timestamp,
+   FORMAT_TIMESTAMP('%Y%m%d%H%M%S', tstamp_local) local_timestamp,
+   LEFT(i.net_term_id,5) store_id,
+   net_term_id terminal_id,
+   null bin,
+   masked_pan pan,
+   SAFE_CAST(tran_type_id AS INT64) txn_type_indicator,
+   CAST(FORMAT_DATE('%Y%m%d', date_recon_acq) AS INT64) settlement_date,
+   approval_code ap_approval_code,
+   act_code action_code,
+   response_code,
+   proc_id_acq_b acquirer,
+   inst_id_recn_acq_b acquirer_institution_id,
+   proc_id_iss_b issuer,
+   issuer_institution_id issuer_institution_id,
+   inst_id_recon_iss_name,
+   CAST(mti AS INT64) mti,
+   card_owner,
+   order_number transaction_desc,
+   CAST(retrieval_ref_no AS STRING) rrn,
+   pos_crdhldr_presnt pos_card_holder_present,
+   pos_crd_dat_in_mod pos_data_card_input_method,
+   i.tran_type_desc tran_type,
+   calc_tran_type_abbr abbr,
+   calc_approval_flag approval_flag,
+   tac.transaction_approval_status_text,
+   account_type account,
+   link_route,
+   calc_scheme as scheme,
+   calc_card_type as card_type,
+   i.card_type AS card_type_code,
+   CASE WHEN TRIM(card_type) = 'D' THEN "DEBIT"
+   WHEN TRIM(card_type) = 'P' THEN "PREPAID"
+   WHEN TRIM(card_type) IN ('C', 'H', 'R') THEN "CREDIT" ELSE card_type END as orig_card_type,
+   dom_int_ind,
+   stan,
+   original_stan,
+   card_acpt_id,
+   card_acpt_name_loc location,
+   adtnl_response_data,
+   UPPER(i.calc_tran_type_description) tran_type_description,
+   fee_indicator,
+   i.transaction_total / 100 AS transaction_amount,
+   i.purchase_total / 100 AS purchase_amount,
+   i.cashout_total / 100 AS cashout_amount,
+   Ifnull(tt.transaction_count_factor, 0) * 1 AS vcalc_transaction_count,
+    tt.spend_factor * i.amt_recon_net / 100 AS vcalc_settlement_amount_inc_gst,
+   Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_calc / 100 AS vcalc_interchange_fees_ex_gst,
+   0.0 vcalc_interchange_fees_rebate_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
+   Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * 1 AS vcalc_interchange_fees_tran_count,
+   Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * i.processing_fees / 100 AS vcalc_processing_fees_ex_gst,
+   Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * 1 AS vcalc_processing_fees_tran_count,
+   i.interchange_fees_calc * 1.1 / 100 AS interchange_fees_inc_gst,
+   i.interchange_fees_calc / 100 AS interchange_fees_ex_gst,
+   i.processing_fees * 1.1 / 100 AS processing_fees_inc_gst,
+   i.processing_fees / 100 AS processing_fees_ex_gst,
+   i.fraud_fees * 1.1 / 100 AS fraud_fees_inc_gst,
+   i.fraud_fees / 100 AS fraud_fees_ex_gst,
+    m.company,
+    m.invoice_group,
+	m.merchant_group,
+	m.division, 
+	m.brand,    
+	m.store_id ined_store_id,   
+	m.site_name,    
+	m.suburb,   
+	m.state,    
+	m.postcode,
+	m.country,
+	null sap_filename,
+	null sap_post_timestamp,
+	fy_start_date,
+	currency_code
+FROM
+   `pdh_analytics_ds.tbl_fees_all` i left join
+   `pdh_ref_ds.ref_tran_type_codes` tt
+on i.calc_tran_type_description = tt.tran_type_desc 
+left join `pdh_ref_ds.ref_store_details` m on m.store_id = LEFT(i.net_term_id,5)
+left join
+`pdh_ref_ds.ref_tran_approval_codes` tac
+on i.calc_approval_flag = tac.transaction_approval_status_code
+LEFT JOIN `pdh_ref_ds.dim_date` dt
+ON i.switch_tran_date = dt.clndr_date
+WHERE switch_tran_date BETWEEN start_date AND end_date
+AND m.is_closed = FALSE
+AND i.merchant_group = 'COUNTDOWN';
+
+IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_wpaynz_fees_rpt`) < end_date THEN
+    SELECT ERROR("WPay NZ reporting table not fully updated");
+END IF;
+
 -- SMALL MERCHANT SPECIFIC TABLES
 INSERT INTO `pdh_analytics_ds.tbl_fees_sml_merchant`
 SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
 WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
-AND merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC');
+AND merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN');
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_sml_merchant`) < end_date THEN
     SELECT ERROR("Small Merchant billing table not fully updated");
@@ -1013,7 +1121,7 @@ LEFT JOIN `pdh_ref_ds.dim_date` dt
 ON i.switch_tran_date = dt.clndr_date
 WHERE switch_tran_date BETWEEN start_date AND end_date
 AND m.is_closed = FALSE
-AND i.merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC');
+AND i.merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN');
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt`) < end_date THEN
     SELECT ERROR("Small Merchant reporting table not fully updated");
