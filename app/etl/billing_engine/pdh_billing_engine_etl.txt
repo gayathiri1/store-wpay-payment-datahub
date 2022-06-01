@@ -171,6 +171,7 @@ when 'ANZ' then
 when 'FIS' then 'CRD'
 when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT'))
 when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT'))
+when 'VER' then CASE TRIM(dn.scheme) WHEN 'Visa' THEN 'VISA' WHEN 'MasterCard' THEN 'MASTERCARD' ELSE 'VERIFONE' END
 else proc_id_iss_b
 end link_route,
 i.merchant_group,
@@ -475,6 +476,7 @@ SELECT
         when 'VISA' then 'VISA'
         when 'MASTERCARD' then 'MASTERCARD'
         when 'EFTPOS' then 'EFTPOS'
+		when 'VERIFONE' then 'VERIFONE'
         when 'PAYPAL' then 'PAYPAL'
         when 'ALIPAY' then 'ALIPAY'
         else ''
@@ -490,6 +492,7 @@ SELECT
         when 'UPI' then 'CREDIT'
         when 'CRD' then 'CREDIT'
         when 'DBT' then 'DEBIT'
+		when 'VERIFONE' then 'DEBIT'
         when 'PAYPAL' then 'OTHER'
         when 'ALIPAY' then 'OTHER'
         else card_type
@@ -541,7 +544,7 @@ AND CAST(i.tstamp_trans AS DATE) BETWEEN start_date AND end_date;
 UPDATE `temp_billing_all`
 SET calc_card_type = 'DEBIT'
 WHERE (TRIM(calc_card_type) = '' OR calc_card_type IS NULL)
-AND TRIM(proc_id_iss_b) IN ('VDCS', 'MC')
+AND TRIM(proc_id_iss_b) IN ('VDCS', 'MC', 'VER')
 AND switch_tran_date BETWEEN start_date AND end_date;
 
 -------------------------------------------------------------------------------------------
