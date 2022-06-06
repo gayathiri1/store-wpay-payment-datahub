@@ -108,7 +108,7 @@ end if;
 		             sap.currency_code, --15
 		            (
 			           CASE 
-				            WHEN fee.direct_debit_flag = 'Y' AND upper(trim(fee.frequency)) = 'WEEKLY' THEN 
+				            WHEN  upper(trim(fee.frequency)) = 'WEEKLY' THEN 
 		 	                  (CAST(FORMAT_DATE("%Y%m%d",(
                               CASE
 			                           WHEN     (EXTRACT(DAYOFWEEK FROM cast(std.transaction_timestamp as date)) >1) 
