@@ -38,6 +38,7 @@ def reflect_bq_schema(dataset_name, table_name):
     # print(sql)
     query_job = bq_client.query(sql)
     for row in query_job:
+        print(f'Schema for {table_name} is {row[0]}')
         return (str(row[0]) + ' from txn_activity')
 
 
@@ -91,8 +92,9 @@ def execute_pipeline(blob, load_type):
                 df = rowRDD.toDF()
                 df.createOrReplaceTempView('txn_activity')
                 sql = reflect_bq_schema(args.dataset, args.table).format(file_date, file_name, now, payload_id)
-                print(sql)
+                print(f'sql from reflect_bq_schema : {sql}')
                 res = spark.sql(sql)
+                print(f'res.show : {res.show()}')
                 res.write.format('bigquery')\
                     .option('table', 'pdh_staging_ds' + '.' + args.table)\
                     .option("temporaryGcsBucket", args.project_name).mode('overwrite')\

@@ -47,7 +47,9 @@ class SparkInit:
             arguments=self.args,
             cluster_name=cc.CLUSTER,
             region=cc.REGION,
-            dataproc_pyspark_jars='gs://spark-lib/bigquery/spark-bigquery-latest.jar'
+            # https://github.com/GoogleCloudDataproc/spark-bigquery-connector/tree/0.23.1
+            dataproc_pyspark_jars='gs://spark-lib/bigquery/spark-bigquery-with-dependencies_2.11-0.23.1.jar'#'gs://spark-lib/bigquery/spark-bigquery-with-dependencies_2.12-0.24.2.jar'#'gs://spark-lib/bigquery/spark-bigquery-latest.jar' 
+            
         )
         return submit_pyspark
 

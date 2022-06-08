@@ -90,8 +90,11 @@ def execute_pipeline(blob,flag):
         file_date = '20' + str(blob.name).split('/')[3].split('.')[5][1:]
         file_name = str(blob.name)
         rowRDD1 = mastercard_rdd.map(lambda row:'' if row[0:2] != '01' else Row(rec_part=row[0:2],txn_cnt=row[2:9],iso_message_type=row[9:13],pan=row[13:32].strip(' '), processing_code=row[32:38],transaction_amount=row[38:50],fee_amount=row[50:59], replacement_amounts=row[59:101],response_code=row[101:103],reason_code=row[103:107], card_acceptor_terminal_id=row[107:115],retrieval_reference_number=row[115:127],time_local=row[127:133], local_transaction_date=row[133:137],system_trace_audit=row[137:143], acquirer_institution_id_code=row[143:154].strip(' '),settlement_amount=row[154:166], settlement_date=row[166:170],visa_planning_option=row[170:175]))
+        print(f'rowRDD1 : {rowRDD1.take(10)}')
         rowRDD1F = rowRDD1.filter(lambda row : row != '')
+        print(f'rowRDD1F : {rowRDD1F.take(10)}')
         rowRDD1Df = rowRDD1F.toDF()
+        print(f'rowRDD1Df : {rowRDD1Df.take(10)}')
         rowRDD1Df.withColumn("filename", input_file_name()).createOrReplaceTempView('v_part1')
 
         rowRDD2 = mastercard_rdd.map(lambda row:'' if row[0:2] != '02' else Row(rec_part=row[0:2],txn_cnt=row[2:9],card_acceptor_namelocation=row[9:50], additional_data_private=row[50:72].strip(' '), acq_inst_country_code=row[72:75],pointofservice_entry_mode=row[75:78],account_id_1=row[78:106], account_id_2=row[106:134],transmission_datetime=row[134:144],card_sequence_number=row[144:147], national_pos_condition_code_1=row[147:157],auth_id_response=row[157:163],user_data=row[163:185], auth_agent_inst_id=row[185:196],acq_crossborder_transaction_fee_indicator=row[196:197], acq_crossborder_currency_indicator=row[197:198].strip(' ')))
@@ -138,6 +141,7 @@ def execute_pipeline(blob,flag):
         tbl_mastercard.createOrReplaceTempView('txn_activity')
         sql = reflect_bq_schema(args.dataset, args.table).format(file_date, file_name, now, payload_id)
         res = spark.sql(sql)
+        print(f'res.show table {args.table} MCI.AR.TFL6 :{res.show()}')
         res.withColumn("date", fx.col("file_date")).write.mode("append").partitionBy("date").format("parquet").save(target_bucket)
 
     if 'MCI.AR.T1G0' in blob.name and flag != 1:
@@ -157,9 +161,10 @@ def execute_pipeline(blob,flag):
         sql = reflect_bq_schema(args.dataset, args.table).format(file_date, file_name, now, payload_id)
         print(sql)
         res = spark.sql(sql)
+        print(f'res.show table {args.table} MCI.AR.T1G0 :{res.show()}')
+
         res.write.format('bigquery').option('table',args.dataset + '.' + args.table).option("temporaryGcsBucket",args.project_name).mode('append').save()
         # res.withColumn("date", fx.col("file_date")).write.mode("append").partitionBy("date").format("parquet").save(target_bucket)
-
 
 args = ArgParse.parse_args()
 bucket = client.get_bucket(args.bucket)
