@@ -42,6 +42,7 @@ INSERT INTO
     scheme_card_type,
     is_online,
     transaction_count,
+    transaction_amount,
     settlement_amount_inc_gst,
     interchange_fees_invoiced_ex_gst,
     interchange_fees_tran_count,
@@ -86,6 +87,7 @@ WITH
         WHEN "FUEL CARDS" THEN "FUEL CARDS"
         WHEN "GIFT CARDS" THEN "GIFT CARDS"
         WHEN "PAYPAL" THEN "APM"
+        WHEN "ALIPAY" THEN "APM"
         WHEN "MASTERCARD" THEN CASE `tbl_sml_merchant_fees_rpt`.`card_type`
         WHEN "CREDIT" THEN "CREDIT"
         WHEN "DEBIT" THEN "DEBIT"
@@ -106,6 +108,7 @@ WITH
       wofy fiscal_week,
       dd.clndr_date AS clndr_date,
       SUM(tbl_sml_merchant_fees_rpt.vcalc_transaction_count) AS transaction_count,
+      SUM(tbl_sml_merchant_fees_rpt.transaction_amount) AS transaction_amount,
       SUM(CAST(tbl_sml_merchant_fees_rpt.vcalc_settlement_amount_inc_gst AS float64)) AS settlement_amount_inc_gst,
       SUM(tbl_sml_merchant_fees_rpt.vcalc_interchange_fees_invoiced_ex_gst) AS interchange_fees_invoiced_ex_gst,
       SUM(tbl_sml_merchant_fees_rpt.vcalc_interchange_fees_tran_count) AS interchange_fees_tran_count,
@@ -213,6 +216,7 @@ WITH
         WHEN "FUEL CARDS" THEN "FUEL CARDS"
         WHEN "GIFT CARDS" THEN "GIFT CARDS"
         WHEN "PAYPAL" THEN "APM"
+        WHEN "ALIPAY" THEN "APM"
         WHEN "MASTERCARD" THEN CASE `tbl_endeavour_fees_rpt`.`card_type`
         WHEN "CREDIT" THEN "CREDIT"
         WHEN "DEBIT" THEN "DEBIT"
@@ -234,6 +238,7 @@ WITH
       wofy fiscal_week,
       `dd`.`clndr_date` AS `clndr_date`,
       SUM(`tbl_endeavour_fees_rpt`.`vcalc_transaction_count`) AS `transaction_count`,
+      SUM(`tbl_endeavour_fees_rpt`.transaction_amount) AS `transaction_amount`,	
       SUM( CAST(`tbl_endeavour_fees_rpt`.`vcalc_settlement_amount_inc_gst` AS float64)) AS `settlement_amount_inc_gst`,
       SUM(`tbl_endeavour_fees_rpt`.`vcalc_interchange_fees_invoiced_ex_gst`) AS `interchange_fees_invoiced_ex_gst`,
       SUM( `tbl_endeavour_fees_rpt`.`vcalc_interchange_fees_tran_count`) AS `interchange_fees_tran_count`,
@@ -339,6 +344,7 @@ WITH
         WHEN "FUEL CARDS" THEN "FUEL CARDS"
         WHEN "GIFT CARDS" THEN "GIFT CARDS"
         WHEN "PAYPAL" THEN "APM"
+        WHEN "ALIPAY" THEN "APM"
         WHEN "MASTERCARD" THEN CASE `tbl_egfuel_fees_rpt`.`card_type`
         WHEN "CREDIT" THEN "CREDIT"
         WHEN "DEBIT" THEN "DEBIT"
@@ -359,6 +365,7 @@ WITH
       wofy fiscal_week,
       `dd`.`clndr_date` AS `clndr_date`,
       SUM(`tbl_egfuel_fees_rpt`.`vcalc_transaction_count`) AS `transaction_count`,
+      SUM(`tbl_egfuel_fees_rpt`.transaction_amount) AS transaction_amount,	
       SUM(CAST(`tbl_egfuel_fees_rpt`.`vcalc_settlement_amount_inc_gst` AS float64)) AS `settlement_amount_inc_gst`,
       SUM(`tbl_egfuel_fees_rpt`.`vcalc_interchange_fees_invoiced_ex_gst`) AS `interchange_fees_invoiced_ex_gst`,
       SUM(`tbl_egfuel_fees_rpt`.`vcalc_interchange_fees_tran_count`) AS `interchange_fees_tran_count`,
@@ -524,6 +531,7 @@ clndr_date
   is_online, 
   -- Metrics --,
   transaction_count,
+ transaction_amount, 
   settlement_amount_inc_gst,
   interchange_fees_invoiced_ex_gst,
   interchange_fees_tran_count,

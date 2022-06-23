@@ -109,26 +109,26 @@ class PDHUtils:
         else:
             print('Wrong value for parameter load_type. Should be H or I')
             exit(1)
+        
         t1 = GoogleCloudStorageToBigQueryOperator(
-            task_id='load_csv_to_bq',
-            bucket=bucket,
-            source_objects=[source_objects],
-            destination_project_dataset_table=kwargs['project_name'] + ':'
-                                              + 'pdh_staging_ds' + '.'
-                                              + kwargs[object_name]['table_name'] + uid,
-            create_disposition="CREATE_IF_NEEDED",
-            schema_object=kwargs[object_name]['schema'],
-            schema_fields=None,
-            skip_leading_rows=1,
-            field_delimiter=delimiter,                             
-            autodetect=False,
-            dag=dag
-        )
+               task_id='load_csv_to_bq',
+               bucket=bucket,
+               source_objects=[source_objects],
+               destination_project_dataset_table=kwargs['project_name'] + ':'
+                                                + 'pdh_staging_ds' + '.'
+                                                + kwargs[object_name]['table_name'] + uid,
+               create_disposition="CREATE_IF_NEEDED",
+               schema_object=kwargs[object_name]['schema'],
+               schema_fields=None,
+               skip_leading_rows=1,
+               field_delimiter=delimiter,                             
+               autodetect=False,
+               dag=dag
+            )
         try:
             t1.execute(dict())
         except Exception as e:
             print(f'Exception as {e}')
-
 
     @classmethod
     def reflect_bq_schema_curated(cls,table_name,file_date, file_name, pdh_load_time, payload_id,uid):
@@ -192,10 +192,15 @@ class PDHUtils:
         header = int(curate_flag[1:]) if curate_flag[1:] else 0
         if 'GFS_PDH_TXNACT' in src_file:
             df = pd.read_csv('gs://' + src_file, dtype=str, encoding='ISO-8859-1', header=header)
+            df.drop(df.tail(1).index, inplace=True)
+            df.to_csv('gs://'+trgt_file,index=False)        
+        elif 'APM_TRAN' in src_file:
+            df = pd.read_csv('gs://' + src_file, sep='|',dtype=str, encoding='ISO-8859-1', header=header+1)            
+            df.to_csv('gs://'+trgt_file, sep='|', index=False)
         else:
             df = pd.read_csv('gs://'+src_file,dtype=str,encoding='unicode_escape',header=header)
-        df.drop(df.tail(1).index, inplace=True)
-        df.to_csv('gs://'+trgt_file,index=False)
+            df.drop(df.tail(1).index, inplace=True)
+            df.to_csv('gs://'+trgt_file,index=False)
 
     @classmethod
     def upload_gs_to_bq(cls,SPREADSHEET_ID,RANGE_NAME,table_id,project_name):

@@ -1,0 +1,42 @@
+TRUNCATE TABLE
+  pdh_analytics_ds.eftpos_rates;
+INSERT INTO
+  pdh_analytics_ds.eftpos_rates (
+  WITH
+    eftpos AS (
+    SELECT
+      file_date,
+      file_name,
+      mti,
+      tran_disposition,
+      issuer,
+      pan,
+      CAST(tran_amt AS FLOAT64)/100 AS tran_amt,
+      tstamp_trans,
+      CAST(stan AS FLOAT64) AS stan,
+      tstamp_local,
+      date_recon,
+      CAST(rrn AS FLOAT64) AS `rrn`,
+      card_acpt_term_id,
+      CAST(issuer_interchange_amt AS FLOAT64)/100 AS `issuer_interchange_amt`,
+      CAST(acquirer_interchange_amt AS FLOAT64)/100 AS `acquirer_interchange_amt`,
+      (CAST(acquirer_interchange_amt AS FLOAT64) + CAST(issuer_interchange_amt AS FLOAT64))/100 AS net_interchange_amount,
+      CAST(scheme_fee AS FLOAT64)/100 AS scheme_fee
+    FROM
+      `gcp-wow-wpay-paydathub-uat.pdh_rd_data_navigator.gfs_aux_eftpos` ),
+    ref_store_details AS (
+    SELECT
+      division,
+      brand,
+      store_id,
+      is_online
+    FROM
+      `pdh_ref_ds.ref_store_details`)
+  SELECT
+    *
+  FROM
+    eftpos
+  LEFT JOIN
+    ref_store_details
+  ON
+    store_id = LEFT(card_acpt_term_id,5))

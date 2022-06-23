@@ -106,6 +106,7 @@ end if;
 		             'E' AS gst_flag, --13
 		             fee.direct_debit_flag, --14
 		             sap.currency_code, --15
+                      /*
 		            (
 			           CASE 
 				            WHEN  upper(trim(fee.frequency)) = 'WEEKLY' THEN 
@@ -118,7 +119,14 @@ end if;
 				                         ELSE DATE_ADD(DATE_TRUNC(cast(std.transaction_timestamp as date),
                                                                         WEEK(THURSDAY)),INTERVAL 1 WEEK)
 				                      END )) AS INT64))
-			           END) AS pay_due_date, --16
+			           END) */
+                         cast(format_date("%Y%m%d",
+                                          pdh_ref_ds.get_due_paydate("Y",
+                                                               fee.frequency,
+                                                               cast(std.transaction_timestamp as date),
+                                                               "THU")
+                                         ) as INT64
+                             ) AS pay_due_date, --16
 		             sum(tran_settlement_amount) + sum(discount_amt) as net_tran_amount,
 		             sum(discount_amt) as discount_amount,
                    count(*) record_count

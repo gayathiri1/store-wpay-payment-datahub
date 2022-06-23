@@ -1,0 +1,384 @@
+TRUNCATE TABLE `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`;
+
+INSERT INTO
+  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist` ( 
+      clndr_date,
+    calendar_week,
+    switch_tran_date,
+    transaction_date,
+    max_transaction_date_flag,
+    fortnight_date_flag,
+    fiscal_week,
+    max_transaction_week_flag,
+    transaction_week,
+    transaction_week_start_date,
+    transaction_week_end_date,
+    max_transaction_month_flag,
+    transaction_month,
+    transaction_month_start_date,
+    transaction_month_end_date,
+    fy_start_date,
+    store_id,
+    issuer,
+    approval_flag,
+    account,
+    link_route,
+    scheme,
+    card_type,
+    orig_card_type,
+    dom_int_ind,
+    tran_type_description,
+    fee_indicator,
+    company,
+    invoice_group,
+    merchant_group,
+    division,
+    brand,
+    location,
+    site_name,
+    suburb,
+    state,
+    postcode,
+    country,
+    scheme_card_type,
+    is_online,
+    transaction_count,
+	transaction_amount,
+    settlement_amount_inc_gst,
+    interchange_fees_invoiced_ex_gst,
+    interchange_fees_tran_count,
+    processing_fees_ex_gst,
+    processing_fees_tran_count,
+    fraud_fees_ex_gst
+     )
+
+WITH
+  agg_tran_data AS (
+  SELECT
+    *
+  FROM (
+    SELECT
+      tbl_sml_merchant_fees_rpt.switch_tran_date AS switch_tran_date,
+      tbl_sml_merchant_fees_rpt.store_id AS store_id,
+      tbl_sml_merchant_fees_rpt.issuer AS issuer,
+      tbl_sml_merchant_fees_rpt.approval_flag AS approval_flag,
+      tbl_sml_merchant_fees_rpt.account AS account,
+      tbl_sml_merchant_fees_rpt.link_route AS link_route,
+      tbl_sml_merchant_fees_rpt.scheme AS scheme,
+      tbl_sml_merchant_fees_rpt.card_type AS card_type,
+      tbl_sml_merchant_fees_rpt.orig_card_type AS orig_card_type,
+      tbl_sml_merchant_fees_rpt.dom_int_ind AS dom_int_ind,
+      tbl_sml_merchant_fees_rpt.tran_type_description AS tran_type_description,
+      tbl_sml_merchant_fees_rpt.fee_indicator AS fee_indicator,
+      tbl_sml_merchant_fees_rpt.company AS company,
+      tbl_sml_merchant_fees_rpt.invoice_group AS invoice_group,
+      tbl_sml_merchant_fees_rpt.merchant_group AS merchant_group,
+      tbl_sml_merchant_fees_rpt.division AS division,
+      tbl_sml_merchant_fees_rpt.brand AS brand,
+      tbl_sml_merchant_fees_rpt.location AS location,
+      tbl_sml_merchant_fees_rpt.site_name AS site_name,
+      tbl_sml_merchant_fees_rpt.suburb AS suburb,
+      tbl_sml_merchant_fees_rpt.state AS state,
+      tbl_sml_merchant_fees_rpt.postcode AS postcode,
+      tbl_sml_merchant_fees_rpt.country AS country,
+      CASE `tbl_sml_merchant_fees_rpt`.`scheme`
+        WHEN "DINERS" THEN "CREDIT"
+        WHEN "AMEX" THEN "CREDIT"
+        WHEN "EFTPOS" THEN "DEBIT"
+        WHEN "FUEL CARDS" THEN "FUEL CARDS"
+        WHEN "GIFT CARDS" THEN "GIFT CARDS"
+        WHEN "PAYPAL" THEN "APM"
+        WHEN "ALIPAY" THEN "APM"
+        WHEN "MASTERCARD" THEN CASE `tbl_sml_merchant_fees_rpt`.`card_type`
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "VISA" THEN CASE `tbl_sml_merchant_fees_rpt`.`card_type`
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "UPI" THEN "CREDIT"
+    END
+      AS scheme_card_type,
+      rsd.is_online,
+      dd.fy_start_date AS fy_start_date,
+      wofy fiscal_week,
+      dd.clndr_date AS clndr_date,
+      SUM(tbl_sml_merchant_fees_rpt.vcalc_transaction_count) AS transaction_count,
+      SUM(tbl_sml_merchant_fees_rpt.transaction_amount) AS transaction_amount,
+      SUM(CAST(tbl_sml_merchant_fees_rpt.vcalc_settlement_amount_inc_gst AS float64)) AS settlement_amount_inc_gst,
+      SUM(tbl_sml_merchant_fees_rpt.vcalc_interchange_fees_invoiced_ex_gst) AS interchange_fees_invoiced_ex_gst,
+      SUM(tbl_sml_merchant_fees_rpt.vcalc_interchange_fees_tran_count) AS interchange_fees_tran_count,
+      SUM(CAST(tbl_sml_merchant_fees_rpt.vcalc_processing_fees_ex_gst AS float64)) AS processing_fees_ex_gst,
+      SUM(tbl_sml_merchant_fees_rpt.vcalc_processing_fees_tran_count) AS processing_fees_tran_count,
+      SUM(CAST(tbl_sml_merchant_fees_rpt.fraud_fees_ex_gst AS float64)) AS fraud_fees_ex_gst,
+    FROM
+      pdh_analytics_ds.tbl_sml_merchant_fees_rpt tbl_sml_merchant_fees_rpt
+      join pdh_ref_ds.ref_store_details rsd  on rsd.store_id =  tbl_sml_merchant_fees_rpt.store_id
+
+    LEFT JOIN
+      pdh_ref_ds.dim_date dd
+    ON
+      tbl_sml_merchant_fees_rpt.switch_tran_date =dd.clndr_date
+    WHERE tbl_sml_merchant_fees_rpt.company <> 'Endeavour'
+    GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 )
+  UNION ALL (
+    SELECT
+      `tbl_endeavour_fees_rpt`.`switch_tran_date` AS `switch_tran_date`,
+      `tbl_endeavour_fees_rpt`.`store_id` AS `store_id`,
+      `tbl_endeavour_fees_rpt`.`issuer` AS `issuer`,
+      `tbl_endeavour_fees_rpt`.`approval_flag` AS `approval_flag`,
+      `tbl_endeavour_fees_rpt`.`account` AS `account`,
+      `tbl_endeavour_fees_rpt`.`link_route` AS `link_route`,
+      `tbl_endeavour_fees_rpt`.`scheme` AS `scheme`,
+      `tbl_endeavour_fees_rpt`.`card_type` AS `card_type`,
+      `tbl_endeavour_fees_rpt`.`orig_card_type` AS `orig_card_type`,
+      `tbl_endeavour_fees_rpt`.`dom_int_ind` AS `dom_int_ind`,
+      `tbl_endeavour_fees_rpt`.`tran_type_description` AS `tran_type_description`,
+      `tbl_endeavour_fees_rpt`.`fee_indicator` AS `fee_indicator`,
+      `tbl_endeavour_fees_rpt`.`company` AS `company`,
+      `tbl_endeavour_fees_rpt`.`invoice_group` AS `invoice_group`,
+      `tbl_endeavour_fees_rpt`.`merchant_group` AS `merchant_group`,
+      `tbl_endeavour_fees_rpt`.`division` AS `division`,
+      `tbl_endeavour_fees_rpt`.`brand` AS `brand`,
+      `tbl_endeavour_fees_rpt`.`location` AS `location`,
+      tbl_endeavour_fees_rpt.site_name AS site_name,
+      tbl_endeavour_fees_rpt.suburb AS suburb,
+      tbl_endeavour_fees_rpt.state AS state,
+      tbl_endeavour_fees_rpt.postcode AS postcode,
+      tbl_endeavour_fees_rpt.country AS country,
+      CASE `tbl_endeavour_fees_rpt`.`scheme`
+        WHEN "DINERS" THEN "CREDIT"
+        WHEN "AMEX" THEN "CREDIT"
+        WHEN "EFTPOS" THEN "DEBIT"
+        WHEN "FUEL CARDS" THEN "FUEL CARDS"
+        WHEN "GIFT CARDS" THEN "GIFT CARDS"
+        WHEN "PAYPAL" THEN "APM"
+        WHEN "ALIPAY" THEN "APM"
+        WHEN "MASTERCARD" THEN CASE `tbl_endeavour_fees_rpt`.`card_type`
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "VISA" THEN CASE `tbl_endeavour_fees_rpt`.`card_type`
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "UPI" THEN "CREDIT"
+    END
+      AS scheme_card_type,
+      rsd.is_online,
+
+      `dd`.`fy_start_date` AS `fy_start_date`,
+      wofy fiscal_week,
+      `dd`.`clndr_date` AS `clndr_date`,
+      SUM(`tbl_endeavour_fees_rpt`.`vcalc_transaction_count`) AS `transaction_count`,
+      SUM(`tbl_endeavour_fees_rpt`.transaction_amount) AS `transaction_amount`,	  
+      SUM( CAST(`tbl_endeavour_fees_rpt`.`vcalc_settlement_amount_inc_gst` AS float64)) AS `settlement_amount_inc_gst`,
+      SUM(`tbl_endeavour_fees_rpt`.`vcalc_interchange_fees_invoiced_ex_gst`) AS `interchange_fees_invoiced_ex_gst`,
+      SUM( `tbl_endeavour_fees_rpt`.`vcalc_interchange_fees_tran_count`) AS `interchange_fees_tran_count`,
+      SUM( CAST(`tbl_endeavour_fees_rpt`.`vcalc_processing_fees_ex_gst` AS float64)) AS `processing_fees_ex_gst`,
+      SUM(`tbl_endeavour_fees_rpt`.`vcalc_processing_fees_tran_count`) AS `processing_fees_tran_count`,
+      SUM(CAST(`tbl_endeavour_fees_rpt`.`fraud_fees_ex_gst` AS float64)) AS `fraud_fees_ex_gst`
+    FROM
+      `pdh_analytics_ds`.`tbl_edg_fees_rpt` `tbl_endeavour_fees_rpt`
+       join pdh_ref_ds.ref_store_details rsd  on rsd.store_id =  `tbl_endeavour_fees_rpt`.store_id
+    LEFT JOIN
+      `pdh_ref_ds.dim_date` dd
+    ON
+      `tbl_endeavour_fees_rpt`.`switch_tran_date` = `dd`.`clndr_date`
+    GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 )
+  UNION ALL (
+    SELECT
+      `tbl_egfuel_fees_rpt`.`switch_tran_date` AS `switch_tran_date`,
+      `tbl_egfuel_fees_rpt`.`store_id` AS `store_id`,
+      `tbl_egfuel_fees_rpt`.`issuer` AS `issuer`,
+      `tbl_egfuel_fees_rpt`.`approval_flag` AS `approval_flag`,
+      `tbl_egfuel_fees_rpt`.`account` AS `account`,
+      `tbl_egfuel_fees_rpt`.`link_route` AS `link_route`,
+      `tbl_egfuel_fees_rpt`.`scheme` AS `scheme`,
+      `tbl_egfuel_fees_rpt`.`card_type` AS `card_type`,
+      `tbl_egfuel_fees_rpt`.`orig_card_type` AS `orig_card_type`,
+      `tbl_egfuel_fees_rpt`.`dom_int_ind` AS `dom_int_ind`,
+      `tbl_egfuel_fees_rpt`.`tran_type_description` AS `tran_type_description`,
+      `tbl_egfuel_fees_rpt`.`fee_indicator` AS `fee_indicator`,
+      `tbl_egfuel_fees_rpt`.`company` AS `company`,
+      `tbl_egfuel_fees_rpt`.`invoice_group` AS `invoice_group`,
+      `tbl_egfuel_fees_rpt`.`merchant_group` AS `merchant_group`,
+      `tbl_egfuel_fees_rpt`.`division` AS `division`,
+      `tbl_egfuel_fees_rpt`.`brand` AS `brand`,
+      `tbl_egfuel_fees_rpt`.`location` AS `location`,
+      tbl_egfuel_fees_rpt.site_name AS site_name,
+      tbl_egfuel_fees_rpt.suburb AS suburb,
+      tbl_egfuel_fees_rpt.state AS state,
+      tbl_egfuel_fees_rpt.postcode AS postcode,
+      tbl_egfuel_fees_rpt.country AS country,
+      CASE `tbl_egfuel_fees_rpt`.`scheme`
+        WHEN "DINERS" THEN "CREDIT"
+        WHEN "AMEX" THEN "CREDIT"
+        WHEN "EFTPOS" THEN "DEBIT"
+        WHEN "FUEL CARDS" THEN "FUEL CARDS"
+        WHEN "GIFT CARDS" THEN "GIFT CARDS"
+        WHEN "PAYPAL" THEN "APM"
+        WHEN "ALIPAY" THEN "APM"
+        WHEN "MASTERCARD" THEN CASE `tbl_egfuel_fees_rpt`.`card_type`
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "VISA" THEN CASE `tbl_egfuel_fees_rpt`.`card_type`
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "UPI" THEN "CREDIT"
+    END
+      AS scheme_card_type,
+      rsd.is_online,
+      `dd`.`fy_start_date` AS `fy_start_date`,
+      wofy fiscal_week,
+      `dd`.`clndr_date` AS `clndr_date`,
+      SUM(`tbl_egfuel_fees_rpt`.`vcalc_transaction_count`) AS `transaction_count`,
+      SUM(`tbl_egfuel_fees_rpt`.transaction_amount) AS transaction_amount,	  	  
+      SUM(CAST(`tbl_egfuel_fees_rpt`.`vcalc_settlement_amount_inc_gst` AS float64)) AS `settlement_amount_inc_gst`,
+      SUM(`tbl_egfuel_fees_rpt`.`vcalc_interchange_fees_invoiced_ex_gst`) AS `interchange_fees_invoiced_ex_gst`,
+      SUM(`tbl_egfuel_fees_rpt`.`vcalc_interchange_fees_tran_count`) AS `interchange_fees_tran_count`,
+      SUM(`tbl_egfuel_fees_rpt`.`vcalc_processing_fees_ex_gst`) AS `processing_fees_ex_gst`,
+      SUM(`tbl_egfuel_fees_rpt`.`vcalc_processing_fees_tran_count`) AS `processing_fees_tran_count`,
+      SUM(CAST(`tbl_egfuel_fees_rpt`.`fraud_fees_ex_gst` AS float64)) AS `fraud_fees_ex_gst`
+    FROM
+      `pdh_analytics_ds`.`tbl_egfuel_fees_rpt` `tbl_egfuel_fees_rpt`
+      join pdh_ref_ds.ref_store_details rsd  on rsd.store_id =  `tbl_egfuel_fees_rpt`.store_id
+
+    LEFT JOIN
+      `pdh_ref_ds.dim_date` dd
+    ON
+      `tbl_egfuel_fees_rpt`.`switch_tran_date` = `dd`.`clndr_date`
+    WHERE
+	`tbl_egfuel_fees_rpt`.company <> 'Endeavour'
+    GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28 ) ),
+  max_fiscal_date AS (
+  SELECT
+    MAX(switch_tran_date) fiscal_date
+  FROM
+    agg_tran_data ),
+  fortnight_date_range AS (
+  SELECT
+    DISTINCT switch_tran_date tran_date
+  FROM
+    agg_tran_data
+  WHERE
+    switch_tran_date BETWEEN (
+    SELECT
+      DATE_ADD(fiscal_date, INTERVAL -14 DAY)
+    FROM
+      max_fiscal_date )
+    AND (
+    SELECT
+      DATE_ADD(fiscal_date, INTERVAL -1 DAY)
+    FROM
+      max_fiscal_date ) ),
+  max_fiscal_week AS (
+  SELECT
+    DISTINCT fiscal_week fiscal_week
+  FROM
+    agg_tran_data
+  WHERE
+    switch_tran_date = (
+    SELECT
+      MAX(switch_tran_date)
+    FROM
+      agg_tran_data ) ),
+  max_fiscal_month AS (
+  SELECT
+    DISTINCT FORMAT_DATE("%b %Y",switch_tran_date) transaction_month
+  FROM
+    agg_tran_data
+  WHERE
+    switch_tran_date = (
+    SELECT
+      MAX(switch_tran_date)
+    FROM
+      agg_tran_data ) )
+SELECT
+  -- Calendar -- clndr_date,
+ -- Calendar -- 
+clndr_date
+, "Wk- "||lpad(cast(EXTRACT(WEEK FROM DATE_TRUNC(date_add(switch_tran_date, INTERVAL 6 DAY) ,week)) as string),2,'0')|| " : " || format_date("%d-%b",date_add(date_trunc(date_add(switch_tran_date, INTERVAL -1 DAY),week), INTERVAL 1 DAY)) || " to " || format_date("%d-%b",date_add(date_trunc(date_add(switch_tran_date, INTERVAL -1 DAY),week), INTERVAL 7 DAY)) as calendar_week
+-- Fiscal -- 
+, switch_tran_date
+, switch_tran_date as transaction_date
+, case when mfd.fiscal_date is not null then 'Y' else 'N' end max_transaction_date_flag
+, case when fdr.tran_date is not null then 'Y' else 'N' end fortnight_date_flag
+, cast(atd.fiscal_week + 2 as int64) fiscal_week
+, case when mfw.fiscal_week is not null then 'Y' else 'N' end max_transaction_week_flag
+, "Wk- "||lpad(cast((atd.fiscal_week ) as string),2,'0')|| " : " || format_date("%d-%b",date_add(date_trunc(date_add(switch_tran_date, INTERVAL -1 DAY),week), INTERVAL 1 DAY)) || " to " || format_date("%d-%b",date_add(date_trunc(date_add(switch_tran_date, INTERVAL -1 DAY),week), INTERVAL 7 DAY)) as transaction_week
+, date_add(date_trunc(date_add(switch_tran_date, INTERVAL -1 DAY),week), INTERVAL 1 DAY) transaction_week_start_date
+, date_add(date_trunc(date_add(switch_tran_date, INTERVAL -1 DAY),week), INTERVAL 7 DAY) transaction_week_end_date
+, case when mfm.transaction_month is not null then 'Y' else 'N' end max_transaction_month_flag
+, format_date("%b %Y",switch_tran_date) transaction_month
+, date_trunc(switch_tran_date,month) transaction_month_start_date
+, last_day(switch_tran_date, month) transaction_month_end_date
+, fy_start_date
+   -- Dimensions --
+  ,store_id,
+  issuer,
+  approval_flag,
+  account,
+  link_route,
+  scheme,
+  card_type,
+  orig_card_type,
+  dom_int_ind,
+  tran_type_description,
+  fee_indicator,
+  company,
+  invoice_group,
+  merchant_group,
+  division,
+  brand,
+  location,
+  site_name,
+  suburb,
+  state,
+  postcode,
+  country,
+  scheme_card_type,
+  is_online, 
+  -- Metrics --,
+  transaction_count,
+  transaction_amount,  
+  settlement_amount_inc_gst,
+  interchange_fees_invoiced_ex_gst,
+  interchange_fees_tran_count,
+  processing_fees_ex_gst,
+  processing_fees_tran_count,
+  fraud_fees_ex_gst
+FROM
+  agg_tran_data atd
+LEFT OUTER JOIN
+  max_fiscal_date mfd
+ON
+  mfd.fiscal_date = atd.switch_tran_date
+LEFT OUTER JOIN
+  fortnight_date_range fdr
+ON
+  fdr.tran_date = atd.switch_tran_date
+LEFT OUTER JOIN
+  max_fiscal_week mfw
+ON
+  mfw.fiscal_week = atd.fiscal_week
+LEFT OUTER JOIN
+  max_fiscal_month mfm
+ON
+  mfm.transaction_month = FORMAT_DATE("%b %Y",atd.switch_tran_date) 
+;
