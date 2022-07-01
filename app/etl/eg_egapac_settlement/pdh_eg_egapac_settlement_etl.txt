@@ -128,13 +128,18 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
            and ifnull(st1.tlf_name,"") = "" 
            and ifnull(st1.setlmnt_result_file,"") <> ""),
    trcy as (
-            Select concat("CY_",cast(tcy.tran_uid as string)) as tran_uid,
+            Select concat("CY_",cast(tcy.tran_uid as string),"_",
+               left(rpad(cast(tcy.trasnaction_timestamp as string),14,"0"),8),"T",
+              right(rpad(cast(tcy.trasnaction_timestamp as string),14,"0"),6),"_",
+               upper(trim(tcy.transaction_type)),"_",
+               cast(abs(ifnull(tcy.transaction_amount,0) * 0.01) as string)
+               ) as tran_uid,
                    st2.division,
                    st2.store_id,
                    tcy.terminal_id,
                    st2.tran_settlement_amount + st2.discount_amt as trans_amt,
                    st2.transaction_timestamp,
-                   Cast(tcy.trasnaction_timestamp as string) as timestamp_local,
+                   rpad(cast(tcy.trasnaction_timestamp as string),14,"0") as timestamp_local,
                    tcy.pan as CardNumber,
                    cast(null as string) stan,
                    cast(ifnull(tcy.retrieval_reference_number,0) as string) as rrn,
@@ -149,7 +154,10 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    cast(null as string) card_subtype,
                    st2.posting_date as settlement_date,
                   cast(null as string) as  response_code,
-                  cast(ifnull(tcy.transaction_approval_status,0) as string) approval_status,
+                  case ifnull(tcy.transaction_approval_status,0)
+                     when 0 then "1"
+                     else "0"
+                  end approval_status,                  
                   tcy.approval_code approval_code,
                   st2.order_number,
                   tcy.decline_reason addtl_response_data,
