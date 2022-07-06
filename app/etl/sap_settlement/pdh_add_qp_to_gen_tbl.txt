@@ -63,8 +63,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                   end as transaction_timestamp,
                   upper(trim(qpt.TransactionType)) as transactiontype,
                   "QP" as tran_qualifier,
-                  case 
-                     when trim(ifnull(qpt.outletcode,"")) <> "" then upper(trim(qpt.outletcode))
+                  case   /* 2022-07-06 ignore outlet code */
                      when upper(trim(qpt.Merchant)) = "PREZZEE-AUS"       then "Q0009"
                      when upper(trim(qpt.Merchant)) = "DIGITAL GLUE"      then "Q0010"
                      when upper(trim(qpt.Merchant)) = "PITSTOP"           then "Q0005"
@@ -132,11 +131,12 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                     when msw.last_execution_time is null then cast("1900-01-01T00:00:00" as datetime)
                     else cast(cast(msw.last_execution_time as date) + msw.days_lookback as datetime)
                  end) 
-      and trn.transaction_timestamp > cast(msw.earliest_date as datetime) 
-      and trn.transaction_timestamp <= cast(concat(format_date("%Y-%m-%d",sys_date + msw.day_lag), "T",
-                                                   left(rpad(cast(msw.settlement_cutoff as string),6,"0"),2), ":",
-                                              substring(rpad(cast(msw.settlement_cutoff as string),6,"0"),3,2), ":",
-                                                  right(rpad(cast(msw.settlement_cutoff as string),6,"0"),2)) as datetime);
+      and trn.transaction_timestamp >= cast(msw.earliest_date as datetime)   /* 2022-07-06 */
+      and trn.transaction_timestamp <= 
+                   cast(concat(format_date("%Y-%m-%d",sys_date + msw.day_lag), "T",
+                               left(lpad(cast(msw.settlement_cutoff as string),4,"0"),2), ":",
+                              right(lpad(cast(msw.settlement_cutoff as string),4,"0"),2), ":00" 
+                              ) as datetime);   /* 2022-07-06 */
 
 --add control rec to specify QC detail is added to generic settlement table
 set batch_end_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),SECOND);

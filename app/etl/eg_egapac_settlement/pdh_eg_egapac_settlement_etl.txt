@@ -170,9 +170,14 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   "" as outlet
       from `pdh_rd_data_navigator.isg_wpay_tran` tcy
       join  pdh_analytics_ds.stlm_standard_settlement_table st2
-            on st2.tran_uid = concat("CY_",cast(tcy.tran_uid as string))
-           and ifnull(st2.tlf_name,"") = "" 
-           and ifnull(st2.setlmnt_result_file,"") <> ""
+            on st2.tran_uid = concat("CY_",cast(tcy.tran_uid as string),"_",
+               left(rpad(cast(tcy.trasnaction_timestamp as string),14,"0"),8),"T",
+              right(rpad(cast(tcy.trasnaction_timestamp as string),14,"0"),6),"_",
+               upper(trim(tcy.transaction_type)),"_",
+               cast(abs(ifnull(tcy.transaction_amount,0) * 0.01) as string)
+               )   /* 2022-07-06 */
+            and ifnull(st2.tlf_name,"") = "" 
+            and ifnull(st2.setlmnt_result_file,"") <> ""
                ),
 --
      trlk as (
