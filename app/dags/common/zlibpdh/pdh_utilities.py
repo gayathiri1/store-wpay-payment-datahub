@@ -2,7 +2,7 @@
 #Purpose: Re-usable utilities for payment data hub                 #
 #Version: v1.0                                                     #
 #Created Date: 30/03/2021                                          #
-#Modifed Date: 28/04/2021                                          #
+#Modifed Date: 05/07/2022                                          #
 #Author: Rupesh Dubey                                              #
 #######################START########################################
 ######Comment to test Ignore file issue for pdh_utilities.py######
@@ -109,26 +109,49 @@ class PDHUtils:
         else:
             print('Wrong value for parameter load_type. Should be H or I')
             exit(1)
-        
-        t1 = GoogleCloudStorageToBigQueryOperator(
-               task_id='load_csv_to_bq',
-               bucket=bucket,
-               source_objects=[source_objects],
-               destination_project_dataset_table=kwargs['project_name'] + ':'
-                                                + 'pdh_staging_ds' + '.'
-                                                + kwargs[object_name]['table_name'] + uid,
-               create_disposition="CREATE_IF_NEEDED",
-               schema_object=kwargs[object_name]['schema'],
-               schema_fields=None,
-               skip_leading_rows=1,
-               field_delimiter=delimiter,                             
-               autodetect=False,
-               dag=dag
+            
+        #Logic to handle MMI Feed Format.
+        if (kwargs[object_name]['table_name']).lower() == 'mmi_store_data_feed':
+            t1 = GoogleCloudStorageToBigQueryOperator(
+                task_id='load_csv_to_bq',
+                bucket=bucket,
+                source_objects=[source_objects],
+                destination_project_dataset_table=kwargs['project_name'] + ':'
+                                              + 'pdh_staging_ds' + '.'
+                                              + kwargs[object_name]['table_name'] + uid,
+                create_disposition="CREATE_IF_NEEDED",
+                schema_object=kwargs[object_name]['schema'],
+                schema_fields=None,
+                skip_leading_rows=0,                
+                field_delimiter=delimiter,
+                autodetect=False,
+                dag=dag
             )
-        try:
-            t1.execute(dict())
-        except Exception as e:
-            print(f'Exception as {e}')
+            try:
+                t1.execute(dict())
+            except Exception as e:
+                print(f'Exception as {e}')
+        #BAU logic.
+        else:
+            t1 = GoogleCloudStorageToBigQueryOperator(
+                task_id='load_csv_to_bq',
+                bucket=bucket,
+                source_objects=[source_objects],
+                destination_project_dataset_table=kwargs['project_name'] + ':'
+                                                  + 'pdh_staging_ds' + '.'
+                                                  + kwargs[object_name]['table_name'] + uid,
+                create_disposition="CREATE_IF_NEEDED",
+                schema_object=kwargs[object_name]['schema'],
+                schema_fields=None,
+                skip_leading_rows=1,
+                field_delimiter=delimiter,                             
+                autodetect=False,
+                dag=dag
+            )
+            try:
+                t1.execute(dict())
+            except Exception as e:
+                print(f'Exception as {e}')
 
     @classmethod
     def reflect_bq_schema_curated(cls,table_name,file_date, file_name, pdh_load_time, payload_id,uid):
@@ -197,6 +220,10 @@ class PDHUtils:
         elif 'APM_TRAN' in src_file:
             df = pd.read_csv('gs://' + src_file, sep='|',dtype=str, encoding='ISO-8859-1', header=header+1)            
             df.to_csv('gs://'+trgt_file, sep='|', index=False)
+        elif 'MMI_STORE_FEED' in src_file:
+            df = pd.read_csv('gs://' + src_file, sep='|', dtype=str, skiprows=1, encoding='ISO-8859-1', header=None)            
+            df.drop(df.tail(1).index, inplace=True)
+            df.to_csv('gs://'+trgt_file,sep='|', index=False, header=None)
         else:
             df = pd.read_csv('gs://'+src_file,dtype=str,encoding='unicode_escape',header=header)
             df.drop(df.tail(1).index, inplace=True)

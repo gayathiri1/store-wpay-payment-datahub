@@ -169,8 +169,8 @@ when 'ANZ' then
 		or trim(dn.issuer_institution_id) = '83990554164',  'UPI' ,
 	if(t.account='CRD' ,'CRD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT')) )
 when 'FIS' then 'CRD'
-when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT'))
-when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT'))
+when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','VISA'))
+when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','MASTERCARD'))
 when 'VER' then CASE TRIM(dn.scheme) WHEN 'Visa' THEN 'VISA' WHEN 'MasterCard' THEN 'MASTERCARD' ELSE 'VERIFONE' END
 else proc_id_iss_b
 end link_route,
@@ -185,6 +185,86 @@ LEFT JOIN `pdh_ref_ds.ref_store_details` s ON LEFT(dn.net_term_id, 5) = s.store_
 LEFT JOIN `pdh_ref_ds.ref_currency_code` c ON dn.currency_code = c.currency_code
 WHERE (i.merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC", "COUNTDOWN")
 OR i.merchant_type = 'SMALL')
+AND cast(dn.tstamp_trans as date) >= start_date AND cast(dn.tstamp_trans as date) <= end_date
+AND s.is_closed = FALSE
+;
+
+-- DATA NAVIGATOR (SUPERMARKETS)
+insert into `pdh_staging_ds.tbl_temp_billing_all`
+select 
+CAST(dn.tstamp_trans AS DATE) switch_tran_date,
+dn.tran_uid,
+dn.tstamp_trans,
+dn.tstamp_local,
+dn.masked_pan,
+dn.date_recon_acq,
+dn.net_term_id,
+dn.rpt_lvl_id_b,
+dn.mti,
+dn.tran_type_id,
+dn.amt_recon_net,
+dn.act_code,
+dn.response_code,
+dn.account_type,
+dn.transaction_total,
+dn.purchase_total,
+dn.cashout_total,
+dn.retrieval_ref_no,
+dn.stan,
+dn.original_stan,
+dn.proc_id_acq_b,
+dn.inst_id_recn_acq_b,
+dn.card_acpt_name_loc,
+dn.proc_id_iss_b,
+dn.issuer_institution_id,
+dn.inst_id_recon_iss_name,
+dn.card_owner,
+dn.pos_crd_dat_in_mod,
+dn.pos_crdhldr_presnt,
+dn.order_number,
+dn.approval_code,
+dn.adtnl_response_data,
+dn.card_acpt_id,
+dn.merchant_store_id,
+dn.dom_int_ind,
+dn.card_type,
+dn.card_subtype,
+dn.bin_product_code,
+dn.scheme,
+trim(t.tran_type) tran_type_desc,
+trim(t.abbr) tran_type_abbr,
+IFNULL(trim(r.approval_flag), "N") approval_flag,
+case trim(proc_id_iss_b) 
+when 'AMEX' then 'AMEX'
+when 'EHB' then 'EFTPOS'
+when 'FDF' then 'FUEL CARDS'
+when 'FDI' then
+	if(trim(dn.issuer_institution_id) in ('060092425', '060092426', '060092427', '060092428'), 'UPI', 'DINERS')
+when 'RED' then 'GIFT CARDS'
+when 'ANZ' then
+	if(trim(dn.issuer_institution_id) ='056025433' or trim(dn.issuer_institution_id) = '056025434'or trim(dn.issuer_institution_id) =  '056025435'
+		or trim(dn.issuer_institution_id) = '056025436'or trim(dn.issuer_institution_id) =  '056025437'
+		or trim(dn.issuer_institution_id) = '056025438'or trim(dn.issuer_institution_id) =  '056025439' 
+		or trim(dn.issuer_institution_id) = '056025440'or trim(dn.issuer_institution_id) =  '83990554161'
+		or trim(dn.issuer_institution_id) = '83990554162'or trim(dn.issuer_institution_id) =  '83990554163'
+		or trim(dn.issuer_institution_id) = '83990554164',  'UPI' ,
+	if(t.account='CRD' ,'CRD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT')) )
+when 'FIS' then 'CRD'
+when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','VISA'))
+when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','MASTERCARD'))
+when 'VER' then CASE TRIM(dn.scheme) WHEN 'Visa' THEN 'VISA' WHEN 'MasterCard' THEN 'MASTERCARD' ELSE 'VERIFONE' END
+else proc_id_iss_b
+end link_route,
+i.merchant_group,
+s.ratecard_group rate_group,
+c.cur_symbol currency_code
+from `pdh_rd_data_navigator.gfs_pdh_txn_interface_super` dn  
+Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
+left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
+JOIN `pdh_ref_ds.ref_inst_id_config` i on dn.inst_id_recn_acq_b = i.merchant_institution_id AND i.active = 'TRUE'
+LEFT JOIN `pdh_ref_ds.ref_store_details` s ON LEFT(dn.net_term_id, 5) = s.store_id 
+LEFT JOIN `pdh_ref_ds.ref_currency_code` c ON dn.currency_code = c.currency_code
+WHERE i.merchant_group = 'SUPERMARKETS'
 AND cast(dn.tstamp_trans as date) >= start_date AND cast(dn.tstamp_trans as date) <= end_date
 AND s.is_closed = FALSE
 ;
@@ -443,6 +523,80 @@ Select
 	AND s.is_closed = FALSE;
 
 -------------------------------------------------------------------------------------------
+-- ISG
+
+insert into `pdh_staging_ds.tbl_temp_billing_all`
+Select 
+	PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) switch_tran_date,
+	case
+		when scheme ='VISA' then cast(tran_uid as string)
+		when scheme = 'MASTERCARD' then trace_id
+		else  cast(tran_uid as string)
+	end as tran_uid,
+	CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(trasnaction_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(trasnaction_timestamp AS STRING), 6))) as timestamp) tstamp_trans,
+	CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(trasnaction_local_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(trasnaction_local_timestamp AS STRING), 6))) as timestamp) tstamp_local,
+	pan masked_pan,  -- MASK PAN
+    PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) date_recon_acq,
+    terminal_id net_term_id,  -- Add conditions where POSNAME Is not Store number
+	null as rpt_lvl_id_b, -- Add conditions where POSNAME Is not Store number
+	null as mti,
+    null tran_type_id,
+    transaction_amount amt_recon_net,
+	cast(action_code as string) act_code,
+	null response_code,    
+	null account_type,	
+    transaction_amount transaction_total,
+    transaction_amount purchase_total,
+    0 cashout_total,	
+    retrieval_reference_number retrieval_ref_no,
+    null stan,
+    null original_stan,
+    null proc_id_acq_b,
+    null inst_id_recn_acq_b,
+    null card_acpt_name_loc,
+	case scheme 
+        WHEN 'VISA' THEN 'VDCS' 
+        WHEN 'MASTERCARD' THEN 'MC' 
+        ELSE null
+    end proc_id_iss_b,
+    null issuer_institution_id,
+	null inst_id_recon_iss_name,
+    null card_owner,
+    null pos_crd_dat_in_mod,
+    null pos_crdhldr_presnt,
+    cast(order_num as string) order_number,
+    approval_code approval_code,
+    null adtnl_response_data,
+    null card_acpt_id,
+    null merchant_store_id,
+    domesitic_international_ind as dom_int_ind,
+    case card_type
+      when 'CREDIT' then 'C'
+      when 'DEBIT' then 'D'
+	  else ''
+	end as card_type,
+    null card_subtype,
+    null bin_product_code,
+    scheme scheme, 
+    trim(transaction_type) as tran_type_desc,
+	trim(transaction_type) as abbr,
+    case 
+      when transaction_approval_status is null then 'Y'
+	  when transaction_approval_status = 0 then 'Y'
+      when transaction_approval_status = 1 then 'N'
+	  else 'N'
+	end as approval_flag,
+	scheme link_route,
+	UPPER(s.ratecard_group) merchant_group,
+    s.ratecard_group rate_group,
+	cast(source_currency_code as string) currency_code
+    FROM `pdh_rd_data_navigator.isg_wpay_tran` d
+	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
+    left(d.terminal_id,5) = s.store_id 
+    where PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) >= start_date and PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) <= end_date
+    AND s.is_closed = FALSE;
+
+-------------------------------------------------------------------------------------------
 
 IF (SELECT COUNT(*) FROM `pdh_staging_ds.tbl_temp_billing_all` WHERE rate_group IS NULL) > 0 Then
     SELECT ERROR("Store ID(s) missing from store details table");
@@ -548,6 +702,24 @@ AND TRIM(proc_id_iss_b) IN ('VDCS', 'MC', 'VER')
 AND switch_tran_date BETWEEN start_date AND end_date;
 
 -------------------------------------------------------------------------------------------
+-- Check for Rate Card Entry
+
+if 
+	(select count(*) from temp_billing_all d 
+	left join pdh_ref_ds.ref_rate_card r
+		on trim(upper(d.calc_scheme))=trim(upper(r.scheme)) 
+		and trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
+		and trim(upper(d.rate_group)) = trim(upper(r.merchant))
+		and d.switch_tran_date BETWEEN r.from_date AND IFNULL(r.to_date, '2999-12-31')
+	where 
+		d.approval_flag = 'Y' 
+		and TRIM(d.proc_id_iss_b) not in ('PMK','ENZ','FIS','ANZ','VER') 
+		and (r.scheme is NULL or r.card_type is null or r.merchant is null)) > 0 
+Then
+    SELECT ERROR("Rate card missing entry");
+END IF;
+
+-------------------------------------------------------------------------------------------
 
 INSERT INTO `pdh_analytics_ds.tbl_fees_all`
 select
@@ -650,7 +822,7 @@ and trim(i.proc_id_iss_b) = 'VDCS'
 Update `pdh_analytics_ds.tbl_fees_all` i
 set interchange_fees_actual= v.issuer_interchange_amt + v.acquirer_interchange_amt,
 i.fee_indicator='A'
-from (Select distinct tstamp_local,tstamp_trans,card_acpt_term_id,rrn,stan,
+from (Select distinct tstamp_local,card_acpt_term_id,rrn,stan,
 tran_amt,pan,mti, acquirer_interchange_amt, issuer_interchange_amt from `pdh_rd_data_navigator.gfs_aux_eftpos`) v
 where i.tstamp_local = v.tstamp_local
 and  i.net_term_id = v.card_acpt_term_id
@@ -673,6 +845,51 @@ from `pdh_rd_apm.alipay_stlm` s
 where i.tran_uid = CAST(s.transaction_id AS STRING)
 and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
 and (case i.calc_tran_type_abbr when 'PURCHASE' THEN 'P' WHEN 'REFUND' then 'R' else null end) = TRIM(s.Type)
+and i.approval_flag = 'Y';
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+--ISG UPDATE FOR VISA
+
+Update `pdh_analytics_ds.tbl_fees_all` i
+set interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
+i.fee_indicator = 'A'
+from (SELECT *, RANK() OVER (PARTITION BY arn ORDER BY pdh_load_time DESC) rank FROM `pdh_rd_data_navigator.tc33_visa`) s
+where i.tran_uid = CAST(s.txn_id AS STRING)
+and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
+and i.amt_recon_net = s.samt
+and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+and s.rank = 1
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
+and i.approval_flag = 'Y';
+
+
+--ISG UPDATE FOR MC
+
+Update `pdh_analytics_ds.tbl_fees_all` i
+set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
+i.fee_indicator = 'A'
+from (SELECT *, RANK() OVER (PARTITION BY trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank FROM `pdh_rd_data_navigator.tn70_mc`) s
+--where i.tran_uid = s.trace_id
+where i.tran_uid = concat(right(s.trace_id,4), left(s.trace_id, length(s.trace_id)-4))
+and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+and rank = 1
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
+and i.approval_flag = 'Y';
+
+-- For cases where trace_id is null
+Update `pdh_analytics_ds.tbl_fees_all` i
+set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
+i.fee_indicator = 'A'
+from (SELECT *, RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank FROM `pdh_rd_data_navigator.tn70_mc`) s
+--where i.tran_uid = s.trace_id
+where (i.net_term_id = s.card_acceptor_terminal_id and i.masked_pan = s.pan and s.processing_code in (0,200000) and i.date_recon_acq = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
+and ( (i.tran_type_desc = 'PURCHASE' and s.processing_code = 0) or (i.tran_type_desc = 'REFUND' and s.processing_code = 200000) )
+and i.amt_recon_net = s.transaction_amt)
+and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+and s.rank = 1
+and i.fee_indicator = 'C'
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
 and i.approval_flag = 'Y';
 
 -------------------------------------------------------------------------------------------------------------------------------------------
@@ -1026,7 +1243,7 @@ END IF;
 INSERT INTO `pdh_analytics_ds.tbl_fees_sml_merchant`
 SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
 WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
-AND merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN');
+AND merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN', 'SUPERMARKETS');
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_sml_merchant`) < end_date THEN
     SELECT ERROR("Small Merchant billing table not fully updated");
@@ -1124,8 +1341,116 @@ LEFT JOIN `pdh_ref_ds.dim_date` dt
 ON i.switch_tran_date = dt.clndr_date
 WHERE switch_tran_date BETWEEN start_date AND end_date
 AND m.is_closed = FALSE
-AND i.merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN');
+AND i.merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN', 'SUPERMARKETS');
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt`) < end_date THEN
     SELECT ERROR("Small Merchant reporting table not fully updated");
+END IF;
+
+-- SUPERMARKETS SPECIFIC TABLES
+INSERT INTO `pdh_analytics_ds.tbl_fees_super`
+SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
+WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
+AND merchant_group = 'SUPERMARKETS';
+
+IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_super`) < end_date THEN
+    SELECT ERROR("Supermarkets billing table not fully updated");
+END IF;
+
+INSERT INTO `pdh_analytics_ds.tbl_super_fees_rpt`
+SELECT
+   switch_tran_date,
+   tran_uid,
+   FORMAT_TIMESTAMP('%Y%m%d%H%M%S00', tstamp_trans) switch_timestamp,
+   --2021030219355774
+   FORMAT_TIMESTAMP('%Y%m%d%H%M%S', tstamp_local) local_timestamp,
+   LEFT(i.net_term_id,5) store_id,
+   net_term_id terminal_id,
+   null bin,
+   masked_pan pan,
+   SAFE_CAST(tran_type_id AS INT64) txn_type_indicator,
+   CAST(FORMAT_DATE('%Y%m%d', date_recon_acq) AS INT64) settlement_date,
+   approval_code ap_approval_code,
+   act_code action_code,
+   response_code,
+   proc_id_acq_b acquirer,
+   inst_id_recn_acq_b acquirer_institution_id,
+   proc_id_iss_b issuer,
+   issuer_institution_id issuer_institution_id,
+   inst_id_recon_iss_name,
+   CAST(mti AS INT64) mti,
+   card_owner,
+   order_number transaction_desc,
+   CAST(retrieval_ref_no AS STRING) rrn,
+   pos_crdhldr_presnt pos_card_holder_present,
+   pos_crd_dat_in_mod pos_data_card_input_method,
+   i.tran_type_desc tran_type,
+   calc_tran_type_abbr abbr,
+   calc_approval_flag approval_flag,
+   tac.transaction_approval_status_text,
+   account_type account,
+   link_route,
+   calc_scheme as scheme,
+   calc_card_type as card_type,
+   i.card_type as card_type_code,
+   CASE WHEN TRIM(card_type) = 'D' THEN "DEBIT"
+   WHEN TRIM(card_type) = 'P' THEN "PREPAID"
+   WHEN TRIM(card_type) IN ('C', 'H', 'R') THEN "CREDIT" ELSE card_type END as orig_card_type,
+   dom_int_ind,
+   stan,
+   original_stan,
+   card_acpt_id,
+   card_acpt_name_loc location,
+   adtnl_response_data,
+   UPPER(i.calc_tran_type_description) tran_type_description,
+   fee_indicator,
+   i.transaction_total / 100 AS transaction_amount,
+   i.purchase_total / 100 AS purchase_amount,
+   i.cashout_total / 100 AS cashout_amount,
+   Ifnull(tt.transaction_count_factor, 0) * 1 AS vcalc_transaction_count,
+    tt.spend_factor * i.amt_recon_net / 100 AS vcalc_settlement_amount_inc_gst,
+   Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_calc / 100 AS vcalc_interchange_fees_ex_gst,
+   0.0 vcalc_interchange_fees_rebate_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
+   Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * 1 AS vcalc_interchange_fees_tran_count,
+   Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * i.processing_fees / 100 AS vcalc_processing_fees_ex_gst,
+   Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * 1 AS vcalc_processing_fees_tran_count,
+   i.interchange_fees_calc * 1.1 / 100 AS interchange_fees_inc_gst,
+   i.interchange_fees_calc / 100 AS interchange_fees_ex_gst,
+   i.processing_fees * 1.1 / 100 AS processing_fees_inc_gst,
+   i.processing_fees / 100 AS processing_fees_ex_gst,
+   i.fraud_fees * 1.1 / 100 AS fraud_fees_inc_gst,
+   i.fraud_fees / 100 AS fraud_fees_ex_gst,
+    m.company,
+    m.invoice_group,
+	m.merchant_group,
+	m.division, 
+	m.brand,    
+	m.store_id ined_store_id,   
+	m.site_name,    
+	m.suburb,   
+	m.state,    
+	m.postcode,
+	m.country,
+    null sap_filename,
+    null sap_post_timestamp,
+    fy_start_date,
+	currency_code
+FROM
+   `pdh_analytics_ds.tbl_fees_all` i left join
+   `pdh_ref_ds.ref_tran_type_codes` tt
+on i.calc_tran_type_description = tt.tran_type_desc 
+left join `pdh_ref_ds.ref_store_details` m on m.store_id = LEFT(i.net_term_id,5)
+left join
+`pdh_ref_ds.ref_tran_approval_codes` tac
+on i.calc_approval_flag = tac.transaction_approval_status_code
+LEFT JOIN `pdh_ref_ds.dim_date` dt
+ON i.switch_tran_date = dt.clndr_date
+WHERE switch_tran_date BETWEEN start_date AND end_date
+AND m.is_closed = FALSE
+AND i.merchant_group = 'SUPERMARKETS';
+
+IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_super_fees_rpt`) < end_date THEN
+    SELECT ERROR("Supermarkets reporting table not fully updated");
 END IF;
