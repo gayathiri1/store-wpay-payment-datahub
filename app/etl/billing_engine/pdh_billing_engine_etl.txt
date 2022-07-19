@@ -866,29 +866,28 @@ and i.approval_flag = 'Y';
 
 --ISG UPDATE FOR MC
 
+-- PURCHASE transactions have TRACE_ID
 Update `pdh_analytics_ds.tbl_fees_all` i
 set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
 i.fee_indicator = 'A'
 from (SELECT *, RANK() OVER (PARTITION BY trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank FROM `pdh_rd_data_navigator.tn70_mc`) s
---where i.tran_uid = s.trace_id
 where i.tran_uid = concat(right(s.trace_id,4), left(s.trace_id, length(s.trace_id)-4))
-and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+and i.calc_tran_type_abbr = 'PURCHASE'
 and rank = 1
 AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
 and i.approval_flag = 'Y';
 
--- For cases where trace_id is null
+-- REFUND transactions where TRACE_ID is NULL
 Update `pdh_analytics_ds.tbl_fees_all` i
 set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
 i.fee_indicator = 'A'
 from (SELECT *, RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank FROM `pdh_rd_data_navigator.tn70_mc`) s
---where i.tran_uid = s.trace_id
-where (i.net_term_id = s.card_acceptor_terminal_id and i.masked_pan = s.pan and s.processing_code in (0,200000) and i.date_recon_acq = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
-and ( (i.tran_type_desc = 'PURCHASE' and s.processing_code = 0) or (i.tran_type_desc = 'REFUND' and s.processing_code = 200000) )
+where (i.net_term_id = s.card_acceptor_terminal_id and i.masked_pan = s.pan and s.processing_code = 200000 and i.date_recon_acq = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
+and (i.tran_type_desc = 'REFUND' and s.processing_code = 200000)
 and i.amt_recon_net = s.transaction_amt)
-and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+and i.calc_tran_type_abbr = 'REFUND'
 and s.rank = 1
-and i.fee_indicator = 'C'
+and i.fee_indicator <> 'A'
 AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
 and i.approval_flag = 'Y';
 
