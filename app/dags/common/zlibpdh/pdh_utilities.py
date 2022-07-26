@@ -233,8 +233,12 @@ class PDHUtils:
     def upload_gs_to_bq(cls,SPREADSHEET_ID,RANGE_NAME,table_id,project_name):
         SCOPES = ['https://www.googleapis.com/auth/drive', 'https://www.googleapis.com/auth/drive.file','https://www.googleapis.com/auth/spreadsheets.readonly']
         secret_file = os.path.join(os.getcwd(), '/home/airflow/gcs/data/gcp-wow-wpay-paydathub-prod-07bbd8b2b461.json')
-        creds = service_account.Credentials.from_service_account_file(secret_file, scopes=SCOPES)
         
+        #Check for UAT SA.        
+        if 'uat' in project_name.lower():
+            secret_file = os.path.join(os.getcwd(), '/home/airflow/gcs/data/gcp-wow-wpay-paydathub-uat-a343797a8cbe.json')
+        
+        creds = service_account.Credentials.from_service_account_file(secret_file, scopes=SCOPES)        
         service = build('sheets', 'v4', credentials=creds)
         
         # Call the Sheets API
