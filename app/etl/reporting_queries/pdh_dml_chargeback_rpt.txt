@@ -1,0 +1,116 @@
+TRUNCATE TABLE
+  pdh_analytics_ds.tbl_chargeback_rpt;
+INSERT INTO
+  pdh_analytics_ds.tbl_chargeback_rpt
+  (
+
+SELECT
+  file_date AS processing_date,
+  region,
+  received_dt AS date_rcvd,
+  CAST(c.id AS string) AS case_nbr,
+  c.store_id AS store_nbr,
+  lane,
+  c.store_name AS store_name,
+  txn_dttm_local AS tran_date,
+  CAST(Amount AS Float64) value,
+  bank AS bank_code,
+  rrn,
+  status_open AS status,
+  rr_sent_dttm_utc AS date_req_sent_store,
+  response_dttm_utc AS date_resp_rcvd_store,
+  dn_completion_pos_crd_dat_in_mod AS ncard_input_mode,
+  signature AS verification_method,
+  orderno AS order_no,
+  CAST(rr_resent_dttm_utc AS datetime) AS date_2_req_sent_store,
+  CAST(response_2_dttm_utc AS datetime) AS date_2_resp_rcvd_store,
+  CAST(charged_dt AS date)date_charged,
+  CAST(chgbk_challenge_dt AS datetime) AS date_challenged,
+  CAST(chgbk_rev_dt AS datetime) AS reversal_date,
+  reason,
+  all_comments AS comments,
+  CASE
+    WHEN LOWER(status_open)='t'  THEN
+     IF ( (rr_sent_dttm_utc IS NULL AND response_dttm_utc IS NULL), "Received into slipper not sent to store", 
+    IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NULL, "Sent to store waiting on response",
+     IF ( rr_sent_dttm_utc IS NULL, "Waiting on Scheme",
+      IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NOT NULL AND charged_dt IS NULL, "Waiting on Scheme",
+      IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NOT NULL AND charged_dt IS NOT NULL, "Charged and open",
+       "" ) ) )))
+    WHEN LOWER(status_open)= 'f' THEN
+IF
+  ( charged_dt IS NULL,
+    "Closed and Successful",
+    "Closed and Unsuccessful" )
+END
+  AS final_status,
+  DATE_DIFF(file_date,DATE(received_dt), DAY) AS days_since_raised,
+  CASE UPPER(bank)
+    WHEN 'MASTERCARD' THEN DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 45 DAY), file_date,DAY )
+    WHEN 'VISA' THEN DATE_DIFF(DATE_ADD(DATE(received_dt),INTERVAL 45 DAY), File_date,DAY )
+  ELSE
+  DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 14 DAY),File_date,DAY )
+END
+  AS days_to_close,
+  CASE LOWER(status_open)
+    WHEN 'f'  THEN IF ( charged_dt IS NULL AND chgbk_rev_dt IS NULL, "Successfully Contested", 
+IF ( charged_dt IS NOT NULL AND chgbk_rev_dt IS NOT NULL, "Successfully Contested", 
+IF ( charged_dt IS NULL AND chgbk_rev_dt IS NOT NULL, "Successfully Contested",
+ IF ( charged_dt IS NOT NULL AND chgbk_rev_dt IS NULL, "Charged Liability and Closed", "") )))
+
+
+  
+    WHEN 't' THEN
+
+IF
+  ( charged_dt IS NOT NULL
+    AND chgbk_rev_dt IS NULL,
+    "Charged Liability and Open",
+  IF
+    ( (CASE UPPER(bank)
+          WHEN 'MASTERCARD' THEN DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 45 DAY), File_date,DAY )
+          WHEN 'VISA' THEN DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 45 DAY), File_date,DAY )
+        ELSE
+        DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 12 DAY),File_date,DAY )
+      END
+        ) > 0,
+      "Potential Liability - open",
+    IF
+      ( charged_dt IS NOT NULL
+        AND chgbk_rev_dt IS NOT NULL,
+        "Potential Liability - open",
+      IF
+        (charged_dt IS NULL
+          AND chgbk_rev_dt IS NULL,
+          "Potential Liability - open",
+          ""))))
+
+
+  ELSE
+  " "
+END
+  AS chargeback_status,
+If( upper(r.is_online) = "ONLINE",
+    'CNP',
+    CASE UPPER(signature)
+      WHEN 'PIN' THEN 'CP'
+      WHEN 'NOVER' THEN 'CP'
+      WHEN 'CNP' THEN 'CNP'
+      WHEN 'SIG' THEN 'CP'
+    ELSE
+    'CP'
+  END
+    ) AS cp_indicator,
+    r. company,
+    r.Merchant_group,
+    r.invoice_group,
+    r.division,
+    r.brand
+ 
+FROM
+  `pdh_rd_data_navigator.chargebacks` c
+INNER JOIN
+  `pdh_ref_ds.ref_store_details` r
+ON
+  UPPER(c.store_id)=r.store_id
+)
