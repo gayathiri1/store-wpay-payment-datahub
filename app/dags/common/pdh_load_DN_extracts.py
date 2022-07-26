@@ -126,9 +126,12 @@ def load_target_table(**kwargs):
     elif 'isg_wpay' in file_name.lower() or 'tn70_mc' in file_name.lower()\
     or 'tc33_visa' in file_name.lower():
         file_date = file_name.split('/')[3].split('.')[0][-10:-2]
-    elif 'lmi_storedatafeed' in file_name.lower():        
+    elif 'lmi_storedatafeed' in file_name.lower()\
+    or 'lmi_datafeed' in file_name.lower():        
+        now_val = datetime.datetime.now(tz)
+        yy_val = now_val.strftime("%Y%m%d")[:2]               
         file_date = file_name.split('/')[3].split('.')[2][1:]
-        file_date = str(20)+file_date
+        file_date = str(yy_val)+file_date
     else:
         file_date = file_name.split('/')[3].split('.')[0][-8:]
     now = datetime.datetime.now(tz)
