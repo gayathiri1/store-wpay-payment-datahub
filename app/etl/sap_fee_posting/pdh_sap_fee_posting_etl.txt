@@ -140,6 +140,7 @@ WITH result AS (
     H, 
     fee_type_description, 
     calender_date, 
+	switch_tran_date,
     settlement_date, 
     merchant_org_id, 
     merchant_location_number, 
@@ -266,7 +267,7 @@ WITH result AS (
               and upper(trim(a.tran_type_description)) <> ''   
             GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
     )
-    GROUP BY H,fee_type_description, calender_date,settlement_date,  merchant_org_id,
+    GROUP BY H,fee_type_description, calender_date,switch_tran_date,settlement_date,  merchant_org_id,
     merchant_location_number, caic,sap_customer_number, wpay_store_number, wow_loc_number,
     fee_frequency, gst_flag, direct_debit_flag, currency,
     pay_due_date, record_end_indicator,record_count,company_code
@@ -276,6 +277,7 @@ SELECT  * FROM result where fee_value != 0  ;
 --Insert Header Record with country code
 INSERT `pdh_analytics_ds.sap_fee_posting` (
   H, fee_type_description, calender_date, 
+  --switch_tran_date,
   settlement_date, merchant_org_id, 
   merchant_location_number, caic, 
   sap_customer_number, wpay_store_number, 
@@ -294,6 +296,7 @@ SELECT
   'H' as H, 
   'WPAYFEES' AS fee_type_description, 
   null AS calender_date, 
+  --'' as switch_tran_date,
   null AS settlement_date, 
   company_code AS merchant_org_id, 
   CAST(formatted_curr_date AS STRING) AS merchant_location_number, 
@@ -317,6 +320,7 @@ INSERT INTO `pdh_analytics_ds.sap_fee_posting`
 SELECT 
   'T', 
   null, 
+  null,
   null, 
   null, 
   FORMAT("%010d", cast(ifnull(cast(count(0) - 1 as string),"0")as  int64))  as merchant_org_id,
@@ -355,104 +359,19 @@ SELECT
 FROM 
   (
     SELECT 
-      DISTINCT a.store_id store_id, 
-      a.switch_tran_date switch_tran_date 
+      DISTINCT a.wpay_store_number store_id, 
+      a.switch_tran_date switch_tran_date   
     FROM 
-      pdh_analytics_ds.tbl_edg_fees_rpt a 
-      INNER JOIN pdh_ref_ds.ref_inst_id_config c ON a.acquirer_institution_id = c.merchant_institution_id 
-    WHERE 
-      EXISTS (
-        (
-          SELECT 
-            1 
-          FROM 
-            UNNEST(trans_date_range) transdate 
-          where 
-            transdate = a.switch_tran_date
-        )
-      ) 
-      AND c.post_to_sap = 'TRUE' 
-      AND a.store_id not in (
+	    pdh_analytics_ds.sap_fee_posting a
+	
+	Where a.wpay_store_number not in (
         select 
           b.wpay_store_number 
         from 
           pdh_ref_ds.ref_str_to_sap_customermapping b
       ) 
-    UNION ALL 
-    SELECT 
-      DISTINCT a.store_id store_id, 
-      a.switch_tran_date switch_tran_date 
-    FROM 
-      pdh_analytics_ds.tbl_sml_merchant_fees_rpt a 
-      INNER JOIN pdh_ref_ds.ref_inst_id_config c ON a.acquirer_institution_id = c.merchant_institution_id 
-    WHERE 
-      EXISTS (
-        (
-          SELECT 
-            1 
-          FROM 
-            UNNEST(trans_date_range) transdate 
-          where 
-            transdate = a.switch_tran_date
-        )
-      ) 
-      AND c.post_to_sap = 'TRUE' 
-      AND a.store_id not in (
-        select 
-          b.wpay_store_number 
-        from 
-          pdh_ref_ds.ref_str_to_sap_customermapping b
-      ) 
-    UNION ALL 
-    SELECT 
-      DISTINCT a.store_id store_id, 
-      a.switch_tran_date switch_tran_date 
-    FROM 
-      pdh_analytics_ds.tbl_egfuel_fees_rpt a 
-      INNER JOIN pdh_ref_ds.ref_inst_id_config c ON a.acquirer_institution_id = c.merchant_institution_id 
-    WHERE 
-      EXISTS (
-        (
-          SELECT 
-            1 
-          FROM 
-            UNNEST(trans_date_range) transdate 
-          where 
-            transdate = a.switch_tran_date
-        )
-      ) 
-      AND c.post_to_sap = 'TRUE' 
-      AND a.store_id not in (
-        select 
-          b.wpay_store_number 
-        from 
-          pdh_ref_ds.ref_str_to_sap_customermapping b
-      ) 
-    UNION ALL 
-    SELECT 
-      DISTINCT a.store_id store_id, 
-      a.switch_tran_date switch_tran_date 
-    FROM 
-      pdh_analytics_ds.tbl_wpaynz_fees_rpt a 
-      INNER JOIN pdh_ref_ds.ref_inst_id_config c ON a.acquirer_institution_id = c.merchant_institution_id 
-    WHERE 
-      EXISTS (
-        (
-          SELECT 
-            1 
-          FROM 
-            UNNEST(trans_date_range) transdate 
-          where 
-            transdate = a.switch_tran_date
-        )
-      ) 
-      AND c.post_to_sap = 'TRUE' 
-      AND a.store_id not in (
-        select 
-          b.wpay_store_number 
-        from 
-          pdh_ref_ds.ref_str_to_sap_customermapping b
-      )
+	  
+	  
   );
 
 --Get missing store count details
@@ -471,7 +390,26 @@ IF count_miss_store = 0 THEN
 
 -- Copy data into historical data table
 INSERT INTO `pdh_analytics_ds.sap_fee_posting_all` 
-SELECT current_run_date, * 
+SELECT current_run_date, 
+    H, 
+    fee_type_description, 
+    calender_date, 
+    settlement_date, 
+    merchant_org_id, 
+    merchant_location_number, 
+    caic, 
+    sap_customer_number, 
+    wpay_store_number, 
+    wow_loc_number, 
+    fee_value, 
+    fee_frequency, 
+    gst_flag, 
+    direct_debit_flag, 
+    currency, 
+    pay_due_date, 
+    record_end_indicator, 
+    record_count, 
+    company_code  
 FROM 
   `pdh_analytics_ds.sap_fee_posting` 
 WHERE 
@@ -517,120 +455,24 @@ group by
 CREATE 
 OR REPLACE TABLE `pdh_staging_ds.sap_temp_table` AS 
 SELECT 
-  distinct terminal_id, 
-  mti, 
-  local_timestamp, 
-  pan, 
-  transaction_amount, 
-  stan, 
+  distinct 
   store_id, 
   switch_tran_date 
 FROM 
-  pdh_analytics_ds.tbl_edg_fees_rpt a, 
-  pdh_ref_ds.ref_str_to_sap_customermapping b, 
-  pdh_ref_ds.ref_inst_id_config c 
-where 
-  a.store_id = b.wpay_store_number 
-  and a.acquirer_institution_id = c.merchant_institution_id 
-  and sap_filename is null --   and a.switch_tran_date between trans_date1 AND trans_date2
-  AND EXISTS (
-    (
-      SELECT 
-        1 
-      FROM 
-        UNNEST(trans_date_range) transdate 
-      where 
-        transdate = a.switch_tran_date
-    )
-  ) 
-  AND c.post_to_sap = 'TRUE' 
-UNION ALL 
-SELECT 
-  distinct terminal_id, 
-  mti, 
-  local_timestamp, 
-  pan, 
-  transaction_amount, 
-  stan, 
-  store_id, 
-  switch_tran_date 
-FROM 
-  pdh_analytics_ds.tbl_sml_merchant_fees_rpt a, 
-  pdh_ref_ds.ref_str_to_sap_customermapping b, 
-  pdh_ref_ds.ref_inst_id_config c 
-where 
-  a.store_id = b.wpay_store_number 
-  and a.acquirer_institution_id = c.merchant_institution_id 
-  and sap_filename is null 
-  AND EXISTS (
-    (
-      SELECT 
-        1 
-      FROM 
-        UNNEST(trans_date_range) transdate 
-      where 
-        transdate = a.switch_tran_date
-    )
-  ) 
-  AND c.post_to_sap = 'TRUE' 
-UNION ALL 
-SELECT 
-  distinct terminal_id, 
-  mti, 
-  local_timestamp, 
-  pan, 
-  transaction_amount, 
-  stan, 
-  store_id, 
-  switch_tran_date 
-FROM 
-  pdh_analytics_ds.tbl_egfuel_fees_rpt a, 
-  pdh_ref_ds.ref_str_to_sap_customermapping b, 
-  pdh_ref_ds.ref_inst_id_config c 
-where 
-  a.store_id = b.wpay_store_number 
-  and a.acquirer_institution_id = c.merchant_institution_id 
-  and sap_filename is null
-  AND EXISTS (
-    (
-      SELECT 
-        1 
-      FROM 
-        UNNEST(trans_date_range) transdate 
-      where 
-        transdate = a.switch_tran_date
-    )
-  ) 
-  AND c.post_to_sap = 'TRUE' 
-UNION ALL 
-SELECT 
-  distinct terminal_id, 
-  mti, 
-  local_timestamp, 
-  pan, 
-  transaction_amount, 
-  stan, 
-  store_id, 
-  switch_tran_date 
-FROM 
-  pdh_analytics_ds.tbl_wpaynz_fees_rpt a, 
-  pdh_ref_ds.ref_str_to_sap_customermapping b, 
-  pdh_ref_ds.ref_inst_id_config c 
-where 
-  a.store_id = b.wpay_store_number 
-  and a.acquirer_institution_id = c.merchant_institution_id 
-  and sap_filename is null
-  AND EXISTS (
-    (
-      SELECT 
-        1 
-      FROM 
-        UNNEST(trans_date_range) transdate 
-      where 
-        transdate = a.switch_tran_date
-    )
-  ) 
-  AND c.post_to_sap = 'TRUE';
+  tbl_tran_date a
+  
+  INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
+            ON  a.store_id =b.wpay_store_number 
+            INNER JOIN pdh_ref_ds.ref_merchant_fee_config d
+            ON lower(a.company) = lower(d.company) and UPPER(d.fee_code)='INTERCHANGE'
+            WHERE d.sap_fees_posting_flag = 'Y'
+              AND a.sap_filename is null
+              AND a.sap_post_timestamp is null
+              and upper(trim(a.scheme)) <> ''
+              and upper(trim(a.approval_flag)) <> ''  
+              and upper(trim(a.tran_type_description)) <> '' ;
+  
+
 
 UPDATE 
   `pdh_analytics_ds.tbl_edg_fees_rpt` a 
@@ -639,15 +481,15 @@ SET
   sap_post_timestamp = sap_post_time 
 FROM 
   pdh_staging_ds.sap_temp_table b 
+  --pdh_analytics_ds.sap_fee_posting 
 WHERE 
-  a.switch_tran_date = b.switch_tran_date 
-  AND a.terminal_id = b.terminal_id 
-  AND a.mti = b.mti 
-  AND a.local_timestamp = b.local_timestamp 
-  AND a.pan = b.pan 
-  AND a.transaction_amount = b.transaction_amount 
-  AND a.stan = b.stan 
-  AND a.store_id = b.store_id;
+  a.switch_tran_date = b.switch_tran_date  
+  AND a.store_id = b.store_id
+  AND a.sap_filename is null
+  AND a.sap_post_timestamp is null
+  and upper(trim(a.scheme)) <> ''
+              and upper(trim(a.approval_flag)) <> '' 
+              and upper(trim(a.tran_type_description)) <> '';
 
 UPDATE 
   `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a 
@@ -657,14 +499,14 @@ SET
 FROM 
   pdh_staging_ds.sap_temp_table b 
 WHERE 
-  a.switch_tran_date = b.switch_tran_date 
-  AND a.terminal_id = b.terminal_id 
-  AND a.mti = b.mti 
-  AND a.local_timestamp = b.local_timestamp 
-  AND a.pan = b.pan 
-  AND a.transaction_amount = b.transaction_amount 
-  AND a.stan = b.stan 
-  AND a.store_id = b.store_id;
+   a.switch_tran_date = b.switch_tran_date  
+  AND a.store_id = b.store_id
+  AND a.sap_filename is null
+  AND a.sap_post_timestamp is null
+  and upper(trim(a.scheme)) <> ''
+              and upper(trim(a.approval_flag)) <> '' 
+              and upper(trim(a.tran_type_description)) <> '';
+
 
 UPDATE 
   `pdh_analytics_ds.tbl_egfuel_fees_rpt` a 
@@ -674,15 +516,16 @@ SET
 FROM 
   pdh_staging_ds.sap_temp_table b 
 WHERE 
-  a.switch_tran_date = b.switch_tran_date 
-  AND a.terminal_id = b.terminal_id 
-  AND a.mti = b.mti 
-  AND a.local_timestamp = b.local_timestamp 
-  AND a.pan = b.pan 
-  AND a.transaction_amount = b.transaction_amount 
-  AND a.stan = b.stan 
-  AND a.store_id = b.store_id;
+   a.switch_tran_date = b.switch_tran_date  
+  AND a.store_id = b.store_id
+  AND a.sap_filename is null
+  AND a.sap_post_timestamp is null
+  and upper(trim(a.scheme)) <> ''
+              and upper(trim(a.approval_flag)) <> '' 
+              and upper(trim(a.tran_type_description)) <> '';
 
+  
+  
 UPDATE 
   `pdh_analytics_ds.tbl_wpaynz_fees_rpt` a 
 SET 
@@ -691,14 +534,14 @@ SET
 FROM 
   pdh_staging_ds.sap_temp_table b 
 WHERE 
-  a.switch_tran_date = b.switch_tran_date 
-  AND a.terminal_id = b.terminal_id 
-  AND a.mti = b.mti 
-  AND a.local_timestamp = b.local_timestamp 
-  AND a.pan = b.pan 
-  AND a.transaction_amount = b.transaction_amount 
-  AND a.stan = b.stan 
-  AND a.store_id = b.store_id;
+   a.switch_tran_date = b.switch_tran_date  
+  AND a.store_id = b.store_id
+  AND a.sap_filename is null
+  AND a.sap_post_timestamp is null
+  and upper(trim(a.scheme)) <> ''
+              and upper(trim(a.approval_flag)) <> '' 
+              and upper(trim(a.tran_type_description)) <> '';
+
 
 UPDATE 
   `pdh_analytics_ds.tbl_super_fees_rpt` a 
@@ -708,14 +551,14 @@ SET
 FROM 
   pdh_staging_ds.sap_temp_table b 
 WHERE 
-  a.switch_tran_date = b.switch_tran_date 
-  AND a.terminal_id = b.terminal_id 
-  AND a.mti = b.mti 
-  AND a.local_timestamp = b.local_timestamp 
-  AND a.pan = b.pan 
-  AND a.transaction_amount = b.transaction_amount 
-  AND a.stan = b.stan 
-  AND a.store_id = b.store_id;
+   a.switch_tran_date = b.switch_tran_date  
+  AND a.store_id = b.store_id
+  AND a.sap_filename is null
+  AND a.sap_post_timestamp is null
+  and upper(trim(a.scheme)) <> ''
+              and upper(trim(a.approval_flag)) <> '' 
+              and upper(trim(a.tran_type_description)) <> '';
+
 
 --Get batch end datetime based on AEST
 SET 
