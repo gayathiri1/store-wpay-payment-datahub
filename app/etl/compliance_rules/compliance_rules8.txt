@@ -1,26 +1,29 @@
 --RULE8 Remove Project Reference, point store_details and response_code to ref_ds
-Declare backMonth INT64 Default -15;
+Declare backMonth INT64 Default -10;
 DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
-DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
-DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 11 MONTH);
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -8 MONTH);
 DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
 --
 if Exists(Select File_Date
           From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
           Where File_Date  = Current_Date("Australia/Sydney") - 1
           Limit 1) Then
-    Truncate Table `pdh_staging_ds.Rule8_Output`;
-    Insert into `pdh_staging_ds.Rule8_Output`
+  Truncate Table `pdh_staging_ds.Rule8_Output`;
+    Insert into `pdh_staging_ds.Rule8_Output` 
     With  CashOutDet as (
               Select Upper(Trim(Case
                                    When IFNUll(rc0.Merchant_to_report,"") <> "" then rc0.Merchant_to_report
                                    Else mh.division
                                 End)) as Merchant,
+         (case upper(trim(mh.division)) when "LIVE GROUP" then mh.store_id else "" end) as store_id,
+         (case upper(trim(mh.division)) when "LIVE GROUP" then mh.site_name else "" end) as site_name, 
+                    
             DATE_TRUNC(Date(tstamp_local),month) as FirstOfMonth,
             cashout_total * 0.01 as Cashout
         FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` trn
         Join `pdh_ref_ds.ref_store_details` mh
-            on left(trn.Net_Term_ID,5) = mh.store_id
+            on UPper(trim(left(trn.Net_Term_ID,5))) =upper(trim(mh.store_id))
             and mh.division is not Null
             and mh.division <> ""
         join pdh_ref_ds.ref_response_code r 
@@ -36,17 +39,22 @@ if Exists(Select File_Date
             and trn.cashout_total <> 0
             and Date(trn.tstamp_local) >= StartDate
             and Date(trn.tstamp_local) < EndDate
-    ),
-    TrnSum as (
+            
+   ),
+    
+   -- TrnSum 
+    Monthly_Cashout as (
         Select Merchant, 
+        store_id,
+        site_name,
         FirstOfMonth, 
         max(Date_Diff(Date_add(FirstOfMonth,INTERVAL 1 MONTH),
                   FirstOfMonth,DAY)) Days_InMonth,
         sum(Cashout) as Cashout
         From CashOutDet
-        Group By Merchant, FirstOfMonth
-    ),
-    History_Grouped as (
+        Group By Merchant,store_id,site_name, FirstOfMonth
+    )
+    /*History_Grouped as (
      Select Upper(Trim(Case 
                           When IFNUll(rc00.Merchant_to_report,"") <> "" then rc00.Merchant_to_report
                           Else hc.Merchant
@@ -88,9 +96,11 @@ if Exists(Select File_Date
      Full Join HistorySum hs 
            On hs.Merchant = ts.Merchant
           and hs.FirstOfMonth = ts.FirstOfMonth
-      )
+      )*/
     Select 
         m.Merchant,
+        m.store_id,
+        m.site_name,
         m.FirstOfMonth,
         m.Days_InMonth,
         m.Cashout,
@@ -121,8 +131,11 @@ if Exists(Select File_Date
         Current_Datetime() Datetime_Created
         From Monthly_Cashout m
         Left Join Monthly_Cashout p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
+                                         and p1.store_id = m.store_id and p1.site_name= m.site_name
         Left Join Monthly_Cashout p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
+                                        and p2.store_id = m.store_id and p2.site_name= m.site_name
         Left Join Monthly_Cashout p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
+                                        and p3.store_id = m.store_id and p3.site_name= m.site_name
         left join `pdh_staging_ds.Compliance_Control_Table` rc1
         on rc1.Rule_ID = 8
         and rc1.Attribute ="Ratio_Cashout per month to Average Cashout last 3 months_Low"
@@ -133,5 +146,5 @@ if Exists(Select File_Date
         on rc3.Rule_ID = 8
         and rc3.Attribute ="Single PAN Cashout Above Treshold"
     Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate
-    Order By 2,1;
-End if
+    Order By 4,1;
+End if 

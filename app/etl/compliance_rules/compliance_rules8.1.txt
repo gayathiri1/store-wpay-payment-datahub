@@ -1,8 +1,8 @@
 --Rule8.1 Remove Project Reference, point store_details and response_code to ref_ds
-Declare backMonth INT64 Default -15;
+Declare backMonth INT64 Default -10;
 DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
-DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
-DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 11 MONTH);
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -8 MONTH);
 DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
 --
 if Exists(Select File_Date 
@@ -17,6 +17,9 @@ With  Daily_PanTrn as (
                      When  IFNULL(rc0.Merchant_to_report,"") <> "" then rc0.Merchant_to_report
                      Else mh.division
                   End)) as Merchant,
+            (case upper(trim(mh.division)) when "LIVE GROUP" then mh.store_id else "" end) as store_id,
+         (case upper(trim(mh.division)) when "LIVE GROUP" then mh.site_name else "" end) as site_name, 
+
                   trn.masked_pan as PAN,
                   Date(trn.tstamp_local) as Transactio_Date,
                   trn.cashout_total * 0.01 as Cashout
@@ -36,14 +39,17 @@ With  Daily_PanTrn as (
              and trn.pos_crdhldr_presnt = "0"
              and trn.cashout_total <> 0
              and  Date(trn.tstamp_local) >= RptStartDate
-              ),
+             
+             ),
        Daily_PanSum as (
-          Select Merchant,PAN,Transactio_Date, Sum(Cashout) as Cashout
+          Select Merchant,store_id,site_name,PAN,Transactio_Date, Sum(Cashout) as Cashout
           From Daily_PanTrn
-          Group By Merchant,PAN,Transactio_Date
+          Group By Merchant,store_id,site_name,PAN,Transactio_Date
        ),         
        merchant_Daily as (
           Select pan.Merchant,
+                 pan.store_id,
+                 pan.site_name,
                  pan.Transactio_Date,
                  max(Date_Diff(Date_add(DATE_TRUNC(pan.Transactio_Date,month),
                                     INTERVAL 1 MONTH),
@@ -60,9 +66,13 @@ With  Daily_PanTrn as (
                   on rc3.Rule_ID = 8.1
                  and rc3.Attribute ="Single PAN Cashout Above Treshold"
          Group By pan.Merchant,
+                  pan.store_id,
+                  pan.site_name,
                   pan.Transactio_Date
           )
           Select md.Merchant,
+                 md.store_id,
+                 md.site_name,
                  md.Transactio_Date,
                  md.Days_inMonth,
                  md.Cashout,
@@ -74,12 +84,13 @@ With  Daily_PanTrn as (
                  Current_Datetime() As Datetime_Created
          From merchant_Daily md   
          Left Join `pdh_staging_ds.Rule8_Output` mco on mco.Merchant = md.Merchant
-                                                                              and mco.FirstOfMonth = DATE_TRUNC(md.Transactio_Date,month)
+                         and mco.store_id = md.store_id and mco.site_name = md.site_name 
+                          and mco.FirstOfMonth = DATE_TRUNC(md.Transactio_Date,month)
          left join `pdh_staging_ds.Compliance_Control_Table` rc1
                    on rc1.Rule_ID = 8
                   and rc1.Attribute ="Ratio_Cashout per month to Average Cashout last 3 months_Low"
          left join `pdh_staging_ds.Compliance_Control_Table` rc2
                   on rc2.Rule_ID = 8
                  and rc2.Attribute ="Ratio_Cashout per month to Average Cashout last 3 months_High"
-   Order By 2,1;
+   Order By 4,1,2,3; 
 End If

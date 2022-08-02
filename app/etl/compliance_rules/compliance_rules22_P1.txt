@@ -10,7 +10,6 @@
 5. approval_flag ='Y' 
 REmove project reference, point store_details and response_codes to ref_ds
 */
-
 Declare Sys_Datetime Datetime DEFAULT current_datetime("Australia/Sydney");
 
 Truncate Table `pdh_staging_ds.BillingTrnByMerchantScheme`;
@@ -60,10 +59,10 @@ With SettlementDetail as (
                          When ifNULL(rc1.Merchant_to_report,"") <> "" then rc1.Merchant_to_report
                          Else mh.division
                       End)) as Merchant,
-         upper(trim(case(mh.division)  when "LIVE GROUP" then mh.Store_ID else "" end)) as store_id,
-          upper(trim(case(mh.division)    when "LIVE GROUP" then mh.site_name else "" end)) as site_name, 
-         -- mh.store_id,
-          --mh.site_name          
+        upper(trim(case(mh.division)  when "LIVE GROUP" then mh.store_id else "" end)) as store_id,
+          upper(trim(case(mh.division)    when "LIVE GROUP" then mh.site_name else "" end)) as site_name, 
+        -- mh.store_id,
+         --mh.site_name          
 
     From SettlementDetail sd 
     Join `pdh_ref_ds.ref_store_details` mh 
