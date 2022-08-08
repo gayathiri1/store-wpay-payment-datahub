@@ -854,7 +854,7 @@ and i.approval_flag = 'Y';
 Update `pdh_analytics_ds.tbl_fees_all` i
 set interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
 i.fee_indicator = 'A'
-from (SELECT *, RANK() OVER (PARTITION BY arn ORDER BY pdh_load_time DESC) rank FROM `pdh_rd_data_navigator.tc33_visa`) s
+from (SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM `pdh_rd_data_navigator.tc33_visa`) s
 where i.tran_uid = CAST(s.txn_id AS STRING)
 and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
 and i.amt_recon_net = s.samt
