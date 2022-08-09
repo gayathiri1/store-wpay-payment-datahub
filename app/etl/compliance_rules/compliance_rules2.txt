@@ -3,6 +3,7 @@ If Exists(Select File_Date
           From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
           Where File_date = Current_Date("Australia/Sydney") - 1
           Limit 1) Then
+          
 --
 Truncate table `pdh_staging_ds.Rule2_Output`;
 --
@@ -18,7 +19,7 @@ With d as (
            and pos_crdhldr_presnt = "0"),     
 StoreSummary as (
        SELECT store_id,
-                Transaction_Date,
+               Transaction_Date,
                 Count(*) SS_CardPresent,
                 Sum(Case
                        when pos_crd_dat_in_mod in ("6") then 1
@@ -34,7 +35,9 @@ StoreSummary as (
                   rc2.Merchant_to_report <> "" then rc2.Merchant_to_report
              Else mh.division
           End as Merchant,
+
           SS.store_id,
+          mh.site_name,
           SS.Transaction_Date,
           Case
              When rc1.value is not Null then rc1.value * 0.01 
@@ -70,5 +73,5 @@ StoreSummary as (
          on df1.Merchant =  "*"
         and rc1.Rule_ID = 2
         and rc1.Attribute = "Default_High" 
-order By  1,2,3;
+order By  1,2,3,4;
 End If

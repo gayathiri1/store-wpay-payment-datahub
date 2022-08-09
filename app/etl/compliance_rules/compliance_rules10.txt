@@ -1,8 +1,8 @@
 --Rule10 Remove project referene and point store_details to ref_ds
-Declare backMonth INT64 Default -15;
+Declare backMonth INT64 Default -10;
 DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
-DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
-DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 11 MONTH);
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -8 MONTH);
 DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
 --
 if Exists(Select File_Date 
@@ -16,6 +16,9 @@ With  Monthly_Trn as (
                               When IFNUll(rc0.Merchant_to_report,"") <> "" then rc0.Merchant_to_report
                               Else mh.division
                            End)) as Merchant,
+            upper(trim(case(mh.division)  when "LIVE GROUP" then mh.store_id else "" end)) as store_id,
+          upper(trim(case(mh.division)    when "LIVE GROUP" then mh.site_name else "" end)) as site_name, 
+
                 DATE_TRUNC(Date(tstamp_local),month) as FirstOfMonth,
                 Case trn.pos_crdhldr_presnt
                    When "0" then 1
@@ -37,68 +40,16 @@ With  Monthly_Trn as (
              and Date(trn.tstamp_local) >= StartDate 
              and Date(trn.tstamp_local) < EndDate
             ),
-      TrnSum As (
-         Select Merchant, FirstOfMonth, 
+      Monthly_Combined As (
+         Select Merchant,store_id,site_name, FirstOfMonth, 
                           Sum(Count_card_presnt) as Count_card_presnt,
                           Sum(Count_card_Notpresnt) as Count_card_Notpresnt
          FROM  Monthly_Trn
-         Group By Merchant, FirstOfMonth),
-      History_Combined as (
-         Select Upper(Trim(Case 
-                              When hist_cp.Merchant is Null then hist_cnp.Merchant
-                              Else hist_cp.Merchant
-                           End)) As Merchant,
-                Case
-                   When hist_cp.FirstOfMonth is Null then hist_cnp.FirstOfMonth
-                   Else hist_cp.FirstOfMonth
-                End As FirstOfMonth,
-                IFNULL(hist_cp.Count_card_presnt,0) As Count_card_presnt,
-                IFNULL(hist_cnp.Count_card_Notpresnt,0) As Count_card_Notpresnt
-        From `pdh_staging_ds.Card_Present_History` hist_cp 
-        Full Join `pdh_staging_ds.Card_NotPresent_History` hist_cnp															
-             On Upper(Trim(hist_cnp.Merchant)) = Upper(Trim(hist_cp.Merchant))
-            and hist_cnp.FirstOfMonth = hist_cp.FirstOfMonth), 
- History_Grouped as (
-     Select Upper(Trim(Case 
-                          When IFNUll(rc00.Merchant_to_report,"") <> "" then rc00.Merchant_to_report
-                          Else hc.Merchant
-                       End)) as Merchant,
-            hc.FirstOfMonth,
-            hc.Count_card_presnt,
-            hc.Count_card_Notpresnt
-    From History_Combined hc
-    left join `pdh_staging_ds.Compliance_Control_Table` rc00
-                   on rc00.Rule_ID = 0
-                  and rc00.Attribute ="Merge" 
-                  and Upper(Trim(rc00.Merchant)) = Upper(Trim(hc.Merchant))),
-   HistorySum As (
-      Select Merchant, FirstOfMonth, sum(Count_card_presnt) as Count_card_presnt,
-                                     sum(Count_card_Notpresnt) as Count_card_Notpresnt
-      From History_Grouped
-      Group By  Merchant, FirstOfMonth),
-  Monthly_Combined as (
-      Select Case 
-                When hs.Merchant is Null then ts.Merchant
-                Else hs.Merchant
-             End As Merchant,
-             Case
-                When hs.FirstOfMonth is Null then ts.FirstOfMonth
-                Else hs.FirstOfMonth
-             End As FirstOfMonth,
-             Case
-                When IFNULL(hs.Count_card_presnt,0) = 0 then IFNull(ts.Count_card_presnt,0)
-                Else  IFNULL(hs.Count_card_presnt,0)
-             End AS Count_card_presnt,
-             Case
-                When IFNULL(hs.Count_card_Notpresnt,0) = 0 then IFNull(ts.Count_card_Notpresnt,0)
-                Else IFNull(hs.Count_card_Notpresnt,0)
-             End AS Count_card_Notpresnt
-     From TrnSum ts
-     Full Join HistorySum hs 
-           On hs.Merchant = ts.Merchant
-          and hs.FirstOfMonth = ts.FirstOfMonth
-      )
+         Group By Merchant,store_id,site_name, FirstOfMonth)
+      
     Select m.Merchant,
+           m.store_id,
+           m.site_name,
            m.FirstOfMonth,
            m.Count_card_presnt,
            m.Count_card_Notpresnt,
@@ -114,7 +65,7 @@ With  Monthly_Trn as (
                    ((Case When IFNULL(p1.Count_card_presnt,0) = 0 then 0 Else 1 End) +
                     (Case When IFNULL(p2.Count_card_presnt,0) = 0 then 0 Else 1 End) +
                     (Case When IFNULL(p3.Count_card_presnt,0) = 0 then 0 Else 1 End))
-          End As Rollin_Avg_last_3mon_CP,
+          End As Rolling_Avg_last_3mon_CP,
           Case
               When m.FirstOfMonth < MonAvgStartDate then Null
               When ((Case When IFNULL(p1.Count_card_Notpresnt,0) = 0 then 0 Else 1 End) +
@@ -127,14 +78,17 @@ With  Monthly_Trn as (
                   ((Case When IFNULL(p1.Count_card_Notpresnt,0) = 0 then 0 Else 1 End) +
                    (Case When IFNULL(p2.Count_card_Notpresnt,0) = 0 then 0 Else 1 End) +
                    (Case When IFNULL(p3.Count_card_Notpresnt,0) = 0 then 0 Else 1 End))
-          End As Rollin_Avg_last_3mon_CNP,
+          End As Rolling_Avg_last_3mon_CNP,
           rc1.value * 0.01 as Threshold1,
           rc2.value * 0.01 as Threshold2,
           Current_Datetime("Australia/Sydney") As Datetime_Created
    From Monthly_Combined m
    Left Join Monthly_Combined p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
+                                     and p1.store_id = m.store_id and p1.site_name= m.site_name	
    Left Join Monthly_Combined p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
+                                and p2.Store_id = m.Store_id and p2.site_name= m.site_name	
    Left Join Monthly_Combined p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
+                            and p3.Store_id = m.Store_id and p3.site_name= m.site_name	       
    left join `pdh_staging_ds.Compliance_Control_Table` rc1
             on rc1.Rule_ID = 10
            and rc1.Attribute ="Ratio_transactions per month to Average transactionslast 3 months_Low"

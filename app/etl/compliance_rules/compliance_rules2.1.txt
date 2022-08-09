@@ -1,8 +1,9 @@
+
 --RULE2.1 Remove project reference, point store_details to ref_ds
-Declare backMonth INT64 Default -15;
+Declare backMonth INT64 Default -10;
 DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date(), month),  INTERVAL backMonth MONTH);
-DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 16 MONTH);
-DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -13 MONTH);
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 11 MONTH);
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -8 MONTH);
 DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
 if Exists(Select File_Date 
           From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
@@ -40,6 +41,7 @@ StoreSummary as (
                Else mh.division
           End as Merchant,
           SS.store_id,
+          mh.site_name,
           SS.Transaction_Date,
           Case
              When rc1.value is not Null then rc1.value * 0.01 
@@ -76,5 +78,5 @@ StoreSummary as (
          on df1.Merchant =  "*"
         and rc1.Rule_ID = 1
         and rc1.Attribute = "Default_High" 
-  Order By 1,2,3;
-End if
+  Order By 1,2,3,4;
+  End if
