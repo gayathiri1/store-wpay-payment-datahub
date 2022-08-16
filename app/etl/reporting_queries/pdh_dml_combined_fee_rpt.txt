@@ -109,7 +109,49 @@ UNION ALL
   FROM
   `pdh_reporting_ds`.`view_egfuel_fees_rpt` `view_egfuel_fees_rpt`
    where switch_tran_date >= (current_date("Australia/Sydney")-120)   
-)),
+)
+
+ union all
+(
+SELECT
+  
+`tbl_super_fees_rpt`.`switch_tran_date` AS `switch_tran_date`,
+ 
+  `tbl_super_fees_rpt`.`store_id` AS `store_id`,
+  `tbl_super_fees_rpt`.`tran_uid` AS tran_uid,
+  `tbl_super_fees_rpt`.`issuer` AS `issuer`,
+  `tbl_super_fees_rpt`.`approval_flag` AS `approval_flag`,
+  `tbl_super_fees_rpt`.`account` AS `account`,
+  `tbl_super_fees_rpt`.`link_route` AS `link_route`,
+  `tbl_super_fees_rpt`.`scheme` AS `scheme`,
+  `tbl_super_fees_rpt`.`card_type` AS `card_type`,
+  `tbl_super_fees_rpt`.`orig_card_type` AS `orig_card_type`,
+  `tbl_super_fees_rpt`.`dom_int_ind` AS `dom_int_ind`,
+  `tbl_super_fees_rpt`.`tran_type_description` AS `tran_type_description`,
+  `tbl_super_fees_rpt`.`fee_indicator` AS `fee_indicator`,
+    `tbl_super_fees_rpt`.`vcalc_transaction_count` AS `vcalc_transaction_count`,
+
+  CAST(`tbl_super_fees_rpt`.`vcalc_settlement_amount_inc_gst` AS FLOAT64) AS `vcalc_settlement_amount_inc_gst`,
+  `tbl_super_fees_rpt`.`vcalc_interchange_fees_invoiced_ex_gst` AS `vcalc_interchange_fees_invoiced_ex_gst`,
+  `tbl_super_fees_rpt`.`vcalc_interchange_fees_tran_count` AS `vcalc_interchange_fees_tran_count`,
+   CAST(`tbl_super_fees_rpt`.`vcalc_processing_fees_ex_gst` AS FLOAT64) AS `vcalc_processing_fees_ex_gst`,
+  `tbl_super_fees_rpt`.`vcalc_processing_fees_tran_count` AS `vcalc_processing_fees_tran_count`,
+  CAST(`tbl_super_fees_rpt`.`fraud_fees_inc_gst` AS FLOAT64) AS `fraud_fees_inc_gst`,
+  CAST(`tbl_super_fees_rpt`.`fraud_fees_ex_gst` AS FLOAT64) AS `fraud_fees_ex_gst`,
+  `tbl_super_fees_rpt`.`company` AS `company`,
+  `tbl_super_fees_rpt`.`invoice_group` AS `invoice_group`,
+  `tbl_super_fees_rpt`.`merchant_group` AS `merchant_group`,
+  `tbl_super_fees_rpt`.`division` AS `division`,
+  `tbl_super_fees_rpt`.`brand` AS `brand`,
+    `tbl_super_fees_rpt`.`fy_start_date` AS `fy_start_date`,
+    `tbl_super_fees_rpt`. `currency_code` AS `currency_code`
+
+FROM
+  `pdh_analytics_ds.tbl_super_fees_rpt` `tbl_super_fees_rpt`
+
+where switch_tran_date >= (current_date("Australia/Sydney")-120))
+
+),
 
 
 
