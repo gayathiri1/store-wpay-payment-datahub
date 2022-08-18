@@ -1,0 +1,388 @@
+-- Get current date based on AEST
+DECLARE curr_date DATE DEFAULT CURRENT_DATE("Australia/Sydney");
+
+-- Get transactions from 4 calendar days prior
+DECLARE tran_date DATE DEFAULT DATE_SUB(curr_date, INTERVAL 4 DAY);
+
+-- Declaration of date variables
+DECLARE trans_date_range ARRAY<DATE>; 
+DECLARE max_file_date DATE;
+
+--Get the etl extract start and end date range 
+DECLARE ext_start_date DATE;
+DECLARE ext_end_date DATE;
+
+--Get current & batch start datetime based on AEST
+DECLARE batch_start_time DATETIME DEFAULT DATETIME_TRUNC(CURRENT_DATETIME("Australia/Sydney"),SECOND);
+
+--Get batch end date based on AEST
+DECLARE batch_end_time DATETIME;
+
+--Get Feelist prefix & variable list
+DECLARE fee_list,var_list,new_var_list ARRAY <string>;
+
+--To check if variable present in table
+DECLARE ftlf_prfx_cnt, var_cnt,new_var_len,x INT64 DEFAULT 0;
+DECLARE environment,bucket,project_id,email,prefix,view_name,etl_path,outgoing_path STRING;
+
+-- Get count
+DECLARE minitaf_count DEFAULT (SELECT COUNT(0) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` WHERE file_date = tran_date);
+
+DECLARE flst_mtaf DEFAULT (SELECT COUNT(0) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` a, `pdh_ref_ds.ref_store_details` b,         `pdh_ref_ds.ref_stlm_tlf_config` c WHERE CAST(tstamp_local AS DATE) = tran_date AND SUBSTR(net_term_id,0,5) = b.store_id AND  b.division = c.division AND act_code <> '902' AND ftlf_prefix is not null);
+
+DECLARE flst_smlmrc_count DEFAULT (SELECT COUNT(0) FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a, `pdh_ref_ds.ref_stlm_tlf_config` c WHERE PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date AND a.division = c.division AND action_code <> '902' AND ftlf_prefix is not null);
+
+DECLARE flst_edg_count DEFAULT (SELECT COUNT(0) FROM `pdh_analytics_ds.tbl_edg_fees_rpt` a, `pdh_ref_ds.ref_stlm_tlf_config` c WHERE PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date AND a.division = c.division AND action_code <> '902' AND ftlf_prefix is not null);
+
+DECLARE flst_egfuel_count DEFAULT (SELECT COUNT(0) FROM `pdh_analytics_ds.tbl_egfuel_fees_rpt` a, `pdh_ref_ds.ref_stlm_tlf_config` c WHERE PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date AND a.division = c.division AND action_code <> '902' AND ftlf_prefix is not null);
+
+DECLARE flist_count NUMERIC DEFAULT 0;
+
+--Populate batch number for current run
+DECLARE current_batch_no string;
+
+DECLARE inp_lookup DEFAULT "FTLF Feelist";     
+DECLARE batch  STRING;
+
+SET flist_count = flst_smlmrc_count + flst_edg_count + flst_egfuel_count;
+
+IF minitaf_count = 0 OR flst_mtaf <> flist_count 
+THEN
+    RETURN;
+END IF;
+
+SET fee_list = ARRAY(Select distinct ftlf_prefix 
+					 from `pdh_ref_ds.ref_stlm_tlf_config`
+                     where ftlf_prefix is not null);
+
+SET var_list =( with feelist_prefix_seq as 
+          				(select  fee_list [SAFE_OFFSET(offset)] as ftlf_prefix ,offset as ftlf_seq 
+           				 from unnest(fee_list) with OFFSET
+           				)
+					 		select array_agg (merchant_name)
+					 		from pdh_analytics_ds.file_gen_bq_to_gcs a
+					 			,feelist_prefix_seq b
+					 		where merchant_name = (concat(b.ftlf_prefix,'feelist')));
+
+SET ftlf_prfx_cnt = (Select count(0) 
+					 from `pdh_ref_ds.ref_stlm_tlf_config`
+                     where ftlf_prefix is not null);
+
+SET var_cnt = ( with feelist_prefix_seq as 
+          				(select  fee_list [SAFE_OFFSET(offset)] as ftlf_prefix ,offset as ftlf_seq 
+           				 from unnest(fee_list) with OFFSET)
+					 			select count(0)
+					 			from pdh_analytics_ds.file_gen_bq_to_gcs a
+					 				,feelist_prefix_seq b
+					 			where merchant_name = (concat(b.ftlf_prefix,'feelist'))
+							);
+							
+SET project_id = (SELECT distinct catalog_name from INFORMATION_SCHEMA.SCHEMATA);
+
+SET environment = (SELECT value from pdh_ref_ds.ref_key_value 
+				   WHERE attribute = 'environment'
+					 AND key = project_id );
+
+SET bucket = (SELECT value from pdh_ref_ds.ref_key_value 
+			  WHERE attribute = 'bucket'
+			    AND key = environment );
+
+SET email = (SELECT value from pdh_ref_ds.ref_key_value 
+			 WHERE attribute = 'email-Feelist'
+			   AND key = environment );
+			   
+SET etl_path = (SELECT value from pdh_ref_ds.ref_key_value 
+				WHERE attribute = 'etls-GCS'
+				  AND key = environment );
+			   
+SET outgoing_path = (SELECT value from pdh_ref_ds.ref_key_value 
+					 WHERE attribute =  'outgoing-GCS'
+					   AND key = environment );
+							  
+IF ftlf_prfx_cnt <> var_cnt then
+
+	MERGE `pdh_analytics_ds.file_gen_bq_to_gcs` D
+	USING (SELECT * FROM `pdh_ref_ds.ref_stlm_tlf_config` where ftlf_prefix is not null) S
+	ON RTRIM(D.merchant_name,"feelist")= S.ftlf_prefix
+		WHEN NOT MATCHED THEN
+			INSERT VALUES
+			(
+			etl_path,
+			'pdh_analytics_ds.gen_ctrl_data',
+			"select * from `pdh_analytics_ds.gen_ctrl_data` where processing_date = (CURRENT_DATE('Australia/Sydney')) and etl_complete = true and extract_wf_complete is null;",
+			"update `ctrl` set extract_wf_complete = True, remarks = 'TRUE RUN BY COMPOSER' where batch_number='btc' and processing_date= (CURRENT_DATE('Australia/Sydney')) and merchant_name ='mrc' and etl_complete = true and extract_wf_complete is null and file_date='fldt';",
+			"update `ctrl` set remarks = 'TRUE RUN BY COMPOSER' where processing_date= (CURRENT_DATE('Australia/Sydney')) and merchant_name in (mrc) and extract_wf_complete = False;",
+			"select count(*) from `pdh_analytics_ds.gen_ctrl_data` where processing_date = (CURRENT_DATE('Australia/Sydney')) and etl_complete = true and extract_wf_complete is null;",
+			email,
+			'pdh_staging_ds',
+			bucket,
+			environment,
+			'',
+			'N',
+			concat("gs://",outgoing_path,"/",S.ftlf_prefix,"_feelist"),
+			email,
+			'N',
+			'',
+			'',
+			'',
+			'Y',
+			concat(S.ftlf_prefix,"feelist"),
+			concat(S.ftlf_prefix, "_Fee_Listing_"),
+			'fee_listing/pdh_fee_listing.txt',
+			concat(project_id,".pdh_extraction_ds.vw_",lower(S.ftlf_prefix),"_fee_listing"),
+			'Y',
+			'',
+			',',
+			'csv',
+			'Y',
+			'N',
+			'',
+			'')
+	;
+
+	SET new_var_list = ARRAY(
+		with 
+		feelist_prefix_seq as 
+			(select  fee_list [SAFE_OFFSET(offset)] as ftlf_prefix ,offset as ftlf_seq 
+			from unnest(fee_list) with OFFSET ),
+		var_chk_seq as
+			(select  var_list [SAFE_OFFSET(offset)] as var_mer_name ,offset as var_seq 
+			from unnest(var_list) with OFFSET )
+					SELECT ftlf_prefix
+					from feelist_prefix_seq a
+					where ftlf_prefix not in (select RTRIM(var_mer_name,"feelist") from var_chk_seq ));
+	
+	SET new_var_len = ARRAY_LENGTH(new_var_list);
+
+	LOOP
+		
+		IF x >= new_var_len THEN
+				LEAVE;
+		END IF;
+	
+		SET view_name = concat("pdh_extraction_ds.vw_",lower(new_var_list[offset(x)]),"_fee_listing");
+	
+		EXECUTE IMMEDIATE CONCAT("CREATE OR REPLACE VIEW ", view_name ," AS select H,transaction_uid,terminal_id,card_acceptor_id,transaction_amt,transaction_timestamp,transaction_local_timestamp,pan,stan,rrn,mti,scheme,card_type,card_subtype,interchange_fee,interchange_fee_rebate,processing_fee from pdh_analytics_ds.fee_listing where file_prefix = '", new_var_list[offset(x)],"' ;")
+		;
+		
+		SET x = x+1;
+	
+	END LOOP;
+
+END IF;
+					
+CALL pdh_ref_ds.get_nextbatch(inp_lookup,batch);
+
+IF (batch IS NOT NULL AND batch  NOT IN ("NOContRec","UpdFailed"))  THEN
+    SET current_batch_no  = batch;
+END IF;
+
+IF current_batch_no = 'FTLF000000001' THEN
+   SET max_file_date = curr_date-1;
+ELSE
+   SET max_file_date = (SELECT distinct date(file_date)
+                        FROM pdh_analytics_ds.gen_ctrl_data
+                        WHERE merchant_name like '%feelist'
+                          AND batch_number  = (SELECT distinct max(batch_number) 
+                                               FROM pdh_analytics_ds.gen_ctrl_data
+                                               WHERE merchant_name like '%feelist'));                                   
+END IF;
+
+-- Get transaction date based on run date
+IF ((max_file_date = curr_date-1) OR (max_file_date = curr_date)) THEN
+--If the run is on daily basis, transaction date is popoulated for 3 days prior to calendar date
+  SET trans_date_range = (SELECT GENERATE_DATE_ARRAY(curr_date-4,curr_date-1,INTERVAL 4 DAY));
+ELSE 
+--If the run is missed on a day, transaction date is popoulated for the missed date range
+ SET trans_date_range = (SELECT GENERATE_DATE_ARRAY(max_file_date-3,tran_date,INTERVAL 1 DAY));
+END IF;
+
+--Fetch extract start and end date
+SET ext_start_date = trans_date_range[offset(0)];
+SET ext_end_date = trans_date_range[ordinal(ARRAY_LENGTH(trans_date_range))];  
+
+-- Populate data output table
+CREATE OR REPLACE TABLE `pdh_analytics_ds.fee_listing` AS
+WITH result AS (
+    SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
+    LEFT(switch_timestamp, 14) transaction_timestamp,
+    LEFT(local_timestamp, 14) transaction_local_timestamp,
+    CONCAT(LEFT(pan, 6), "******", RIGHT(pan, 4)) pan,
+    FORMAT('%06d', CAST(stan AS int64)) stan,
+    FORMAT('%012d', CAST(rrn AS int64)) rrn,
+    FORMAT('%04d', CAST(mti AS int64)) mti,
+    CASE WHEN TRIM(issuer) = 'VDCS' THEN "VISA"
+		 WHEN TRIM(issuer) = 'MC' THEN "MASTERCARD"
+		 WHEN TRIM(issuer) = 'AMEX' THEN 'AMEX'
+		 WHEN TRIM(issuer) = 'EHB' THEN 'EFTPOS'
+		 WHEN TRIM(issuer) = 'FDF' THEN 'FUEL CARDS'
+		 WHEN TRIM(issuer) = 'FDI' THEN 'DINERS CLUB'
+		 WHEN TRIM(issuer) = 'RED' THEN 'GIFT CARDS'
+		 WHEN TRIM(issuer) = 'ANZ' 
+			AND CAST(issuer_institution_id AS int64) IN (56025433, 56025434, 56025435, 56025436, 56025437, 56025438, 56025439, 56025440, 83990554161, 83990554162, 83990554163, 83990554164) THEN 'UPI'
+			ELSE TRIM(issuer) END AS scheme,
+    CASE WHEN card_type_code = 'C' THEN 'Credit'
+		 WHEN card_type_code = 'D' THEN 'Debit'
+		 WHEN card_type_code = 'P' THEN 'Debit'
+		 WHEN TRIM(issuer) = 'EHB' THEN 'Debit'
+		 WHEN TRIM(issuer) = 'AMEX' THEN 'Credit'
+		 WHEN TRIM(issuer) = 'FDF' THEN 'Debit'
+		 WHEN TRIM(issuer) = 'FDI' THEN 'Credit'
+		 WHEN TRIM(issuer) = 'RED' THEN 'Credit'
+		 WHEN TRIM(issuer) = 'ANZ' 
+			AND CAST(issuer_institution_id AS int64) IN (56025433, 56025434, 56025435, 56025436, 56025437, 56025438, 56025439, 56025440, 83990554161, 83990554162, 83990554163, 83990554164) THEN 'Credit'
+			ELSE 'Debit' END AS card_type,
+    '' card_subtype, 
+	CASE WHEN TRIM(issuer) IN ('AMEX', 'FDI') THEN "0.0000"
+		ELSE IFNULL(FORMAT('%.4f', vcalc_interchange_fees_invoiced_ex_gst * 100), "0.0000") END interchange_fee,
+    IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
+    IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
+	ftlf_prefix file_prefix
+    FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a,
+		 `pdh_ref_ds.ref_stlm_tlf_config` b
+    WHERE a.division = b.division
+	  AND b.ftlf_prefix is not null
+    AND TRIM(issuer) <> ''
+    AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
+	AND action_code <> '902'
+UNION ALL
+SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
+    LEFT(switch_timestamp, 14) transaction_timestamp,
+    LEFT(local_timestamp, 14) transaction_local_timestamp,
+    CONCAT(LEFT(pan, 6), "******", RIGHT(pan, 4)) pan,
+    FORMAT('%06d', CAST(stan AS int64)) stan,
+    FORMAT('%012d', CAST(rrn AS int64)) rrn,
+    FORMAT('%04d', CAST(mti AS int64)) mti,
+    CASE WHEN TRIM(issuer) = 'VDCS' THEN "VISA"
+		 WHEN TRIM(issuer) = 'MC' THEN "MASTERCARD"
+		 WHEN TRIM(issuer) = 'AMEX' THEN 'AMEX'
+		 WHEN TRIM(issuer) = 'EHB' THEN 'EFTPOS'
+		 WHEN TRIM(issuer) = 'FDF' THEN 'FUEL CARDS'
+		 WHEN TRIM(issuer) = 'FDI' THEN 'DINERS CLUB'
+		 WHEN TRIM(issuer) = 'RED' THEN 'GIFT CARDS'
+		 WHEN TRIM(issuer) = 'ANZ' 
+			AND CAST(issuer_institution_id AS int64) IN (56025433, 56025434, 56025435, 56025436, 56025437, 56025438, 56025439, 56025440, 83990554161, 83990554162, 83990554163, 83990554164) THEN 'UPI'
+			ELSE TRIM(issuer) END AS scheme,
+    CASE WHEN card_type_code = 'C' THEN 'Credit'
+		 WHEN card_type_code = 'D' THEN 'Debit'
+		 WHEN card_type_code = 'P' THEN 'Debit'
+		 WHEN TRIM(issuer) = 'EHB' THEN 'Debit'
+		 WHEN TRIM(issuer) = 'AMEX' THEN 'Credit'
+		 WHEN TRIM(issuer) = 'FDF' THEN 'Debit'
+		 WHEN TRIM(issuer) = 'FDI' THEN 'Credit'
+		 WHEN TRIM(issuer) = 'RED' THEN 'Credit'
+		 WHEN TRIM(issuer) = 'ANZ' 
+			AND CAST(issuer_institution_id AS int64) IN (56025433, 56025434, 56025435, 56025436, 56025437, 56025438, 56025439, 56025440, 83990554161, 83990554162, 83990554163, 83990554164) THEN 'Credit'
+			ELSE 'Debit' END AS card_type,
+    '' card_subtype, 
+	CASE WHEN TRIM(issuer) IN ('AMEX', 'FDI') THEN "0.0000"
+		ELSE IFNULL(FORMAT('%.4f', vcalc_interchange_fees_invoiced_ex_gst * 100), "0.0000") END interchange_fee,
+    IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
+    IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
+	ftlf_prefix file_prefix
+    FROM `pdh_analytics_ds.tbl_edg_fees_rpt` a,
+		 `pdh_ref_ds.ref_stlm_tlf_config` b
+    WHERE a.division = b.division
+	  AND b.ftlf_prefix is not null
+    AND TRIM(issuer) <> ''
+    AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
+	AND action_code <> '902'
+UNION ALL
+SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
+    LEFT(switch_timestamp, 14) transaction_timestamp,
+    LEFT(local_timestamp, 14) transaction_local_timestamp,
+    CONCAT(LEFT(pan, 6), "******", RIGHT(pan, 4)) pan,
+    FORMAT('%06d', CAST(stan AS int64)) stan,
+    FORMAT('%012d', CAST(rrn AS int64)) rrn,
+    FORMAT('%04d', CAST(mti AS int64)) mti,
+    CASE WHEN TRIM(issuer) = 'VDCS' THEN "VISA"
+		 WHEN TRIM(issuer) = 'MC' THEN "MASTERCARD"
+		 WHEN TRIM(issuer) = 'AMEX' THEN 'AMEX'
+		 WHEN TRIM(issuer) = 'EHB' THEN 'EFTPOS'
+		 WHEN TRIM(issuer) = 'FDF' THEN 'FUEL CARDS'
+		 WHEN TRIM(issuer) = 'FDI' THEN 'DINERS CLUB'
+		 WHEN TRIM(issuer) = 'RED' THEN 'GIFT CARDS'
+		 WHEN TRIM(issuer) = 'ANZ' 
+			AND CAST(issuer_institution_id AS int64) IN (56025433, 56025434, 56025435, 56025436, 56025437, 56025438, 56025439, 56025440, 83990554161, 83990554162, 83990554163, 83990554164) THEN 'UPI'
+			ELSE TRIM(issuer) END AS scheme,
+    CASE WHEN card_type_code = 'C' THEN 'Credit'
+		 WHEN card_type_code = 'D' THEN 'Debit'
+		 WHEN card_type_code = 'P' THEN 'Debit'
+		 WHEN TRIM(issuer) = 'EHB' THEN 'Debit'
+		 WHEN TRIM(issuer) = 'AMEX' THEN 'Credit'
+		 WHEN TRIM(issuer) = 'FDF' THEN 'Debit'
+		 WHEN TRIM(issuer) = 'FDI' THEN 'Credit'
+		 WHEN TRIM(issuer) = 'RED' THEN 'Credit'
+		 WHEN TRIM(issuer) = 'ANZ' 
+			AND CAST(issuer_institution_id AS int64) IN (56025433, 56025434, 56025435, 56025436, 56025437, 56025438, 56025439, 56025440, 83990554161, 83990554162, 83990554163, 83990554164) THEN 'Credit'
+			ELSE 'Debit' END AS card_type,
+    '' card_subtype, 
+	CASE WHEN TRIM(issuer) IN ('AMEX', 'FDI') THEN "0.0000"
+		ELSE IFNULL(FORMAT('%.4f', vcalc_interchange_fees_invoiced_ex_gst * 100), "0.0000") END interchange_fee,
+    IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
+    IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
+	ftlf_prefix file_prefix
+    FROM `pdh_analytics_ds.tbl_egfuel_fees_rpt` a,
+		 `pdh_ref_ds.ref_stlm_tlf_config` b
+    WHERE a.division = b.division
+	  AND b.ftlf_prefix is not null
+    AND TRIM(issuer) <> ''
+    AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
+	AND action_code <> '902'
+)
+SELECT * FROM result;
+
+
+--Insert Trailer Record
+
+INSERT INTO pdh_analytics_ds.fee_listing
+SELECT 'T', COUNT(0), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, file_prefix
+from pdh_analytics_ds.fee_listing
+group by file_prefix;
+
+
+-- Copy data into historical data table
+INSERT INTO `pdh_analytics_ds.fee_listing_all` 
+SELECT curr_date processing_date, 
+	H,
+	transaction_uid,
+	terminal_id,
+	card_acceptor_id,
+	transaction_amt,
+	transaction_timestamp,
+	transaction_local_timestamp,
+	pan,
+	stan,
+	rrn,
+	mti,
+	scheme,
+	card_type,
+	card_subtype,
+	interchange_fee,
+	interchange_fee_rebate,
+	processing_fee,
+	file_prefix,
+	null additional_data_1,
+	null additional_data_2,
+	null additional_data_3
+FROM `pdh_analytics_ds.fee_listing` WHERE H <> 'T';
+	
+--Insert data into control table
+
+INSERT INTO `pdh_analytics_ds.gen_ctrl_data`
+   (batch_number,processing_date,merchant_name,etl_complete,extract_wf_complete,extract_start_datetime,
+   	extract_end_datetime,file_date)
+   with feelist_prefix_seq as 
+          (select  fee_list [SAFE_OFFSET(offset)] as ftlf_prefix ,offset as ftlf_seq 
+           from unnest(fee_list) with OFFSET
+           )
+   SELECT current_batch_no as batch_number,
+          curr_date as processing_date, 
+          concat(fl.ftlf_prefix,"feelist") as merchant_name,
+          true etl_complete, 
+          cast(null as boolean) extract_wf_complete,
+          datetime_add(cast(ext_start_date as datetime), Interval fl.ftlf_seq second) extract_start_datetime,
+          datetime_add(cast(ext_end_date as datetime), Interval fl.ftlf_seq second) extract_end_datetime,
+          datetime_add(batch_start_time, Interval fl.ftlf_seq second) file_date
+	FROM  feelist_prefix_seq fl 
+	group By fl.ftlf_prefix,fl.ftlf_seq; 

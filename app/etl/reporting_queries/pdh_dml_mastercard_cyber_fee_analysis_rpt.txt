@@ -1,0 +1,299 @@
+truncate table pdh_analytics_ds.mastercard_cyber_fee_analysis_rpt ;
+insert into pdh_analytics_ds.mastercard_cyber_fee_analysis_rpt  
+
+WITH d AS (
+   (SELECT		
+    s.file_date,	
+     PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,	
+    r.division,		
+    r.company,		
+    r.merchant_group,		
+    r.invoice_group,		
+    r.store_id,		
+    i.card_type,		
+    cast(s.currency_code as string) Currency_code,		
+    i.Transaction_Type,		
+     i.domesitic_international_ind,		
+    cast(additonal_amt as Int64)/100 Cash_out,		
+    CAST(transaction_amt AS int64)/100 amount_txn,		
+    cast(amt_tran_fee as int64)/100 amount_txn_fee,		
+    CAST(extd_interchg_amt_fee AS int64 )/1000000 fees,		
+     (if(extd_interchg_amt_fee > 0, extd_interchg_amt_fee/1.1/1000000,amt_tran_fee/100)  / (CAST(Transaction_amt AS int64)/100 ) ) *100 as avg_amt	,	
+     	cast(if(extd_interchg_amt_fee > 0, extd_interchg_amt_fee/1.1/1000000,amt_tran_fee/100) as float64) int_fees,	
+	  if(proc_fee_code ='ALL', ((CAST(CAST(transaction_amt AS int64)/100 AS FLOAT64) * proc_fee_percent/100) + proc_fee_fixed),	
+	      if(proc_fee_code ='FIXED', proc_fee_fixed,	
+	      if(proc_fee_code ='PERCENT',(CAST(CAST(transaction_amt AS int64)/100 AS FLOAT64) * proc_fee_percent/100),0))) as processing_fees		
+  
+
+FROM  pdh_rd_data_navigator.isg_wpay_tran i
+left JOIN (  SELECT    *,
+    RANK() OVER (PARTITION BY trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank
+  FROM    pdh_rd_data_navigator.tn70_mc )s 
+  ON    i.trace_id = CONCAT(RIGHT(s.trace_id,4), LEFT(s.trace_id, LENGTH(s.trace_id)-4)) and i.transaction_type = 'PURCHASE'
+    AND rank = 1
+    and 
+   ( case 
+      when transaction_approval_status is null then 'Y'
+	  when transaction_approval_status = 0 then 'Y'
+      when transaction_approval_status = 1 then 'N'
+	  else 'N'
+	end ) ="Y"
+     
+    	
+  INNER JOIN		
+    `pdh_ref_ds.ref_store_details` r		
+  ON		
+    r.store_id=SUBSTR(s.card_acceptor_terminal_id,1,5)		
+
+ left join `pdh_ref_ds.ref_rate_card` c on upper(r.ratecard_group) = upper(c.merchant)		
+    AND parse_date('%y%m%d', left(trim(cast(s.datetime_loc_tran as string)), 6)) BETWEEN c.from_date AND IFNULL(c.to_date, '2999-12-31')		 AND UPPER(c.card_type) = "CREDIT"		
+    AND UPPER(c.scheme) = 'MASTERCARD'		
+  WHERE		
+    upper(i.card_type)='CREDIT'
+    and i.scheme ="MASTERCARD"
+      and i.transaction_type = 'PURCHASE')
+
+
+union all
+(
+  
+ SELECT		
+    s.file_date,
+     PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,		
+    r.division,		
+    r.company,		
+    r.merchant_group,		
+    r.invoice_group,		
+    r.store_id,		
+    i.card_type,		
+    cast(s.currency_code as string) Currency_code,		
+    i.Transaction_Type,		
+     i.domesitic_international_ind,		
+    cast(additonal_amt as Int64)/100 Cash_out,		
+    CAST(transaction_amt AS int64)/100*-1 amount_txn,		
+    cast(amt_tran_fee as int64)/100 amount_txn_fee,		
+    CAST(extd_interchg_amt_fee AS int64 )/1000000 fees,		
+     (if(extd_interchg_amt_fee > 0, extd_interchg_amt_fee/1.1/1000000,amt_tran_fee/100)  / (CAST(Transaction_amt AS int64)/100 ) ) *100 as avg_amt	,	
+     	cast(if(extd_interchg_amt_fee > 0, extd_interchg_amt_fee/1.1/1000000,amt_tran_fee/100) as float64)*-1 int_fees,	
+	  if(proc_fee_code ='ALL', ((CAST(CAST(transaction_amt AS int64)/100 AS FLOAT64) * proc_fee_percent/100) + proc_fee_fixed),	
+	      if(proc_fee_code ='FIXED', proc_fee_fixed,	
+	      if(proc_fee_code ='PERCENT',(CAST(CAST(transaction_amt AS int64)/100 AS FLOAT64) * proc_fee_percent/100),0))) as processing_fees		
+  
+
+FROM  pdh_rd_data_navigator.isg_wpay_tran i
+Left JOIN 
+
+(SELECT *, RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank FROM pdh_rd_data_navigator.tn70_mc) s
+on (i.terminal_id = s.card_acceptor_terminal_id and i.pan = s.pan and s.processing_code = 200000
+ and PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8)) = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
+and (i.transaction_type = 'REFUND' and s.processing_code = 200000)
+and i.transaction_amount = s.transaction_amt)
+and s.rank = 1  
+and 
+( case 
+      when transaction_approval_status is null then 'Y'
+	  when transaction_approval_status = 0 then 'Y'
+      when transaction_approval_status = 1 then 'N'
+	  else 'N'
+	end ) ="Y"
+ and i.scheme ="MASTERCARD"
+   	
+  INNER JOIN		
+    `pdh_ref_ds.ref_store_details` r		
+  ON		
+    r.store_id=SUBSTR(s.card_acceptor_terminal_id,1,5)		
+
+ left join `pdh_ref_ds.ref_rate_card` c on upper(r.ratecard_group) = upper(c.merchant)		
+    AND parse_date('%y%m%d', left(trim(cast(s.datetime_loc_tran as string)), 6)) BETWEEN c.from_date AND IFNULL(c.to_date, '2999-12-31')		 AND UPPER(c.card_type) = "CREDIT"		
+    AND UPPER(c.scheme) = 'MASTERCARD'		
+  WHERE		
+    upper(i.card_type)='CREDIT'
+ and i.scheme ="MASTERCARD"
+ and i.transaction_type = 'REFUND'	)
+),
+
+  d1 AS (
+   (SELECT
+    s.file_date,
+     PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,		
+    r.division,		
+    r.company,		
+    r.merchant_group,		
+    r.invoice_group,		
+    r.store_id,		
+    i.card_type,		
+    cast(s.currency_code as string) Currency_code,		
+    i.Transaction_Type,		
+     i.domesitic_international_ind ,
+    CAST(additonal_amt AS int64)/100 Cash_out,
+    CAST(transaction_amt AS int64)/100  amt_txn,
+    cast(amt_tran_fee as int64)/100 amount_txn_fee,
+    CAST(extd_interchg_amt_fee AS int64)/1000000 AS fees,
+   cast(if(extd_interchg_amt_fee > 0, extd_interchg_amt_fee/1.1/1000000,amt_tran_fee/100) as float64) Avg_fees,
+    cast(if(extd_interchg_amt_fee > 0, extd_interchg_amt_fee/1.1/1000000,amt_tran_fee/100) as float64) int_fees,
+    1 AS tran_cnt,
+     if(proc_fee_code ='ALL', ((CAST(CAST(transaction_amt AS int64)/100 AS FLOAT64) * proc_fee_percent/100) + proc_fee_fixed),
+      if(proc_fee_code ='FIXED', proc_fee_fixed,
+      if(proc_fee_code ='PERCENT',(CAST(CAST(transaction_amt AS int64)/100 AS FLOAT64) * proc_fee_percent/100),0))) 
+    as processing_fees
+  
+FROM  pdh_rd_data_navigator.isg_wpay_tran i
+ LEFT JOIN (  SELECT    *,
+    RANK() OVER (PARTITION BY trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank
+  FROM    pdh_rd_data_navigator.tn70_mc )s 
+  ON    i.trace_id = CONCAT(RIGHT(s.trace_id,4), LEFT(s.trace_id, LENGTH(s.trace_id)-4)) and i.transaction_type = 'PURCHASE'
+    AND rank = 1  
+      and 
+   ( case 
+      when transaction_approval_status is null then 'Y'
+	  when transaction_approval_status = 0 then 'Y'
+      when transaction_approval_status = 1 then 'N'
+	  else 'N'
+	end ) ="Y"
+     
+  INNER JOIN		
+    `pdh_ref_ds.ref_store_details` r		
+  ON		
+    r.store_id=SUBSTR(s.card_acceptor_terminal_id,1,5)		
+
+ left join `pdh_ref_ds.ref_rate_card` c on upper(r.ratecard_group) = upper(c.merchant)		
+    AND parse_date('%y%m%d', left(trim(cast(s.datetime_loc_tran as string)), 6)) BETWEEN c.from_date AND IFNULL(c.to_date, '2999-12-31')		 AND UPPER(c.card_type) = "DEBIT"		
+    AND UPPER(c.scheme) = 'MASTERCARD'
+
+  WHERE
+   upper(i.card_type)='DEBIT'
+    and i.scheme ="MASTERCARD"
+      and i.transaction_type = 'PURCHASE'
+    )
+
+
+    Union all
+    (
+
+      SELECT
+    s.file_date,
+     PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,		
+    r.division,		
+    r.company,		
+    r.merchant_group,		
+    r.invoice_group,		
+    r.store_id,		
+    i.card_type,		
+    cast(s.currency_code as string) Currency_code,		
+    i.Transaction_Type,		
+     i.domesitic_international_ind ,
+    CAST(additonal_amt AS int64)/100 Cash_out,
+    CAST(transaction_amt AS int64)/100 *-1 amt_txn,
+    cast(amt_tran_fee as int64)/100 amount_txn_fee,
+    CAST(extd_interchg_amt_fee AS int64)/1000000 AS fees,
+   cast(if(extd_interchg_amt_fee > 0, extd_interchg_amt_fee/1.1/1000000,amt_tran_fee/100) as float64) Avg_fees,
+    cast(if(extd_interchg_amt_fee > 0, extd_interchg_amt_fee/1.1/1000000,amt_tran_fee/100) as float64)*-1  int_fees,
+    1 AS tran_cnt,
+     if(proc_fee_code ='ALL', ((CAST(CAST(transaction_amt AS int64)/100 AS FLOAT64) * proc_fee_percent/100) + proc_fee_fixed),
+      if(proc_fee_code ='FIXED', proc_fee_fixed,
+      if(proc_fee_code ='PERCENT',(CAST(CAST(transaction_amt AS int64)/100 AS FLOAT64) * proc_fee_percent/100),0))) 
+    as processing_fees
+  
+FROM  pdh_rd_data_navigator.isg_wpay_tran i
+ LEFt JOIN 
+
+(SELECT *, RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank FROM pdh_rd_data_navigator.tn70_mc) s
+on (i.terminal_id = s.card_acceptor_terminal_id and i.pan = s.pan and s.processing_code = 200000
+ and PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8)) = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
+and (i.transaction_type = 'REFUND' and s.processing_code = 200000)
+and i.transaction_amount = s.transaction_amt)
+and s.rank = 1
+ and( case 
+      when transaction_approval_status is null then 'Y'
+	  when transaction_approval_status = 0 then 'Y'
+      when transaction_approval_status = 1 then 'N'
+	  else 'N'
+	end ) ="Y"
+ and i.scheme ="MASTERCARD"
+  INNER JOIN		
+    `pdh_ref_ds.ref_store_details` r		
+  ON		
+    r.store_id=SUBSTR(s.card_acceptor_terminal_id,1,5)		
+
+ left join `pdh_ref_ds.ref_rate_card` c on upper(r.ratecard_group) = upper(c.merchant)		
+    AND parse_date('%y%m%d', left(trim(cast(s.datetime_loc_tran as string)), 6)) BETWEEN c.from_date AND IFNULL(c.to_date, '2999-12-31')		 AND UPPER(c.card_type) = "DEBIT"		
+    AND UPPER(c.scheme) = 'MASTERCARD'
+
+  WHERE
+    Upper(i.card_type)='DEBIT'
+    and i.scheme ="MASTERCARD"
+    and i.transaction_type = 'REFUND'
+    ))
+SELECT
+  file_date,
+  transaction_date,
+  division,
+  company,
+  merchant_group,
+  invoice_group,
+  store_id,
+  card_type,
+  currency_code,
+  Transaction_Type,
+  domesitic_international_ind,
+  ROUND(avg_amt,3) avg_fee_percent,
+  0 AS average_fees,
+  SUM(amount_txn) AS total_Amount_Txn,
+  (SUM(amount_txn)-SUM(Cash_out)) AS TXN_amount,
+  SUM(Cash_out) AS Cash_out,
+  COUNT(1) txn_cnt,
+   SUM(processing_fees) total_processing_fees,
+ sum(int_fees) int_fees
+FROM
+  d
+GROUP BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13
+UNION ALL
+SELECT
+  file_date,
+  transaction_date,
+   division,
+  company,
+  merchant_group,
+  invoice_group,
+  store_id,
+  card_type,
+  currency_code,
+  Transaction_Type,
+ domesitic_international_ind,
+  0 AS avg_fee_percent,
+  Avg_fees AS average_fees,
+  SUM(amt_txn) AS total_Amount_Txn,
+  (SUM(amt_txn)-SUM(Cash_out)) AS TXN_amount,
+  SUM(Cash_out) AS Cash_out,
+  COUNT(1) txn_cnt,
+   SUM(processing_fees) total_processing_fees,
+ sum(int_fees) int_fees
+FROM
+  d1
+GROUP BY
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9,
+  10,
+  11,
+  12,
+  13

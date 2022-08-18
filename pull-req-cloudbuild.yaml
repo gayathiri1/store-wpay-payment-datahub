@@ -132,13 +132,13 @@ steps:
         #  then
           echo "*********** Dags modified in the repo are list below ************"
         # gsutil -m rsync -c -r -n -x "zlibpdh/pdh_utilities.py|zlibpdh/composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
-          gsutil -m rsync -c -r -n -x "zlibpdh/composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
+          gsutil -m rsync -c -r -n -x "pdh_billing_engine_etl.py|pdh_file_gen_etl.py|zlibpdh/composer_constants.py|airflow_monitoring.py$" app/dags/common gs://${_GCS_BUCKET}/dags;
           echo "*********** Dags list end ************"
           if [[ $_BASE_BRANCH == "preprod" ]];
             then 
               echo "********* Copying the preprod only files*******"
         #     gsutil -m rsync -c -r -n -x "zlibpdh/pdh_utilities.py$" app/dags/preprod gs://${_GCS_BUCKET}/dags;
-              gsutil -m rsync -c -r -n app/dags/preprod gs://${_GCS_BUCKET}/dags;
+              gsutil -m rsync -c -r -n -x "pdh_billing_engine_etl.py|pdh_file_gen_etl.py$" app/dags/preprod gs://${_GCS_BUCKET}/dags;
               echo "********* End of preprod copy files*******"
           fi
         #  else

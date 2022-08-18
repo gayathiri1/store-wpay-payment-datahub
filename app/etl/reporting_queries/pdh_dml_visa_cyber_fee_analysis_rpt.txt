@@ -1,0 +1,76 @@
+
+truncate table pdh_analytics_ds.visa_cyber_fee_analysis_rpt ;
+insert into pdh_analytics_ds.visa_cyber_fee_analysis_rpt  
+SELECT
+  s.file_date AS file_date,
+  PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,	
+  LEFT(s.term_id,5)AS card_acpt_term_id,
+   i.domesitic_international_ind AS domestic_or_international,
+  i.card_type,
+    i.transaction_type,
+  
+  Case 
+  when i.transaction_type = 'PURCHASE'
+   then CAST(i.transaction_amount/100 AS FLOAT64)
+    when i.transaction_type = 'REFUND'
+    then CAST(i.transaction_amount/100 AS FLOAT64)*-1 
+    end AS tran_amt, 
+     Case 
+  when i.transaction_type = 'PURCHASE'
+   then CAST(s.interchange_fee_atm/1000000/1.1 AS FLOAT64)
+    when i.transaction_type = 'REFUND'
+    then CAST(s.interchange_fee_atm/1000000/1.1 AS FLOAT64)*-1 
+    end  AS interchange_fee, 
+   CAST(s.interchange_fee_atm/1000000 AS FLOAT64)/ CAST(i.transaction_amount/100 AS FLOAT64) AS calc_interchange_fee,
+    i.trasnaction_timestamp AS tstamp_trans,
+  PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) AS tran_date,
+  i.trasnaction_local_timestamp AS tstamp_local,
+   ref_store_details.division AS division,
+  ref_store_details.brand AS brand,
+  ref_store_details.store_id,
+  ref_store_details.company,
+  ref_store_details.merchant_group,
+  ref_store_details.invoice_group,
+  ref_store_details.is_online,
+ 
+  IF
+  (ref_rate_card.proc_fee_code ='ALL',
+    ((CAST(i.transaction_amount/100 AS FLOAT64) * proc_fee_percent/100) + proc_fee_fixed),
+  IF
+    (ref_rate_card.proc_fee_code ='FIXED',
+      proc_fee_fixed,
+    IF
+      (ref_rate_card.proc_fee_code ='PERCENT',
+        (CAST(i.transaction_amount/100 AS FLOAT64) * proc_fee_percent/100),
+        0))) AS processing_fees
+
+
+  
+FROM  pdh_rd_data_navigator.isg_wpay_tran i
+   JOIN (  
+   SELECT *, RANK() OVER (PARTITION BY arn ORDER BY pdh_load_time DESC) rank FROM pdh_rd_data_navigator.tc33_visa) s  
+  ON   cast(i.tran_uid as string) = CAST(s.txn_id AS STRING)
+and ( (i.transaction_type = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.transaction_type = 'REFUND' and s.txn_code_of_fin_txn = '06') )
+and i.transaction_amount = s.samt and s.rank=1 and
+   ( case 
+      when transaction_approval_status is null then 'Y'
+	  when transaction_approval_status = 0 then 'Y'
+      when transaction_approval_status = 1 then 'N'
+	  else 'N'
+	end ) ="Y"
+LEFT JOIN
+  `pdh_ref_ds.ref_store_details` ref_store_details
+ON
+  ref_store_details.store_id = LEFT(s.term_id,5)
+  
+LEFT JOIN
+  `pdh_ref_ds.ref_rate_card` ref_rate_card
+ON
+  UPPER(ref_store_details.ratecard_group) = UPPER(ref_rate_card.merchant)
+  AND
+   upper(i.card_type) = UPPER(ref_rate_card.card_type)
+  AND PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))
+   BETWEEN ref_rate_card.from_date  AND IFNULL(ref_rate_card.to_date, '2999-12-31')
+  AND UPPER(ref_rate_card.scheme) = "VISA"
+
+  Where  i.scheme ="VISA"
