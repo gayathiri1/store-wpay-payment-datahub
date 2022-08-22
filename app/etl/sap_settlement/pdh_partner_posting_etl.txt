@@ -1,4 +1,4 @@
---Perform SAP Settlement, Stop QP
+--Perform SAP Settlement, Stop QP 20220822 -use get_pay_duedate2
 declare sys_date date default CURRENT_DATE("Australia/Sydney");
 declare str_sysdate string default cast(sys_date as string);
 --
@@ -107,16 +107,18 @@ end if;
 		             fee.direct_debit_flag, --14
 		             sap.currency_code, --15
                    cast(format_date("%Y%m%d",
-                                    pdh_ref_ds.get_due_paydate("Y",
+                                    pdh_ref_ds.get_due_paydate2("Y",
                                                                fee.frequency,
                                                                cast(std.transaction_timestamp as date),
-                                                               "FRI")   /* 20220714 */
+                                                               "FRI",
+                                                               dd.fp_end_date)   /* 20220822 */
                                          ) as INT64
                              ) AS pay_due_date, --16
 		             sum(tran_settlement_amount) + sum(discount_amt) as net_tran_amount,
 		             sum(discount_amt) as discount_amount,
                    count(*) record_count
 	      from `pdh_analytics_ds.stlm_standard_settlement_table` std
+         join  pdh_ref_ds.dim_date dd on dd.clndr_date = cast(std.transaction_timestamp as date) /* 20220822 */
          join `pdh_ref_ds.ref_str_to_sap_customermapping` sap
                on  upper(trim(sap.wpay_store_number)) = std.store_id
                and upper(ifnull(sap.active_flag,"")) <> "N" 
