@@ -17,8 +17,26 @@ With  Daily_PanTrn as (
                      When  IFNULL(rc0.Merchant_to_report,"") <> "" then rc0.Merchant_to_report
                      Else mh.division
                   End)) as Merchant,
-            (case upper(trim(mh.division)) when "LIVE GROUP" then mh.store_id else "" end) as store_id,
-         (case upper(trim(mh.division)) when "LIVE GROUP" then mh.site_name else "" end) as site_name, 
+           -- (case upper(trim(mh.division)) when "LIVE GROUP" then mh.store_id else "" end) as store_id,
+         --(case upper(trim(mh.division)) when "LIVE GROUP" then mh.site_name else "" end) as site_name, 
+
+       
+(CASE UPPER(TRIM(mh.division))
+        WHEN "LIVE GROUP" THEN mh.store_id
+        WHEN "ALH" THEN mh.store_id
+        WHEN "ALV" THEN mh.store_id
+      ELSE
+      ""
+    END
+      ) AS store_id,
+    (CASE UPPER(TRIM(mh.division))
+        WHEN "LIVE GROUP" THEN mh.site_name
+        WHEN "ALV" THEN mh.site_name
+         WHEN "ALH" THEN mh.site_name
+      ELSE
+      ""
+    END
+      ) AS site_name,
 
                   trn.masked_pan as PAN,
                   Date(trn.tstamp_local) as Transactio_Date,
