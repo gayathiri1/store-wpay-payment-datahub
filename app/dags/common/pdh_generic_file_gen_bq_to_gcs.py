@@ -43,6 +43,20 @@ def getConfigDetails(**kwargs):
     batch_number=[]
     merchant_code =[]
     qufile_date=[]
+    dest_cloud_storage_uri = []
+    email_final = []
+    header_final = []
+    delimiter_final = []
+    extension_final = []
+    lck_file_final = []
+    trigger_file_final = []
+    split_etl_final = []
+    split_merchant_final = []
+    email_attachment_final = []
+    base_bucket_final = []
+    qu_ctrltab_final = []
+    qu_ctrltab_false_final = []
+    environment_final =[]
     
     for i in range(len(bq_data)):
         
@@ -116,7 +130,7 @@ def getConfigDetails(**kwargs):
                 stg_query = text.decode('utf-8')
             
                 logging.info("Value of 'date_time_merchant' {} ".format(date_time_merchant))
-                
+                logging.info("Destination_cloud_storage_uri {} ".format(destination_cloud_storage_uri))
                 logging.info(" len(extract_start_datetime) : {} len(extract_end_datetime) : {} len(file_date):{} ".format(len(extract_start_datetime),len(extract_end_datetime),len(file_date))) 
                 
                 if len(extract_start_datetime)>19 or len(extract_end_datetime)>19 or len(file_date)>19 or extract_end_datetime == None or extract_start_datetime == None or extract_end_datetime == 'None' or extract_start_datetime == 'None'or file_date=='None' or file_date is None:
@@ -171,47 +185,49 @@ def getConfigDetails(**kwargs):
                 logging.info("output_file_name: {} ".format(file_name_wdate))
                 logging.info("loadDate: {} ".format(loadDate))
             
-                table_id.append(stg_target_table)
-                destination_cloud_storage_uri = np.append(destination_cloud_storage_uri,destination_cloud_storage_uri).tolist()
-                final_file_name = np.append(final_file_name,file_name_wdate).tolist()
-                email = np.append(email,email).tolist()
-                merchant_code.append(merchant_name)
-                header = np.append(header,header).tolist()
-                delimiter = np.append(delimiter,delimiter).tolist()
-                extension = np.append(extension,extension).tolist()
-                lck_file = np.append(lck_file,lck_file).tolist()
-                trigger_file = np.append(trigger_file,trigger_file).tolist()
-                split_etl = np.append(split_etl,split_etl).tolist()
-                split_merchant = np.append(split_merchant,split_merchant).tolist()
-                email_attachment = np.append(email_attachment,email_attachment).tolist()
-                qufile_date.append(file_date)
-                batch_number.append(batch_no) 
-                base_bucket = np.append(base_bucket,base_bucket).tolist()
-                qu_ctrltab = np.append(qu_ctrltab,qu_ctrltab).tolist()
-                qu_ctrltab_false = np.append(qu_ctrltab_false,qu_ctrltab_false).tolist()
-                environment = np.append(environment,environment).tolist()
+                table_id.append(stg_target_table) #Y
+                dest_cloud_storage_uri = np.append(dest_cloud_storage_uri,destination_cloud_storage_uri).tolist()
+                #destination_cloud_storage_uri = np.append(destination_cloud_storage_uri,destination_cloud_storage_uri).tolist()
+                #logging.info("Destination_cloud_storage_uri {} ".format(dest_cloud_storage_uri))
+                final_file_name = np.append(final_file_name,file_name_wdate).tolist() #Y
+                email_final = np.append(email_final,email).tolist()
+                merchant_code.append(merchant_name) #Y
+                header_final = np.append(header_final,header).tolist()
+                delimiter_final = np.append(delimiter_final,delimiter).tolist()
+                extension_final = np.append(extension_final,extension).tolist()
+                lck_file_final = np.append(lck_file_final,lck_file).tolist()
+                trigger_file_final = np.append(trigger_file_final,trigger_file).tolist()
+                split_etl_final = np.append(split_etl_final,split_etl).tolist()
+                split_merchant_final = np.append(split_merchant_final,split_merchant).tolist()
+                email_attachment_final = np.append(email_attachment_final,email_attachment).tolist()
+                qufile_date.append(file_date) #Y
+                batch_number.append(batch_no) #Y
+                base_bucket_final = np.append(base_bucket_final,base_bucket).tolist()
+                qu_ctrltab_final = np.append(qu_ctrltab_final,qu_ctrltab).tolist()
+                qu_ctrltab_false_final = np.append(qu_ctrltab_false_final,qu_ctrltab_false).tolist()
+                environment_final = np.append(environment_final,environment).tolist()
                 
                 
-                kwargs['ti'].xcom_push(key="email_attachment", value=email_attachment)                
-                kwargs['ti'].xcom_push(key="split_merchant", value=split_merchant)                
-                kwargs['ti'].xcom_push(key="split_etl", value=split_etl) 
+                kwargs['ti'].xcom_push(key="email_attachment", value=email_attachment_final)                
+                kwargs['ti'].xcom_push(key="split_merchant", value=split_merchant_final)                
+                kwargs['ti'].xcom_push(key="split_etl", value=split_etl_final) 
                 kwargs['ti'].xcom_push(key="batch_number", value=batch_number) 
-                kwargs['ti'].xcom_push(key="trigger_file", value=trigger_file)                
+                kwargs['ti'].xcom_push(key="trigger_file", value=trigger_file_final)                
                 kwargs['ti'].xcom_push(key="qufile_date", value=qufile_date)
                 kwargs['ti'].xcom_push(key="table_id", value=table_id)
-                kwargs['ti'].xcom_push(key="header", value=header)
-                kwargs['ti'].xcom_push(key="delimiter", value=delimiter)
-                kwargs['ti'].xcom_push(key="extension", value=extension)
-                kwargs['ti'].xcom_push(key="lck_file", value=lck_file)                              
-                kwargs['ti'].xcom_push(key="destination_cloud_storage_uri", value=destination_cloud_storage_uri)
+                kwargs['ti'].xcom_push(key="header", value=header_final)
+                kwargs['ti'].xcom_push(key="delimiter", value=delimiter_final)
+                kwargs['ti'].xcom_push(key="extension", value=extension_final)
+                kwargs['ti'].xcom_push(key="lck_file", value=lck_file_final)                              
+                kwargs['ti'].xcom_push(key="destination_cloud_storage_uri", value=dest_cloud_storage_uri)
                 kwargs['ti'].xcom_push(key="output_file_name", value= final_file_name)
-                kwargs['ti'].xcom_push(key="email", value=email)
+                kwargs['ti'].xcom_push(key="email", value=email_final)
                 kwargs['ti'].xcom_push(key="control_table", value=control_table)
                 kwargs['ti'].xcom_push(key="merchant", value=merchant_code)
-                kwargs['ti'].xcom_push(key="base_bucket", value=base_bucket)
-                kwargs['ti'].xcom_push(key="qu_ctrltab", value=qu_ctrltab)
-                kwargs['ti'].xcom_push(key="qu_ctrltab_false", value=qu_ctrltab_false)
-                kwargs['ti'].xcom_push(key="environment", value=environment)
+                kwargs['ti'].xcom_push(key="base_bucket", value=base_bucket_final)
+                kwargs['ti'].xcom_push(key="qu_ctrltab", value=qu_ctrltab_final)
+                kwargs['ti'].xcom_push(key="qu_ctrltab_false", value=qu_ctrltab_false_final)
+                kwargs['ti'].xcom_push(key="environment", value=environment_final)
                 kwargs['ti'].xcom_push(key="execTimeInAest", value=execTimeInAest.strftime("%Y-%m-%d %H:%M:%S"))
                 
                 break
