@@ -9,6 +9,8 @@ DECLARE t1g0_last DATE;
 DECLARE visa_last DATE;
 DECLARE eftpos_last DATE;
 
+DECLARE error_rows ARRAY<STRING>;
+
 SET gfs_last = (SELECT MAX(CAST(tstamp_trans AS DATE)) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`);
 SET dp_last = (SELECT MAX(CAST(txnTime AS DATE)) FROM `pdh_rd_data_navigator.digitalpay_gc_txns`);
 SET tfl6_last = (SELECT MAX(file_date) FROM `pdh_rd_data_navigator.mastercard_TFL6`);
@@ -174,18 +176,16 @@ when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account
 when 'VER' then CASE TRIM(dn.scheme) WHEN 'Visa' THEN 'VISA' WHEN 'MasterCard' THEN 'MASTERCARD' ELSE 'VERIFONE' END
 else proc_id_iss_b
 end link_route,
-i.merchant_group,
+msw.reporting_group merchant_group,
 s.ratecard_group rate_group,
 c.cur_symbol currency_code
 from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn  
 Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
 left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
-JOIN `pdh_ref_ds.ref_inst_id_config` i on dn.inst_id_recn_acq_b = i.merchant_institution_id AND i.active = 'TRUE'
-LEFT JOIN `pdh_ref_ds.ref_store_details` s ON LEFT(dn.net_term_id, 5) = s.store_id 
+LEFT JOIN `pdh_ref_ds.ref_store_details` s ON LEFT(dn.net_term_id, 5) = s.store_id
+LEFT JOIN `pdh_ref_ds.ref_merchant_settlement_window` msw ON upper(s.division) = upper(msw.division)
 LEFT JOIN `pdh_ref_ds.ref_currency_code` c ON dn.currency_code = c.currency_code
-WHERE (i.merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC", "COUNTDOWN")
-OR i.merchant_type = 'SMALL')
-AND cast(dn.tstamp_trans as date) >= start_date AND cast(dn.tstamp_trans as date) <= end_date
+WHERE cast(dn.tstamp_trans as date) >= start_date AND cast(dn.tstamp_trans as date) <= end_date
 AND s.is_closed = FALSE
 ;
 
@@ -255,17 +255,16 @@ when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account
 when 'VER' then CASE TRIM(dn.scheme) WHEN 'Visa' THEN 'VISA' WHEN 'MasterCard' THEN 'MASTERCARD' ELSE 'VERIFONE' END
 else proc_id_iss_b
 end link_route,
-i.merchant_group,
+msw.reporting_group merchant_group,
 s.ratecard_group rate_group,
 c.cur_symbol currency_code
 from `pdh_rd_data_navigator.gfs_pdh_txn_interface_super` dn  
 Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
 left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
-JOIN `pdh_ref_ds.ref_inst_id_config` i on dn.inst_id_recn_acq_b = i.merchant_institution_id AND i.active = 'TRUE'
-LEFT JOIN `pdh_ref_ds.ref_store_details` s ON LEFT(dn.net_term_id, 5) = s.store_id 
+LEFT JOIN `pdh_ref_ds.ref_store_details` s ON LEFT(dn.net_term_id, 5) = s.store_id
+LEFT JOIN `pdh_ref_ds.ref_merchant_settlement_window` msw ON upper(s.division) = upper(msw.division)
 LEFT JOIN `pdh_ref_ds.ref_currency_code` c ON dn.currency_code = c.currency_code
-WHERE i.merchant_group = 'SUPERMARKETS'
-AND cast(dn.tstamp_trans as date) >= start_date AND cast(dn.tstamp_trans as date) <= end_date
+WHERE cast(dn.tstamp_trans as date) >= start_date AND cast(dn.tstamp_trans as date) <= end_date
 AND s.is_closed = FALSE
 ;
 
@@ -280,20 +279,22 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
 	null tstamp_local,
 	CAST(bin AS STRING) masked_pan,
     CAST(txnTime AS DATE) date_recon_acq,
-    CONCAT(CASE WHEN MerchantName = 'WowOnline' then 'W8843'
-        WHEN MerchantName = 'BWSOnline' then 'W6802'
-        WHEN MerchantName = 'DanMurphysOnline' then 'W8305'
-        WHEN MerchantName = 'ScanGoSuper' then 'W6134'
-        WHEN MerchantName = 'Langtons' then 'WC500'
-		WHEN MerchantName = 'Everyday Pay' then 'W5972'
-        ELSE null
-    END, "000") net_term_id,
+	IF (MerchantName = 'Everyday Pay' AND terminal_id IS NOT NULL, terminal_id,
+		CONCAT(CASE WHEN MerchantName = 'WowOnline' then 'W8843'
+			WHEN MerchantName = 'BWSOnline' then 'W6802'
+			WHEN MerchantName = 'DanMurphysOnline' then 'W8305'
+			WHEN MerchantName = 'ScanGoSuper' then 'W6134'
+			WHEN MerchantName = 'Langtons' then 'WC500'
+			WHEN MerchantName = 'Everyday Pay' then 'W5972'
+			ELSE null
+		END, "000")
+	) net_term_id,
     Concat('01',CASE WHEN MerchantName = 'WowOnline' then 'W8843'
         WHEN MerchantName = 'BWSOnline' then 'W6802'
         WHEN MerchantName = 'DanMurphysOnline' then 'W8305'
         WHEN MerchantName = 'ScanGoSuper' then 'W6134'
         WHEN MerchantName = 'Langtons' then 'WC500'
-		WHEN MerchantName = 'Everyday Pay' then 'W5972'
+		WHEN MerchantName = 'Everyday Pay' then IF(terminal_id IS NOT NULL, LEFT(terminal_id, 5), 'W5972')
         ELSE null
     END) rpt_lvl_id_b,
     null as mti,
@@ -337,21 +338,21 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
         WHEN 'GIFT_CARD' THEN 'GIFT CARDS' 
         WHEN 'PAYPAL' THEN 'PAYPAL' 
     end link_route,
-    i.merchant_group,
+    IF(MerchantName = "Everyday Pay" AND terminal_id IS NULL, "EVERYDAY PAY", msw.reporting_group) merchant_group,
     s.ratecard_group rate_group,
 	NULL currency_code
     FROM `pdh_rd_data_navigator.digitalpay_gc_txns` d
-JOIN (SELECT DISTINCT dpay_gc_group, merchant_group, rate_group FROM `pdh_ref_ds.ref_inst_id_config` WHERE (merchant_group IN ("ENDEAVOUR", "EG FUEL", "EG FUEL APAC") OR merchant_type = 'SMALL') AND active = 'TRUE') i
-    ON TRIM(d.MerchantName) = i.dpay_gc_group
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     (CASE WHEN MerchantName = 'WowOnline' then 'W8843'
         WHEN MerchantName = 'BWSOnline' then 'W6802'
         WHEN MerchantName = 'DanMurphysOnline' then 'W8305'
         WHEN MerchantName = 'ScanGoSuper' then 'W6134'
         WHEN MerchantName = 'Langtons' then 'WC500'
-		WHEN MerchantName = 'Everyday Pay' then 'W5972'
+		WHEN MerchantName = 'Everyday Pay' then IF(terminal_id IS NOT NULL, LEFT(terminal_id, 5), 'W5972')
         ELSE null
-    END) = s.store_id 
+    END) = s.store_id
+	LEFT JOIN `pdh_ref_ds.ref_merchant_settlement_window` msw
+    ON upper(s.division) = upper(msw.division)
     where (schemeName = 'PAYPAL' OR schemeName = 'GIFT_CARD' AND MerchantName = 'Everyday Pay')
 	and CAST(txnTime AS DATE) >= start_date and CAST(txnTime AS DATE) <= end_date
     AND d.responseCode = '00'
@@ -511,12 +512,14 @@ Select
 		else 'N'
 	end as approval_flag,
     'ALIPAY' link_route,
-    UPPER(s.ratecard_group) merchant_group,
+    msw.reporting_group merchant_group,
     s.ratecard_group rate_group,
 	NULL currency_code
     FROM `pdh_rd_apm.alipay_linkly` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
-    d.ReqStore = s.store_id 
+    d.ReqStore = s.store_id
+	LEFT join `pdh_ref_ds.ref_merchant_settlement_window` msw
+    ON UPPER(TRIM(s.division)) = msw.division
     where TRIM(d.OrigData) = 'Alipay'
 	and ReqDate >= start_date and ReqDate <= end_date
     AND ReqMT IN (200, 400)
@@ -587,23 +590,37 @@ Select
 	  else 'N'
 	end as approval_flag,
 	scheme link_route,
-	UPPER(s.ratecard_group) merchant_group,
+	msw.reporting_group merchant_group,
     s.ratecard_group rate_group,
 	cast(source_currency_code as string) currency_code
     FROM `pdh_rd_data_navigator.isg_wpay_tran` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     left(d.terminal_id,5) = s.store_id 
+	LEFT join `pdh_ref_ds.ref_merchant_settlement_window` msw
+    ON UPPER(TRIM(s.division)) = msw.division
     where PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) >= start_date and PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) <= end_date
     AND s.is_closed = FALSE;
 
 -------------------------------------------------------------------------------------------
 
-IF (SELECT COUNT(*) FROM `pdh_staging_ds.tbl_temp_billing_all` WHERE rate_group IS NULL) > 0 Then
-    SELECT ERROR("Store ID(s) missing from store details table");
+SET error_rows = ARRAY((SELECT DISTINCT LEFT(net_term_id, 5) FROM `pdh_staging_ds.tbl_temp_billing_all` WHERE rate_group IS NULL));
+
+IF ARRAY_LENGTH(error_rows) > 0 Then
+    SELECT ERROR(CONCAT(ARRAY_LENGTH(error_rows), " store ID(s) missing data from store details table for the following ID(s) (", ARRAY_TO_STRING(error_rows, ", "), ")"));
+END IF;
+
+SET error_rows = ARRAY((SELECT DISTINCT LEFT(net_term_id, 5) FROM `pdh_staging_ds.tbl_temp_billing_all` WHERE merchant_group IS NULL));
+
+IF ARRAY_LENGTH(error_rows) > 0 Then
+    SELECT ERROR(CONCAT("Reporting group(s) missing from merchant settlement window table for the following ID(s) (", ARRAY_TO_STRING(error_rows, ", "), ")"));
 END IF;
 
 -------------------------------------------------------------------------------------------
 
+-- We use a blank string in the merchant settlement window as the reporting group
+-- if the reporting group should not be included in billing
+DELETE FROM `pdh_staging_ds.tbl_temp_billing_all`
+WHERE merchant_group = "";
 
 CREATE TEMP TABLE `temp_billing_all` AS
 SELECT 
@@ -742,7 +759,9 @@ if(proc_fee_code ='ALL', ((d.transaction_total * proc_fee_percent/100) + proc_fe
 as processing_fees,
 IF(LEFT(net_term_id,5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNULL(fraud_fee_fixed * 100, 0), 0) fraud_fees,
 000000 as settled_datetime,
-000000 as fncl_posted_datetime
+000000 as fncl_posted_datetime,
+CAST(0.0 AS NUMERIC) early_settlement_fees,
+CAST(0.0 AS NUMERIC) cost_of_credit
 from `temp_billing_all` d
 left join `pdh_ref_ds.ref_rate_card` r on trim(upper(d.calc_scheme))=trim(upper(r.scheme)) 
 and trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
