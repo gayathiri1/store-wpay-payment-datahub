@@ -19,7 +19,9 @@ Insert into `pdh_staging_ds.BillingTrnByMerchantScheme`
 With SettlementDetail as (
     select 
         Upper(left(trim(dn.net_term_id),5)) StoreID,
-        Upper(trim(dn.scheme)) scheme,
+        --Upper(trim(dn.scheme)) scheme,
+        -- Calling function
+              pdh_ref_ds.get_scheme(dn.proc_id_iss_b, dn.inst_id_recon_iss) scheme,
         DATE_TRUNC(CAST(dn.tstamp_trans AS DATE),month) as FirstOfMonth,
         Case dn.mti
            when '1440' then ' REVERSAL'
