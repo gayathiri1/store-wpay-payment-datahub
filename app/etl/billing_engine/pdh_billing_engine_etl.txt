@@ -428,12 +428,7 @@ Select
 		else 'N'
 	end as approval_flag,
 	'GIFT CARDS' link_route,
-	case trim(upper(Company))
-		when 'EG FUEL' THEN 'EG FUEL'
-		when 'EG APAC VENTURE 1' THEN 'EG FUEL APAC'
-		When 'ENDEAVOUR' THEN 'ENDEAVOUR'
-		Else ''
-	end	merchant_group, -- NEED TO CHECK WHAT THIS IS USED FOR
+	msw.reporting_group,
     s.ratecard_group rate_group,
 	NULL currency_code
     FROM `pdh_rd_quickcilver.qc_detail_transactions` d
@@ -862,6 +857,7 @@ set interchange_fees_actual = s.Fee * 100,
 i.fee_indicator = 'A'
 from `pdh_rd_apm.alipay_stlm` s
 where i.tran_uid = CAST(s.transaction_id AS STRING)
+and CAST(ROUND(s.amount * 100) AS INT64) = i.transaction_total
 and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
 and (case i.calc_tran_type_abbr when 'PURCHASE' THEN 'P' WHEN 'REFUND' then 'R' else null end) = TRIM(s.Type)
 and i.approval_flag = 'Y';
