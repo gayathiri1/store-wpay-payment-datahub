@@ -41,6 +41,8 @@ INSERT INTO
     country,
     scheme_card_type,
     is_online,
+    merchant_portal_mg,
+    merchant_portal_cg, 
     transaction_count,
     transaction_amount,
     settlement_amount_inc_gst,
@@ -104,6 +106,8 @@ WITH
     END
       AS scheme_card_type,
       rsd.is_online,
+        rsd.merchant_portal_mg,
+      rsd.merchant_portal_cg, 
       dd.fy_start_date AS fy_start_date,
       wofy fiscal_week,
       dd.clndr_date AS clndr_date,
@@ -154,7 +158,8 @@ WITH
       25,
       26,
       27,
-      28
+      28,
+      29,30
     ORDER BY
       1,
       2,
@@ -183,7 +188,8 @@ WITH
       25,
       26,
       27,
-      28 )
+      28,
+      29,30 )
   UNION ALL (
     SELECT
       `tbl_endeavour_fees_rpt`.`switch_tran_date` AS `switch_tran_date`,
@@ -233,6 +239,8 @@ WITH
     END
       AS scheme_card_type,
       rsd.is_online,
+      rsd.merchant_portal_mg,
+      rsd.merchant_portal_cg, 
 
       `dd`.`fy_start_date` AS `fy_start_date`,
       wofy fiscal_week,
@@ -282,7 +290,9 @@ WITH
       25,
       26,
       27,
-      28
+      28,
+      29,
+      30
     ORDER BY
       1,
       2,
@@ -311,7 +321,9 @@ WITH
       25,
       26,
       27,
-      28 )
+      28,
+      29,
+      30 )
   UNION ALL (
     SELECT
       `tbl_egfuel_fees_rpt`.`switch_tran_date` AS `switch_tran_date`,
@@ -361,6 +373,8 @@ WITH
     END
       AS scheme_card_type,
       rsd.is_online,
+        rsd.merchant_portal_mg,
+      rsd.merchant_portal_cg, 
       `dd`.`fy_start_date` AS `fy_start_date`,
       wofy fiscal_week,
       `dd`.`clndr_date` AS `clndr_date`,
@@ -411,7 +425,8 @@ WITH
       25,
       26,
       27,
-      28
+      28,
+      29,30
     ORDER BY
       1,
       2,
@@ -440,7 +455,9 @@ WITH
       25,
       26,
       27,
-      28 ) ),
+      28,
+      29,
+      30 ) ),
   max_fiscal_date AS (
   SELECT
     MAX(switch_tran_date) fiscal_date
@@ -529,6 +546,8 @@ clndr_date
   country,
   scheme_card_type,
   is_online, 
+   merchant_portal_mg,
+  merchant_portal_cg, 
   -- Metrics --,
   transaction_count,
  transaction_amount, 
