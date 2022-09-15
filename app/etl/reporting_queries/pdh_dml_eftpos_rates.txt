@@ -27,6 +27,8 @@ INSERT INTO
     ref_store_details AS (
     SELECT
       division,
+      company,
+      Merchant_group,
       brand,
       store_id,
       is_online
