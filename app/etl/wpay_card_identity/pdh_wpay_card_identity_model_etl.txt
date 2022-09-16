@@ -1,0 +1,119 @@
+create or replace table  `wpay_analytics.wpay_card_identity_model`
+as 
+-- CP / CNP
+with cp_np as 
+(
+  select distinct
+  coalesce('SCDR'||'|'||scdr_token,'') 	customer_id
+  ,coalesce('SCDR'||'|'||scdr_token,'') 	card_id
+  ,pymt_acct_ref 												par
+  ,scdr_token 
+  ,scheme
+  --,wallet_id
+  ,masked_pan
+  ,card_type
+  ,card_subtype	
+  ,bin_product_code
+  from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn  
+  where scdr_token is not null
+)
+, dp as 
+(
+Select distinct
+coalesce('customerRef'||'|'||customerRef,'userId'||'|'||userId) 	customer_id
+,'containerId'||'|'||containerId||'|'||'itemId'||'|'||itemId 		card_id
+,customerRef 														dp_customerRef
+,userId																dp_userId		
+,username 															dp_username
+,userStatus															dp_userStatus
+,containerId 														dp_containerId
+,itemId 															dp_itemId
+,itemtype 															dp_itemtype
+,item_token 														dp_item_token
+,schemeName 														scheme
+FROM `pdh_rd_data_navigator.digitalpay_gc_txns`
+)
+,giftcard as
+(
+  select distinct
+  coalesce('CardHolder'||'|'||CardHolder,'CardNumber'||'|'||CardNumber )	customer_id
+  ,'CardNumber'||'|'||CardNumber 	card_id
+  ,Issuer
+  ,ProgramGroup
+  ,CardProgramGroupType
+  from `pdh_rd_quickcilver.qc_detail_transactions` dn  
+)
+select 
+customer_id
+,card_id
+,par
+,scdr_token 
+,scheme
+,masked_pan
+,card_type
+,card_subtype	
+,bin_product_code
+,null dp_customerRef
+,null dp_userId		
+,null dp_username
+,null dp_userStatus
+,null dp_containerId
+,null dp_itemId
+,null dp_itemtype
+,null dp_item_token
+,null Issuer
+,null ProgramGroup
+,null CardProgramGroupType
+from cp_np
+where card_id is not null
+union distinct
+select 
+customer_id
+,card_id
+,null par
+,null scdr_token 
+,null scheme
+,null masked_pan
+,null card_type
+,null card_subtype	
+,null bin_product_code
+,dp_customerRef
+,dp_userId		
+,dp_username
+,dp_userStatus
+,dp_containerId
+,dp_itemId
+,dp_itemtype
+,dp_item_token
+,null Issuer
+,null ProgramGroup
+,null CardProgramGroupType
+from dp
+union distinct
+select 
+customer_id
+,card_id
+,null par
+,null scdr_token 
+,null scheme
+,null masked_pan
+,null card_type
+,null card_subtype	
+,null bin_product_code
+,null dp_customerRef
+,null dp_userId		
+,null dp_username
+,null dp_userStatus
+,null dp_containerId
+,null dp_itemId
+,null dp_itemtype
+,null dp_item_token
+,Issuer
+,ProgramGroup
+,CardProgramGroupType
+from giftcard
+;
+
+create or replace view `wpay_analytics.vw_wpay_card_identity_model`
+as select * from `wpay_analytics.wpay_card_identity_model`
+;
