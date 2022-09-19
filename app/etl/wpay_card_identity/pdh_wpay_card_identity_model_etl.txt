@@ -4,35 +4,53 @@ as
 with cp_np as 
 (
   select distinct
-  coalesce('SCDR'||'|'||scdr_token,'') 	customer_id
-  ,coalesce('SCDR'||'|'||scdr_token,'') 	card_id
-  ,pymt_acct_ref 												par
-  ,scdr_token 
-  ,scheme
+  coalesce('SCDR'||'|'||dn.scdr_token,'') 	customer_id
+  ,coalesce('SCDR'||'|'||dn.scdr_token,'') 	card_id
+  ,dn.pymt_acct_ref 												par
+  ,dn.scdr_token 
+  ,dn.scheme
   --,wallet_id
-  ,masked_pan
-  ,card_type
-  ,card_subtype	
-  ,bin_product_code
+  ,dn.masked_pan
+  ,dn.card_type
+  ,dn.card_subtype	
+  ,dn.bin_product_code
   from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn  
-  where scdr_token is not null
+  inner join
+  (
+    select scdr_token, max(tstamp_trans) tstamp_trans 
+    from `pdh_rd_data_navigator.gfs_pdh_txn_interface`
+    group by 1
+  ) mxdn
+  on mxdn.scdr_token = dn.scdr_token
+  and mxdn.tstamp_trans = dn.tstamp_trans
+  where dn.scdr_token is not null
 )
 , dp as 
 (
-Select distinct
-coalesce('customerRef'||'|'||customerRef,'userId'||'|'||userId) 	customer_id
-,'containerId'||'|'||containerId||'|'||'itemId'||'|'||itemId 		card_id
-,customerRef 														dp_customerRef
-,userId																dp_userId		
-,username 															dp_username
-,userStatus															dp_userStatus
-,containerId 														dp_containerId
-,itemId 															dp_itemId
-,itemtype 															dp_itemtype
-,item_token 														dp_item_token
-,schemeName 														scheme
-FROM `pdh_rd_data_navigator.digitalpay_gc_txns`
-)
+  Select distinct
+  coalesce('customerRef'||'|'||dp.customerRef,'userId'||'|'||dp.userId) 	customer_id
+  ,'customerRef'||'|'||dp.customerRef||'|'||'containerId'||'|'||dp.containerId||'|'||'itemId'||'|'||dp.itemId 		card_id
+  ,dp.customerRef    dp_customerRef
+  ,dp.userId         dp_userId		
+  ,dp.username       dp_username
+  ,dp.userStatus     dp_userStatus
+  ,dp.containerId    dp_containerId
+  ,dp.itemId         dp_itemId
+  ,dp.itemtype       dp_itemtype
+  ,dp.item_token     dp_item_token
+  ,dp.schemeName     scheme
+  FROM `pdh_rd_data_navigator.digitalpay_gc_txns` dp
+  inner join
+  (
+    select  customerRef,containerId,itemId,max(txnTime) txnTime 
+    from  `pdh_rd_data_navigator.digitalpay_gc_txns`
+    group by 1,2,3
+  ) mxdp
+  on mxdp.customerRef = dp.customerRef
+  and mxdp.containerId = dp.containerId
+  and mxdp.itemId = dp.itemId
+  and mxdp.txnTime = dp.txnTime  
+)   
 ,giftcard as
 (
   select distinct
@@ -113,6 +131,7 @@ customer_id
 ,CardProgramGroupType
 from giftcard
 ;
+
 
 create or replace view `wpay_analytics.vw_wpay_card_identity_model`
 as select * from `wpay_analytics.wpay_card_identity_model`
