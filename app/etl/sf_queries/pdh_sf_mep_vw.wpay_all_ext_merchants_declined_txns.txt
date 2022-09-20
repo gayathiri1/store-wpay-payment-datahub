@@ -1,0 +1,137 @@
+TRUNCATE TABLE `pdh_sf_mep_vw.wpay_all_ext_merchants_declined_txns`;
+
+INSERT INTO
+  `pdh_sf_mep_vw.wpay_all_ext_merchants_declined_txns`
+
+
+WITH
+  fee AS ( (
+    SELECT
+      TRIM(pan) AS pan,
+      switch_tran_date,
+      scheme,
+      store_id,
+      tran_type,
+      abbr,
+      transaction_approval_status_text,
+      action_code,
+      response_code,
+      location,
+      company,
+      invoice_group,
+      merchant_group,
+      division,
+      brand,
+      pos_card_holder_present,
+      pos_data_card_input_method,
+      vcalc_transaction_count,
+      transaction_amount
+      
+    FROM
+      pdh_analytics_ds.tbl_sml_merchant_fees_rpt)
+  UNION ALL (
+    SELECT
+      TRIM(pan) AS pan,
+      switch_tran_date,
+      scheme,
+      store_id,
+      tran_type,
+      abbr,
+      transaction_approval_status_text,
+      action_code,
+      response_code,
+      location,
+      company,
+      invoice_group,
+      merchant_group,
+      division,
+      brand,
+      pos_card_holder_present,
+      pos_data_card_input_method,
+      vcalc_transaction_count,
+      transaction_amount    
+    FROM
+      pdh_analytics_ds.tbl_edg_fees_rpt)
+  UNION ALL (
+    SELECT
+      TRIM(pan) AS pan,
+      switch_tran_date,
+      scheme,
+      store_id,
+      tran_type,
+      abbr,
+      transaction_approval_status_text,
+      action_code,
+      response_code,
+      location,
+      company,
+      invoice_group,
+      merchant_group,
+      division,
+      brand,
+      pos_card_holder_present,
+      pos_data_card_input_method,
+      vcalc_transaction_count,
+      transaction_amount
+      
+    FROM
+      pdh_analytics_ds.tbl_egfuel_fees_rpt))
+SELECT
+  TRIM(pan) AS pan,
+  switch_tran_date,
+  wofy Financial_week,
+  format_date("%b %Y",switch_tran_date) transaction_month,
+  "Wk- "||lpad(cast((wofy ) as string),2,'0')|| " : " || format_date("%d-%b",date_add(date_trunc(date_add(switch_tran_date, INTERVAL -1 DAY),week), INTERVAL 1 DAY)) || " to " || format_date("%d-%b",date_add(date_trunc(date_add(switch_tran_date, INTERVAL -1 DAY),week), INTERVAL 7 DAY)) as transaction_week,
+  scheme,
+  rsd.store_id,
+  tran_type,
+  abbr,
+  transaction_approval_status_text,
+  safe_cast(t.action_code as int64) action_code,
+  t.response_code,
+  location,
+  rsd.company,
+  rsd.invoice_group,
+  rsd.merchant_group,
+  rsd.division,
+  rsd.brand,
+  rsd.merchant_portal_mg,
+  rsd.merchant_portal_cg, 
+  rsd.country,
+  rsd.is_online,
+  rsd.site_name,
+  rsd.suburb,
+  rsd.state,
+  cast(rsd.postcode as string) postcode,
+  rsd.caid,
+  cast(rsd.is_closed as string) is_closed,
+  r.description AS approval_description,
+  c.description AS pos_cardholder_present_description,
+  vcalc_transaction_count as transaction_count,
+  transaction_amount
+ 
+FROM
+  fee t
+LEFT JOIN
+ pdh_ref_ds.ref_card_present c
+ON
+  t.pos_card_holder_present= c.code
+LEFT JOIN
+  pdh_ref_ds.ref_entry_mode m
+ON
+  t.pos_data_card_input_method=m.code
+LEFT JOIN
+  pdh_ref_ds.ref_response_code r
+ON
+  TRIM(t.action_code)=TRIM(r.action_code)
+ join pdh_ref_ds.ref_store_details rsd  
+  on rsd.store_id =  t.store_id
+    LEFT JOIN
+      `pdh_ref_ds.dim_date` dd
+    ON
+      t.switch_tran_date = dd.clndr_date
+      where 
+      switch_tran_date >= DATE_ADD(DATE_ADD(DATE_TRUNC(DATE_ADD(current_date, INTERVAL -1 DAY),week), INTERVAL 1 DAY), INTERVAL -53 week)
+       and upper(trim(rsd.merchant_group)) not in ("BIG W","BIG W ONLINE", "SUPERMARKETS")
+       and trim(Upper(transaction_approval_status_text)) ="DECLINED"
+      
