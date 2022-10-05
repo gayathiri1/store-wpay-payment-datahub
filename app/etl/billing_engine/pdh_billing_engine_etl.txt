@@ -2,24 +2,53 @@ DECLARE start_date DATE;
 DECLARE end_date DATE DEFAULT Date_sub(current_date('+10:00'),Interval 3 day);
 DECLARE data_req_date DATE DEFAULT Date_sub(current_date('+10:00'),Interval 2 day);
 
-DECLARE gfs_last DATE;
-DECLARE dp_last DATE;
-DECLARE tfl6_last DATE;
-DECLARE t1g0_last DATE;
-DECLARE visa_last DATE;
-DECLARE eftpos_last DATE;
-
+DECLARE missing_data ARRAY<STRING>;
 DECLARE error_rows ARRAY<STRING>;
 
-SET gfs_last = (SELECT MAX(CAST(tstamp_trans AS DATE)) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`);
-SET dp_last = (SELECT MAX(CAST(txnTime AS DATE)) FROM `pdh_rd_data_navigator.digitalpay_gc_txns`);
-SET tfl6_last = (SELECT MAX(file_date) FROM `pdh_rd_data_navigator.mastercard_TFL6`);
-SET t1g0_last = (SELECT MAX(file_date) FROM `pdh_rd_data_navigator.mastercard_T1G0`);
-SET visa_last = (SELECT MAX(file_date) FROM `pdh_rd_data_navigator.gfs_aux_visa`);
-SET eftpos_last = (SELECT MAX(file_date) FROM `pdh_rd_data_navigator.gfs_aux_eftpos`);
+SET missing_data = (SELECT ARRAY((
+	SELECT "gfs_pdh_txn_interface" name FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`
+	GROUP BY 1 HAVING MAX(CAST(tstamp_trans AS DATE)) < data_req_date
+	UNION ALL
+	SELECT "gfs_pdh_txn_interface_super" name FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface_super`
+	GROUP BY 1 HAVING MAX(CAST(tstamp_trans AS DATE)) < data_req_date
+	UNION ALL
+	SELECT "digitalpay_gc_txns" name FROM `pdh_rd_data_navigator.digitalpay_gc_txns`
+	GROUP BY 1 HAVING MAX(CAST(txnTime AS DATE)) < data_req_date
+	UNION ALL
+	SELECT "qc_detail_transactions" name FROM `pdh_rd_quickcilver.qc_detail_transactions`
+	GROUP BY 1 HAVING MAX(file_date) < data_req_date
+	UNION ALL
+	SELECT "alipay_linkly" name FROM `pdh_rd_apm.alipay_linkly`
+	GROUP BY 1 HAVING MAX(file_date) < data_req_date
+	UNION ALL
+	SELECT "isg_wpay_tran" name FROM `pdh_rd_data_navigator.isg_wpay_tran`
+	GROUP BY 1 HAVING MAX(file_date) < data_req_date
+	UNION ALL
+	SELECT "mastercard_TFL6" name FROM `pdh_rd_data_navigator.mastercard_TFL6`
+	GROUP BY 1 HAVING MAX(file_date) < data_req_date
+	UNION ALL
+	SELECT "mastercard_T1G0" name FROM `pdh_rd_data_navigator.mastercard_T1G0`
+	GROUP BY 1 HAVING MAX(file_date) < data_req_date
+	UNION ALL
+	SELECT "gfs_aux_visa" name FROM `pdh_rd_data_navigator.gfs_aux_visa`
+	GROUP BY 1 HAVING MAX(file_date) < data_req_date
+	UNION ALL
+	SELECT "gfs_aux_eftpos" name FROM `pdh_rd_data_navigator.gfs_aux_eftpos`
+	GROUP BY 1 HAVING MAX(file_date) < data_req_date
+	UNION ALL
+	-- NOTE: alipay_stlm has been left out due to inconsistent delivery of files
+	-- SELECT "alipay_stlm" name FROM `pdh_rd_apm.alipay_stlm`
+	-- GROUP BY 1 HAVING MAX(file_date) < data_req_date
+	-- UNION ALL
+	SELECT "tc33_visa" name FROM `pdh_rd_data_navigator.tc33_visa`
+	GROUP BY 1 HAVING MAX(file_date) < data_req_date
+	UNION ALL
+	SELECT "tn70_mc" name FROM `pdh_rd_data_navigator.tn70_mc`
+	GROUP BY 1 HAVING MAX(file_date) < data_req_date
+)));
 
-IF LEAST(gfs_last, dp_last, tfl6_last, t1g0_last, visa_last, eftpos_last) < data_req_date THEN
-    SELECT ERROR("Raw billing data is not up to date");
+IF ARRAY_LENGTH(missing_data) > 0 THEN
+	SELECT ERROR(CONCAT("Raw billing data is not up to date in tables: ", ARRAY_TO_STRING(missing_data, ", ")));
 END IF;
 
 SET start_date = (SELECT MAX(switch_tran_date) + 1 FROM `pdh_analytics_ds.tbl_fees_all`);

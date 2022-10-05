@@ -1,7 +1,8 @@
 TRUNCATE TABLE
   pdh_analytics_ds.wpay_analytical_summary;
 INSERT INTO
-  pdh_analytics_ds.wpay_analytical_summary (
+  pdh_analytics_ds.wpay_analytical_summary
+   (
   WITH
     sml_merchant AS (
     SELECT
@@ -216,6 +217,77 @@ INSERT INTO
       AND ifnull( tran_type_description,
         "") <> ""
       AND switch_tran_date >= '2021-09-01' ),
+        super_rpt AS (
+    SELECT
+      switch_tran_date,
+      switch_timestamp,
+      local_timestamp,
+      store_id,
+      terminal_id,
+      CAST(bin AS String) bin,
+      pan,
+      CAST(txn_type_indicator AS STRING) txn_type_indicator,
+      CAST(settlement_date AS STRING) settlement_date,
+      ap_approval_code,
+      action_code,
+      response_code,
+      issuer,
+      issuer_institution_id,
+      CAST(mti AS STRING) AS mti,
+      card_owner,
+      transaction_desc,
+      rrn,
+      pos_card_holder_present,
+      pos_data_card_input_method,
+      tran_type,
+      abbr,
+      approval_flag,
+      transaction_approval_status_text,
+      account,
+      link_route,
+      scheme,
+      card_type,
+      orig_card_type,
+      dom_int_ind,
+      CAST(stan AS STRING) stan,
+      CAST(original_stan AS STRING) original_stan,
+      card_acpt_id,
+      location,
+      adtnl_response_data,
+      tran_type_description,
+      fee_indicator,
+      transaction_amount,
+      purchase_amount,
+      cashout_amount,
+      vcalc_transaction_count,
+      vcalc_settlement_amount_inc_gst,
+      vcalc_interchange_fees_invoiced_ex_gst,
+      vcalc_processing_fees_ex_gst,
+      fraud_fees_ex_gst,
+      company,
+      invoice_group,
+      merchant_group,
+      division,
+      brand,
+      ined_store_id,
+      site_name,
+      suburb,
+      state,
+      CAST(postcode AS STRING) postcode,
+      country
+    FROM
+      `pdh_analytics_ds.tbl_super_fees_rpt`
+    WHERE
+      ifnull(brand,
+        "") <> ""AND ifnull(approval_flag,
+        "") <> ""
+      AND ifnull(scheme,
+        "") <> ""
+      AND ifnull(card_type,
+        "") <> ""
+      AND ifnull( tran_type_description,
+        "") <> ""
+      AND switch_tran_date >= '2021-09-01' ),
     fee AS (
     SELECT
       *
@@ -226,6 +298,11 @@ INSERT INTO
       *
     FROM
       eg_fuel
+       UNION ALL
+    SELECT
+      *
+    FROM
+      super_rpt
     UNION ALL
     SELECT
       *
