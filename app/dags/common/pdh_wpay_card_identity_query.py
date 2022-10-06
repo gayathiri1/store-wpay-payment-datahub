@@ -17,7 +17,7 @@ default_args = {
 logging.info("constructing dag - using airflow as owner")
 
 
-dag = DAG('pdh_wpay_card_identity_query', catchup=False, default_args=default_args,schedule_interval= "15 03 * * *")
+dag = DAG('pdh_wpay_card_identity_query', catchup=False, default_args=default_args,schedule_interval= "15 02 * * *")
 
 
 def readexecuteQuery(**kwargs):

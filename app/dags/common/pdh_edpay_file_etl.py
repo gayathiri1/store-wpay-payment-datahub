@@ -17,7 +17,7 @@ default_args = {
 logging.info("constructing dag - using airflow as owner")
 
 
-dag = DAG('pdh_edpay_file_etl', catchup=False, default_args=default_args,schedule_interval= "00 05 * * Fri")
+dag = DAG('pdh_edpay_file_etl', catchup=False, default_args=default_args,schedule_interval= "00 04 * * Fri")
 
 
 def readexecuteQuery(**kwargs):
