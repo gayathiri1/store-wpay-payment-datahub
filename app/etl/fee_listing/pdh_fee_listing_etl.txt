@@ -161,8 +161,8 @@ IF ftlf_prfx_cnt <> var_cnt then
 		END IF;
 	
 		SET view_name = concat("pdh_extraction_ds.vw_",lower(new_var_list[offset(x)]),"_fee_listing");
-	
-		EXECUTE IMMEDIATE CONCAT("CREATE OR REPLACE VIEW ", view_name ," AS select H,transaction_uid,terminal_id,card_acceptor_id,transaction_amt,transaction_timestamp,transaction_local_timestamp,pan,stan,rrn,mti,scheme,card_type,card_subtype,interchange_fee,interchange_fee_rebate,processing_fee from pdh_analytics_ds.fee_listing where file_prefix = '", new_var_list[offset(x)],"' ;")
+		
+		EXECUTE IMMEDIATE CONCAT("CREATE OR REPLACE VIEW ", view_name ," AS select * except (file_prefix) from pdh_analytics_ds.fee_listing where file_prefix = '", new_var_list[offset(x)],"' ;")
 		;
 		
 		SET x = x+1;
@@ -237,6 +237,7 @@ WITH result AS (
 		ELSE IFNULL(FORMAT('%.4f', vcalc_interchange_fees_invoiced_ex_gst * 100), "0.0000") END interchange_fee,
     IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
+	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
 	ftlf_prefix file_prefix
     FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
@@ -279,6 +280,7 @@ SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, 
 		ELSE IFNULL(FORMAT('%.4f', vcalc_interchange_fees_invoiced_ex_gst * 100), "0.0000") END interchange_fee,
     IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
+	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
 	ftlf_prefix file_prefix
     FROM `pdh_analytics_ds.tbl_edg_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
@@ -321,6 +323,7 @@ SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, 
 		ELSE IFNULL(FORMAT('%.4f', vcalc_interchange_fees_invoiced_ex_gst * 100), "0.0000") END interchange_fee,
     IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
+	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
 	ftlf_prefix file_prefix
     FROM `pdh_analytics_ds.tbl_egfuel_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
@@ -336,7 +339,7 @@ SELECT * FROM result;
 --Insert Trailer Record
 
 INSERT INTO pdh_analytics_ds.fee_listing
-SELECT 'T', COUNT(0), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, file_prefix
+SELECT 'T', COUNT(0), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, file_prefix
 from pdh_analytics_ds.fee_listing
 group by file_prefix;
 
@@ -364,7 +367,8 @@ SELECT curr_date processing_date,
 	file_prefix,
 	null additional_data_1,
 	null additional_data_2,
-	null additional_data_3
+	null additional_data_3,
+	early_settlement_fee
 FROM `pdh_analytics_ds.fee_listing` WHERE H <> 'T';
 	
 --Insert data into control table

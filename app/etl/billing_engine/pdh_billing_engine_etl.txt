@@ -5,6 +5,8 @@ DECLARE data_req_date DATE DEFAULT Date_sub(current_date('+10:00'),Interval 2 da
 DECLARE missing_data ARRAY<STRING>;
 DECLARE error_rows ARRAY<STRING>;
 
+DECLARE switch_date_array ARRAY<DATE>;
+
 SET missing_data = (SELECT ARRAY((
 	SELECT "gfs_pdh_txn_interface" name FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`
 	GROUP BY 1 HAVING MAX(CAST(tstamp_trans AS DATE)) < data_req_date
@@ -56,6 +58,15 @@ SET start_date = (SELECT MAX(switch_tran_date) + 1 FROM `pdh_analytics_ds.tbl_fe
 IF start_date > end_date THEN
     SELECT ERROR("Start date is greater than end date");
 END IF;
+
+-- EARLY SETTLEMENT DATE ARRAY
+SET switch_date_array = (SELECT GENERATE_DATE_ARRAY(start_date-1, end_date+1, INTERVAL 1 DAY));
+
+CREATE OR REPLACE TABLE `pdh_staging_ds.temp_early_settlement_fee` AS
+	SELECT *,0 as cost_factor from UNNEST(switch_date_array) as switch_date;
+
+UPDATE `pdh_staging_ds.temp_early_settlement_fee` 
+	set cost_factor = pdh_staging_ds.CalculateCostFactor(switch_date) where 1=1;
 
 -- MASTERCARD JOIN QUERY
 create or replace table `pdh_staging_ds.gfs_aux_mastercard` as
@@ -760,6 +771,18 @@ Then
     SELECT ERROR("Rate card missing entry");
 END IF;
 
+-- Check that all store IDs have an entry in the store to SAP mapping table
+SET error_rows = ARRAY((SELECT DISTINCT LEFT(d.net_term_id, 5) FROM `temp_billing_all` d
+	LEFT JOIN `pdh_ref_ds.ref_str_to_sap_customermapping` c ON LEFT(d.net_term_id, 5) = c.wpay_store_number
+	WHERE c.wpay_store_number IS NULL
+	AND d.calc_scheme in ('VISA','MASTERCARD','EFTPOS')
+    AND d.approval_flag = 'Y'
+    AND c.npp_flag = 'Y'));
+
+IF ARRAY_LENGTH(error_rows) > 0 Then
+    SELECT ERROR(CONCAT(ARRAY_LENGTH(error_rows), " store ID(s) missing data from pdh_ref_ds.ref_str_to_sap_customermapping for the following ID(s) (", ARRAY_TO_STRING(error_rows, ", "), ")"));
+END IF;
+
 -------------------------------------------------------------------------------------------
 
 INSERT INTO `pdh_analytics_ds.tbl_fees_all`
@@ -781,16 +804,29 @@ if(proc_fee_code ='ALL', ((d.transaction_total * proc_fee_percent/100) + proc_fe
     if(proc_fee_code ='FIXED', proc_fee_fixed*100,
     if(proc_fee_code ='PERCENT',(d.transaction_total * proc_fee_percent/100),0))) 
 as processing_fees,
-IF(LEFT(net_term_id,5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNULL(fraud_fee_fixed * 100, 0), 0) fraud_fees,
+IF(LEFT(d.net_term_id, 5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNULL(fraud_fee_fixed * 100, 0), 0) fraud_fees,
 000000 as settled_datetime,
 000000 as fncl_posted_datetime,
-CAST(0.0 AS NUMERIC) early_settlement_fees,
-CAST(0.0 AS NUMERIC) cost_of_credit
+case
+	when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y'
+	then d.amt_recon_net * (r.early_settle_fee_percent / 100) * f.cost_factor
+	else 0
+end as early_settlement_fees, -- cost to be passed on to the merchant for early settlement
+case
+	when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y'
+	then d.amt_recon_net * (r.cost_of_credit_percent / 100) * f.cost_factor
+	else 0
+end as cost_of_credit -- cost incurred by WPAY for early settlement to merchants (internal only)
 from `temp_billing_all` d
-left join `pdh_ref_ds.ref_rate_card` r on trim(upper(d.calc_scheme))=trim(upper(r.scheme)) 
-and trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
-AND trim(upper(d.rate_group)) = trim(upper(r.merchant))
-AND d.switch_tran_date BETWEEN r.from_date AND IFNULL(r.to_date, '2999-12-31');
+LEFT JOIN `pdh_ref_ds.ref_rate_card` r
+	ON trim(upper(d.calc_scheme))=trim(upper(r.scheme)) 
+	AND trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
+	AND trim(upper(d.rate_group)) = trim(upper(r.merchant))
+	AND d.switch_tran_date BETWEEN r.from_date AND IFNULL(r.to_date, '2999-12-31')
+LEFT JOIN `pdh_ref_ds.ref_str_to_sap_customermapping` c
+	ON LEFT(d.net_term_id, 5) = c.wpay_store_number
+LEFT JOIN `pdh_staging_ds.temp_early_settlement_fee` f
+	ON f.switch_date = d.switch_tran_date;
 
 ---------------------------------------------------------------------------------------------------------------------------------
 
@@ -898,7 +934,7 @@ and i.approval_flag = 'Y';
 Update `pdh_analytics_ds.tbl_fees_all` i
 set interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
 i.fee_indicator = 'A'
-from (SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM `pdh_rd_data_navigator.tc33_visa`) s
+from (SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM (SELECT DISTINCT pdh_load_time, interchange_fee_atm, txn_id, txn_code_of_fin_txn, samt FROM `pdh_rd_data_navigator.tc33_visa`) v) s
 where i.tran_uid = CAST(s.txn_id AS STRING)
 and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
 and i.amt_recon_net = s.samt
@@ -1055,7 +1091,11 @@ SELECT
 	null sap_filename,
 	null sap_post_timestamp,
 	fy_start_date,
-	currency_code
+	currency_code,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.early_settlement_fees / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.early_settlement_fees / 100 END AS vcalc_early_settlement_fees_ex_gst,
+	i.early_settlement_fees / 100 AS early_settlement_fees_ex_gst,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.cost_of_credit / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.cost_of_credit / 100 END AS vcalc_cost_of_credit,
+	i.cost_of_credit / 100 AS cost_of_credit
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -1163,7 +1203,11 @@ SELECT
 	null sap_filename,
 	null sap_post_timestamp,
 	fy_start_date,
-	currency_code
+	currency_code,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.early_settlement_fees / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.early_settlement_fees / 100 END AS vcalc_early_settlement_fees_ex_gst,
+	i.early_settlement_fees / 100 AS early_settlement_fees_ex_gst,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.cost_of_credit / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.cost_of_credit / 100 END AS vcalc_cost_of_credit,
+	i.cost_of_credit / 100 AS cost_of_credit
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -1271,7 +1315,11 @@ SELECT
 	null sap_filename,
 	null sap_post_timestamp,
 	fy_start_date,
-	currency_code
+	currency_code,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.early_settlement_fees / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.early_settlement_fees / 100 END AS vcalc_early_settlement_fees_ex_gst,
+	i.early_settlement_fees / 100 AS early_settlement_fees_ex_gst,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.cost_of_credit / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.cost_of_credit / 100 END AS vcalc_cost_of_credit,
+	i.cost_of_credit / 100 AS cost_of_credit
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -1379,7 +1427,11 @@ SELECT
     null sap_filename,
     null sap_post_timestamp,
     fy_start_date,
-	currency_code
+	currency_code,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.early_settlement_fees / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.early_settlement_fees / 100 END AS vcalc_early_settlement_fees_ex_gst,
+	i.early_settlement_fees / 100 AS early_settlement_fees_ex_gst,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.cost_of_credit / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.cost_of_credit / 100 END AS vcalc_cost_of_credit,
+	i.cost_of_credit / 100 AS cost_of_credit
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -1487,7 +1539,11 @@ SELECT
     null sap_filename,
     null sap_post_timestamp,
     fy_start_date,
-	currency_code
+	currency_code,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.early_settlement_fees / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.early_settlement_fees / 100 END AS vcalc_early_settlement_fees_ex_gst,
+	i.early_settlement_fees / 100 AS early_settlement_fees_ex_gst,
+	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.cost_of_credit / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.cost_of_credit / 100 END AS vcalc_cost_of_credit,
+	i.cost_of_credit / 100 AS cost_of_credit
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
