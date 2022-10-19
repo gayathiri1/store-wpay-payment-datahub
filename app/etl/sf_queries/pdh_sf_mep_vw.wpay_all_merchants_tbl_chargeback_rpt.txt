@@ -1,14 +1,14 @@
 TRUNCATE TABLE
-  pdh_sf_mep_vw.tbl_chargeback_rpt;
+  pdh_sf_mep_vw.wpay_all_merchants_tbl_chargeback_rpt;
 INSERT INTO
-  pdh_sf_mep_vw.tbl_chargeback_rpt
+  pdh_sf_mep_vw.wpay_all_merchants_tbl_chargeback_rpt
   (
 
 SELECT
   file_date AS processing_date,
   region,
   received_dt AS date_rcvd,
-  CAST(c.id AS string) AS case_nbr,
+  CAST(c.bank_ref_no AS string) AS case_nbr,
   c.store_id AS store_nbr,
   lane,
   c.store_name AS store_name,
@@ -35,7 +35,7 @@ SELECT
     IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NULL, "Sent to store waiting on response",
      IF ( rr_sent_dttm_utc IS NULL, "Waiting on Scheme",
       IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NOT NULL AND charged_dt IS NULL, "Waiting on Scheme",
-      IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NOT NULL AND charged_dt IS NOT NULL, "Charged and open",
+      IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NOT NULL AND charged_dt IS NOT NULL, "Charged and Open",
        "" ) ) )))
     WHEN LOWER(status_open)= 'f' THEN
 IF
@@ -74,15 +74,15 @@ IF
         DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 12 DAY),File_date,DAY )
       END
         ) > 0,
-      "Potential Liability - open",
+      "Potential Liability - Open",
     IF
       ( charged_dt IS NOT NULL
         AND chgbk_rev_dt IS NOT NULL,
-        "Potential Liability - open",
+        "Potential Liability - Open",
       IF
         (charged_dt IS NULL
           AND chgbk_rev_dt IS NULL,
-          "Potential Liability - open",
+          "Potential Liability - Open",
           ""))))
 
 
@@ -105,12 +105,18 @@ If( upper(r.is_online) = "ONLINE",
     r.Merchant_group,
     r.invoice_group,
     r.division,
-    r.brand
- 
+    r.brand,
+    r.merchant_portal_mg,
+    r.merchant_portal_cg,
+    r.site_name,
+    r.suburb,
+    r.state,
+  cast(r.postcode as String) postcode
 FROM
   `pdh_rd_data_navigator.chargebacks` c
 INNER JOIN
   `pdh_ref_ds.ref_store_details` r
 ON
   UPPER(c.store_id)=r.store_id
+
 )

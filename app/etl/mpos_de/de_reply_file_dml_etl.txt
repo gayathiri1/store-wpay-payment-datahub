@@ -1,0 +1,79 @@
+----------------ETL for DE RPLY file Date Insertion
+----
+--Declare standard variables here.
+DECLARE DE_FILE_PATH STRING DEFAULT 'gs://pdh_prod_incoming/gfs/landing/fiserv_de_reply/';
+
+
+---------------- Create an external table to view the "DE Reply file" from Fiserv
+
+CREATE OR REPLACE EXTERNAL TABLE `pdh_mpos_fiserv.de_reply_file` (row STRING)
+OPTIONS (
+  allow_jagged_rows = true,
+  allow_quoted_newlines = false,
+  format = CSV,
+  max_bad_records = 0,
+  ignore_unknown_values = false,
+  encoding = UTF8,
+  field_delimiter = '*',
+  skip_leading_rows = 0,
+  uris = [
+    'gs://pdh_prod_incoming/gfs/landing/fiserv_de_reply/*'
+  ]
+);
+
+-- Truncate table 
+truncate table `pdh_mpos_fiserv.de_reply_file_parsing`;
+
+---------------- Parsing the "DE Reply file" into sections and get file details
+insert into `pdh_mpos_fiserv.de_reply_file_parsing`
+(file_name,file_transmission_date,file_sequence_number,row_type, row)
+SELECT REGEXP_EXTRACT(_FILE_NAME,CONCAT(DE_FILE_PATH,'([^/]+)')) AS file_name,
+substring(REGEXP_EXTRACT(_FILE_NAME,CONCAT(DE_FILE_PATH,'([^/]+)')),11,6) AS file_transmission_date,
+substring(REGEXP_EXTRACT(_FILE_NAME,CONCAT(DE_FILE_PATH,'([^/]+)')),17,1) AS file_sequence_number,
+case  when substring(ext.row,0,1) = '0' then 'header_1'
+      when substring(ext.row,0,1) = '1' then 'header_2'
+      when substring(ext.row,0,1) = '2' then 'detail'
+      else 'unknown' 
+      end as row_type, ext.row
+FROM `pdh_mpos_fiserv.de_reply_file` ext
+left join
+ `pdh_mpos_fiserv.de_reply_file_parsing` trg
+ on trim(substring(ext.row,69,18)) = trim(substring(trg.row,69,18))
+ where trim(substring(trg.row,69,18)) is null
+ --and left(trim(substring(ext.row,69,18)),4) = 'MPOS'
+ and substring(ext.row,0,1) = '2';
+
+
+---------------- Parsing the file_name details and loading to a table
+
+insert into `pdh_mpos_fiserv.de_reply_file_name`
+(file_description,acquirer,tpp_identifier,file_type,file_transmission_date,file_sequence_number,response,field_separator,extension)
+select substring(file_name,0,2) as file_description,substring(file_name,3,3) as acquirer,substring(file_name,6,3) as tpp_identifier,substring(file_name,9,2) as file_type,substring(file_name,11,6) as file_transmission_date,substring(file_name,17,1) as file_sequence_number,substring(file_name,18,8) as response,substring(file_name,26,1) as field_separator,substring(file_name,27,4) as extension
+from `pdh_mpos_fiserv.de_reply_file_parsing`
+group by file_name,file_description,acquirer,tpp_identifier,file_type,file_transmission_date,file_sequence_number,response,field_separator,extension;
+
+---------------- Parsing the header one section and loading to a table
+
+insert into `pdh_mpos_fiserv.de_reply_file_header_1`
+select substring(row,0,1) as record_type,substring(row,2,14) as payment_reference_number,substring(row,16,7) as reserved1,substring(row,23,9) as reserved2,substring(row,32,16) as date_time_processed,substring(row,48,1) as reporting_method,substring(row,49,6) as user_identification_number,substring(row,55,12) as file_entries_description,substring(row,67,8) as date_to_be_processed,substring(row,75,22) as customer_reference,substring(row,97,1) as pending_authorization,substring(row,98,4) as fail_reason_code,substring(row,102,40) as fail_reason_code_text
+from `pdh_mpos_fiserv.de_reply_file_parsing`
+where row_type='header_1';
+
+---------------- Parsing the header two section and loading to a table
+
+insert into `pdh_mpos_fiserv.de_reply_file_header_2`
+select substring(row,0,1) as record_type,substring(row,2,6) as number_of_valid_items,substring(row,8,6) as number_of_items_failed,substring(row,14,15) as credit_totals_of_valid_items,substring(row,29,15) as debit_total_of_valid_items,substring(row,44,15) as credit_totals_of_failed_items,substring(row,59,15) as debit_total_of_failed_items
+from `pdh_mpos_fiserv.de_reply_file_parsing`
+where row_type='header2';
+
+---------------- Parsing the detail section and loading to a table
+
+insert into `pdh_mpos_fiserv.de_reply_file_detail`
+select substring(row,0,1) as record_type,substring(row,2,6) as sequence_number,substring(row,8,7) as credited_account_bsb,substring(row,15,9) as credited_account_number,substring(row,24,1) as withholding_tax_indicatory,substring(row,25,2) as transaction_code,substring(row,27,10) as credited_amount,substring(row,37,32) as credited_account_title,substring(row,69,18) as lodgement_reference,substring(row,87,7) as trace_bsb_number,substring(row,94,9) as trace_account_number,substring(row,103,16) as name_of_remitter,substring(row,119,8) as withholding_amount,substring(row,127,4) as status_code,substring(row,131,40) as status_text
+from `pdh_mpos_fiserv.de_reply_file_parsing` src
+left join
+     `pdh_mpos_fiserv.de_reply_file_detail` trg
+ on trim(substring(src.row,69,18)) = trim(trg.lodgement_reference)
+ where row_type='detail'
+ and trim(trg.lodgement_reference) is null;
+ --and left(trim(substring(src.row,69,18)),4) = 'MPOS';

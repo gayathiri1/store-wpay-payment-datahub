@@ -1,5 +1,6 @@
 --Start of Script
 --load Settlement Listing add Source CY
+--2022-10-11 Cater for string input for rrn from isg
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
 --
@@ -142,7 +143,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    rpad(cast(tcy.trasnaction_timestamp as string),14,"0") as timestamp_local,
                    tcy.pan as CardNumber,
                    cast(null as string) stan,
-                   cast(ifnull(tcy.retrieval_reference_number,0) as string) as rrn,
+                   ifnull(tcy.retrieval_reference_number,"0") as rrn, /* 2022-10-11 */
                    cast(null as string) original_stan,
                    cast(null as string) mti,
                    cast(tcy.card_entry_mode as string) as CardEntryMode,
@@ -252,7 +253,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    st4.tran_settlement_amount + st4.discount_amt as trans_amt,
                    st4.transaction_timestamp,
                    case
-                      when tdp.txnTime is null then "1900-01-01T00:00:00"
+                      when tdp.txnTime is null then "19000101000000" /* 2022-10-11 */
                       else format_datetime("%Y%m%d%H%M%S",datetime(txnTime))
                    end as  timestamp_local,
                    cast(null as string) as CardNumber,

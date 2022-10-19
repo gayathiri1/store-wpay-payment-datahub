@@ -1,0 +1,162 @@
+--Declare standard variables here.
+DECLARE SYS_DATE DATE DEFAULT CURRENT_DATE("Australia/Sydney");
+DECLARE tran_date DATE DEFAULT DATE_SUB(SYS_DATE, INTERVAL 1 DAY); -- Get transactions from 1 calendar days prior
+DECLARE batch string;
+DECLARE inp_lookup STRING DEFAULT "DE MPOS";
+
+
+---DE file generation
+-----------
+---Truncate all "DE File" tables except the history table (everytime this process is run)
+truncate table `pdh_mpos_fiserv.de_file_name`;
+truncate table `pdh_mpos_fiserv.de_file_header`;
+truncate table `pdh_mpos_fiserv.de_file_detail`;
+truncate table `pdh_mpos_fiserv.de_file_detail_agg`;
+truncate table `pdh_mpos_fiserv.de_file_trailer`;
+truncate table `pdh_mpos_fiserv.de_file_text`;
+truncate table `pdh_mpos_fiserv.de_file`;
+truncate table `pdh_mpos_fiserv.transactions_master`;
+truncate table `pdh_mpos_fiserv.transactions_daily_processing`;
+
+-------------- Transactions Master
+---- Ingesting new transactions from previous day's file only. If more days to be processed, modify below query.
+
+insert into `pdh_mpos_fiserv.transactions_master`
+(file_date,store_number,total_transaction_amount,process_status)
+SELECT  cast(file_date as STRING) as file_date,SUBSTR(term_id, 1, 5) as store_number, cast(FORMAT("%'.2f", sum(tran_amt)) as STRING) as total_transaction_amount, '1' as process_status
+ FROM `pdh_rd_external.dwh_tr_feed`
+ WHERE file_date = SYS_DATE-1 and tran_stat='Cleared'  --Original value D-1
+ group by file_date,SUBSTR(term_id, 1, 5);
+ 
+ 
+-------------- Transactions Daily Processing
+------generating the "file transmission date-sequence number" combo and mapping to all new & failed transactions
+
+insert into `pdh_mpos_fiserv.transactions_daily_processing` (file_transmission_date,file_sequence_number,file_date,store_number,total_transaction_amount)
+with ftd as (
+select case when max(file_transmission_date) is null or max(file_transmission_date) != FORMAT_DATE('%y%m%d',SYS_DATE) then FORMAT_DATE('%y%m%d',SYS_DATE) else max(file_transmission_date) end as file_transmission_date,
+case when max(file_transmission_date) is null or max(file_transmission_date) != FORMAT_DATE('%y%m%d',SYS_DATE) then '1' else cast(max(cast (file_sequence_number as NUMERIC))+1 as STRING) end as file_sequence_number
+from  `pdh_mpos_fiserv.transactions_daily_processing` 
+),
+tm as (
+select  file_date,store_number,total_transaction_amount
+from `pdh_mpos_fiserv.transactions_master`
+where cast(process_status as NUMERIC) > 0
+)
+select file_transmission_date,file_sequence_number,file_date,store_number,total_transaction_amount from ftd,tm;
+
+
+
+-------------- File Name
+---- currently processing only one "transmission date-sequence number" combo picking the latest one
+
+insert into `pdh_mpos_fiserv.de_file_name`
+(job_id,file_description,acquirer,tpp_identifier,file_type,file_transmission_date,file_sequence_number)
+select job_id,file_description,acquirer,tpp_identifier,file_type,file_transmission_date,file_sequence_number
+from `pdh_mpos_fiserv.wpay_account_details` wpay
+inner join
+(
+select max(file_transmission_date) as file_transmission_date ,max(file_sequence_number) as file_sequence_number
+from `pdh_mpos_fiserv.transactions_daily_processing`
+) txn
+on wpay.account_name='WPAY';
+
+
+-------------- File Header
+-----------
+
+
+insert into `pdh_mpos_fiserv.de_file_header`
+(file_transmission_date,file_sequence_number,record_type,reserved1,reserved2,reserved3,sequence_number,user_financial_institution,reserved4,user_supplying_file,user_identification_number,file_entries_description,date_to_be_processed,reserved5,reserved6)
+select file_transmission_date,file_sequence_number,'0',lpad('',7,' '),lpad('',9,' '),lpad('',1,' '),'01','ANZ',lpad('',7,' '),rpad('FDSMA',26,' '),user_identification_number,rpad('MERCH PMNTS',12,' '),FORMAT_DATE('%d%m%y',parse_date('%y%m%d',file_transmission_date)),lpad('',4,' '),lpad('',36,' ')
+from `pdh_mpos_fiserv.de_file_name` filename
+inner join `pdh_mpos_fiserv.wpay_account_details` wpay
+on wpay.account_name='WPAY';
+
+
+-------------- File Detail
+---- currently processing only one "transmission date-sequence number" combo picking the latest one
+
+insert into `pdh_mpos_fiserv.de_file_detail`
+(file_transmission_date,file_sequence_number,record_type,credited_account_bsb,credited_account_number,withholding_tax_indicatory,transaction_code,credited_amount,credited_account_title,lodgement_reference,trace_bsb_number,trace_account_number,name_of_remitter,withholding_amount)
+select header.file_transmission_date,header.file_sequence_number,'1' as record_type,division.bsb_number,division.account_number,lpad('',1,' '),'50',lpad(regexp_replace(coalesce(total_transaction_amount,''), '[^0-9]', ''), 10, '0'),rpad(coalesce(division.account_title,concat('Store #',store.store_number)),32,' '),rpad(concat('MPOS-',store.store_number,'-',FORMAT_DATE('%d%m%y',SYS_DATE-1)),18,' '),wpay.bsb_number,wpay.account_number,rpad(wpay.remitter_name,16,' '),lpad(regexp_replace(coalesce(store.withholding_amount,''), '[^0-9]', ''), 8, '0')
+from `pdh_mpos_fiserv.de_file_header` header
+inner join `pdh_mpos_fiserv.wpay_account_details` wpay
+on wpay.account_name='WPAY'
+inner join `pdh_mpos_fiserv.transactions_daily_processing` txn
+on txn.file_transmission_date = header.file_transmission_date and txn.file_sequence_number = header.file_sequence_number
+inner join `pdh_mpos_fiserv.division_store_mapping` store
+on store.store_number = txn.store_number
+inner join `pdh_mpos_fiserv.division_account_details` division
+on division.division_name = store.division_name;
+
+
+-------------- File Detail Aggregate
+---- 
+
+insert into `pdh_mpos_fiserv.de_file_detail_agg`
+(file_transmission_date,file_sequence_number,file_detail_agg)
+select file_transmission_date, file_sequence_number, STRING_AGG(file_detail,'\r\n') as file_detail_agg
+ from 
+(
+select header.file_transmission_date, header.file_sequence_number,concat(detail.record_type,credited_account_bsb,credited_account_number,withholding_tax_indicatory,transaction_code,credited_amount,credited_account_title,lodgement_reference,trace_bsb_number,trace_account_number,name_of_remitter,withholding_amount) as file_detail
+from `pdh_mpos_fiserv.de_file_detail` detail
+inner join `pdh_mpos_fiserv.de_file_header` header
+on detail.file_transmission_date = header.file_transmission_date and detail.file_sequence_number = header.file_sequence_number
+)
+ group by file_transmission_date,file_sequence_number;
+
+
+-------------- File Trailer
+---- 
+
+insert into `pdh_mpos_fiserv.de_file_trailer`
+(file_transmission_date,file_sequence_number,record_type,reserved1,reserved2,batch_net_total_amount,batch_credit_total_amount,batch_debit_total_amount,reserved3,batch_total_item_count,reserved4)
+select header.file_transmission_date, header.file_sequence_number,'7','999-999',lpad('',12,' '),lpad(cast(batch_net_total_amount as STRING), 10, '0'),lpad(cast(batch_net_total_amount as STRING), 10, '0'),lpad('',10,'0'),lpad('',24,' '),lpad(cast(batch_total_item_count as STRING),6,'0'),lpad('',40,' ')
+from 
+(
+  select file_transmission_date,file_sequence_number,sum(cast(credited_amount as NUMERIC)) as batch_net_total_amount, count(cast(credited_amount as NUMERIC)) as batch_total_item_count
+  from `pdh_mpos_fiserv.de_file_detail` 
+group by file_transmission_date,file_sequence_number
+) detail
+inner join `pdh_mpos_fiserv.de_file_header` header
+on detail.file_transmission_date = header.file_transmission_date and detail.file_sequence_number = header.file_sequence_number;
+
+-------------- File Text
+---- 
+
+insert into `pdh_mpos_fiserv.de_file_text`
+(file_transmission_date,file_sequence_number,file_name,file_header,file_detail,file_trailer)
+select 
+fn.file_transmission_date,fn.file_sequence_number,
+concat(fn.job_id,'.',fn.file_description,fn.acquirer,fn.tpp_identifier,fn.file_type,fn.file_transmission_date,fn.file_sequence_number,'.aba') AS file_name,
+concat(fh.record_type,fh.reserved1,fh.reserved2,fh.reserved3,fh.sequence_number,fh.user_financial_institution,fh.reserved4,fh.user_supplying_file,fh.user_identification_number,fh.file_entries_description,fh.date_to_be_processed,fh.reserved5,fh.reserved6) as file_header,
+fd.file_detail_agg,
+concat(ft.record_type,ft.reserved1,ft.reserved2,ft.batch_net_total_amount,ft.batch_credit_total_amount,ft.batch_debit_total_amount,ft.reserved3,ft.batch_total_item_count,ft.reserved4) as file_trailer
+from `pdh_mpos_fiserv.de_file_name` fn
+join `pdh_mpos_fiserv.de_file_header` fh 
+on fn.file_transmission_date = fh.file_transmission_date and fn.file_sequence_number = fh.file_sequence_number
+join `pdh_mpos_fiserv.de_file_detail_agg` fd
+on fn.file_transmission_date = fd.file_transmission_date and fn.file_sequence_number = fd.file_sequence_number
+join `pdh_mpos_fiserv.de_file_trailer` ft 
+on fn.file_transmission_date = ft.file_transmission_date and fn.file_sequence_number = ft.file_sequence_number;
+
+-------------- File
+---- 
+
+insert into `pdh_mpos_fiserv.de_file`
+(file_transmission_date,file_sequence_number,file_name,file_text)
+select file_transmission_date,file_sequence_number,file_name,concat(file_header,'\r\n',file_detail,'\r\n',file_trailer,'\r\n')
+  from `pdh_mpos_fiserv.de_file_text`;
+
+
+--------------- File History 
+----
+insert into `pdh_mpos_fiserv.de_file_hist`
+(file_transmission_date,file_sequence_number,file_name,file_text)
+select * from `pdh_mpos_fiserv.de_file`;
+
+--Call lookup method.
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+-- Create entry in control table
+INSERT INTO pdh_analytics_ds.file_gen_details VALUES (batch, SYS_DATE, "dempos", true, null, cast(tran_date as datetime), cast(tran_date as datetime), cast(tran_date as datetime), null);

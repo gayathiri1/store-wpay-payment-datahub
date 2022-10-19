@@ -16,7 +16,7 @@ SELECT
   CAST(gfs_aux_visa.stan AS FLOAT64) AS stan,
   gfs_aux_visa.tstamp_local AS tstamp_local,
   gfs_aux_visa.date_recon AS date_recon,
-  CAST(gfs_aux_visa.rrn AS FLOAT64) AS rrn,
+  gfs_aux_visa.rrn AS rrn,
   gfs_aux_visa.card_acpt_term_id AS card_acpt_term_id,
   ref_store_details.division AS division,
   ref_store_details.brand AS brand,

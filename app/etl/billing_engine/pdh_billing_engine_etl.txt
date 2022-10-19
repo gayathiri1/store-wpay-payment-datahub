@@ -5,6 +5,7 @@ DECLARE data_req_date DATE DEFAULT Date_sub(current_date('+10:00'),Interval 2 da
 DECLARE missing_data ARRAY<STRING>;
 DECLARE error_rows ARRAY<STRING>;
 
+
 DECLARE switch_date_array ARRAY<DATE>;
 
 SET missing_data = (SELECT ARRAY((
@@ -69,6 +70,8 @@ UPDATE `pdh_staging_ds.temp_early_settlement_fee`
 	set cost_factor = pdh_staging_ds.CalculateCostFactor(switch_date) where 1=1;
 
 -- MASTERCARD JOIN QUERY
+-- The Mastercard scheme data is received as two files (TFL6 for transactions and T1G0 for settlements),
+-- so we join them into one table to simplify processing
 create or replace table `pdh_staging_ds.gfs_aux_mastercard` as
 with clr as
 (
@@ -98,7 +101,7 @@ tlf as
         cast(time_local as int64) local_time,
         trim(auth_id_response) auth_id_response,
         system_trace_audit system_trace_audit_num,
-        retrieval_reference_number,
+        CAST(retrieval_reference_number AS STRING) retrieval_reference_number,
         file_date tfl6_file_date,
     from `pdh_rd_data_navigator.mastercard_TFL6` where
         trim(clearing_indicator)='Y'
@@ -124,7 +127,6 @@ firstlvl AS (
     and c.local_transaction_date=t.local_transaction_date and c.local_time = t.local_time-- and t.auth_id_response = c.approval_code
 ),
 secondlvl AS (
-
     Select 
     firstlvl.t1g0_file_date,
     firstlvl.tfl6_file_date,
@@ -325,6 +327,7 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
 			WHEN MerchantName = 'DanMurphysOnline' then 'W8305'
 			WHEN MerchantName = 'ScanGoSuper' then 'W6134'
 			WHEN MerchantName = 'Langtons' then 'WC500'
+			WHEN MerchantName = 'JimmyBrings' then 'Z0004'
 			WHEN MerchantName = 'Everyday Pay' then 'W5972'
 			ELSE null
 		END, "000")
@@ -334,6 +337,7 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
         WHEN MerchantName = 'DanMurphysOnline' then 'W8305'
         WHEN MerchantName = 'ScanGoSuper' then 'W6134'
         WHEN MerchantName = 'Langtons' then 'WC500'
+		WHEN MerchantName = 'JimmyBrings' then 'Z0004'
 		WHEN MerchantName = 'Everyday Pay' then IF(terminal_id IS NOT NULL, LEFT(terminal_id, 5), 'W5972')
         ELSE null
     END) rpt_lvl_id_b,
@@ -388,6 +392,7 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
         WHEN MerchantName = 'DanMurphysOnline' then 'W8305'
         WHEN MerchantName = 'ScanGoSuper' then 'W6134'
         WHEN MerchantName = 'Langtons' then 'WC500'
+		WHEN MerchantName = 'JimmyBrings' then 'Z0004'
 		WHEN MerchantName = 'Everyday Pay' then IF(terminal_id IS NOT NULL, LEFT(terminal_id, 5), 'W5972')
         ELSE null
     END) = s.store_id
