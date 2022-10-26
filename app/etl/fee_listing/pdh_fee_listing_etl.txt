@@ -209,7 +209,8 @@ WITH result AS (
     LEFT(local_timestamp, 14) transaction_local_timestamp,
     CONCAT(LEFT(pan, 6), "******", RIGHT(pan, 4)) pan,
     FORMAT('%06d', CAST(stan AS int64)) stan,
-    FORMAT('%012d', CAST(rrn AS int64)) rrn,
+    -- FORMAT('%012d', CAST(rrn AS int64)) rrn,
+    rrn,
     FORMAT('%04d', CAST(mti AS int64)) mti,
     CASE WHEN TRIM(issuer) = 'VDCS' THEN "VISA"
 		 WHEN TRIM(issuer) = 'MC' THEN "MASTERCARD"
@@ -252,7 +253,8 @@ SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, 
     LEFT(local_timestamp, 14) transaction_local_timestamp,
     CONCAT(LEFT(pan, 6), "******", RIGHT(pan, 4)) pan,
     FORMAT('%06d', CAST(stan AS int64)) stan,
-    FORMAT('%012d', CAST(rrn AS int64)) rrn,
+    -- FORMAT('%012d', CAST(rrn AS int64)) rrn,
+    rrn,
     FORMAT('%04d', CAST(mti AS int64)) mti,
     CASE WHEN TRIM(issuer) = 'VDCS' THEN "VISA"
 		 WHEN TRIM(issuer) = 'MC' THEN "MASTERCARD"
@@ -295,7 +297,8 @@ SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, 
     LEFT(local_timestamp, 14) transaction_local_timestamp,
     CONCAT(LEFT(pan, 6), "******", RIGHT(pan, 4)) pan,
     FORMAT('%06d', CAST(stan AS int64)) stan,
-    FORMAT('%012d', CAST(rrn AS int64)) rrn,
+    -- FORMAT('%012d', CAST(rrn AS int64)) rrn,
+    rrn,
     FORMAT('%04d', CAST(mti AS int64)) mti,
     CASE WHEN TRIM(issuer) = 'VDCS' THEN "VISA"
 		 WHEN TRIM(issuer) = 'MC' THEN "MASTERCARD"
