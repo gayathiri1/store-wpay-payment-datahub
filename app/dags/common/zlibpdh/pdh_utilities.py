@@ -224,6 +224,10 @@ class PDHUtils:
             df = pd.read_csv('gs://' + src_file, sep='|', dtype=str, skiprows=1, encoding='ISO-8859-1', header=None)            
             df.drop(df.tail(1).index, inplace=True)
             df.to_csv('gs://'+trgt_file,sep='|', index=False, header=None)
+        elif 'dn_wpaygfssst' in src_file:
+            df = pd.read_csv('gs://' + src_file, sep=',', dtype=str, skiprows=1, encoding='ISO-8859-1', header=None)            
+            df.drop(df.tail(1).index, inplace=True)
+            df.to_csv('gs://'+trgt_file,sep=',', index=False, header=None)
         else:
             df = pd.read_csv('gs://'+src_file,dtype=str,encoding='unicode_escape',header=header)
             df.drop(df.tail(1).index, inplace=True)
@@ -235,7 +239,7 @@ class PDHUtils:
         secret_file = os.path.join(os.getcwd(), '/home/airflow/gcs/data/gcp-wow-wpay-paydathub-prod-07bbd8b2b461.json')
         
         #Check for UAT SA.        
-        if 'uat' in project_name.lower():
+        if 'uat' in project_name.lower() or 'dev' in project_name.lower():
             secret_file = os.path.join(os.getcwd(), '/home/airflow/gcs/data/gcp-wow-wpay-paydathub-uat-a343797a8cbe.json')
         
         creds = service_account.Credentials.from_service_account_file(secret_file, scopes=SCOPES)        

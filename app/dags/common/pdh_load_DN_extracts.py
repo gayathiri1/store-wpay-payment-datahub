@@ -132,7 +132,8 @@ def load_target_table(**kwargs):
         yy_val = now_val.strftime("%Y%m%d")[:2]               
         file_date = file_name.split('/')[3].split('.')[2][1:]
         file_date = str(yy_val)+file_date
-    elif 'edp_wallet' in file_name.lower():        
+    elif 'edp_wallet' in file_name.lower()\
+    or 'dn_wpaygfssst' in file_name.lower():
         file_date = file_name.split('/')[3].split('.')[0][-14:-6]                
     else:
         file_date = file_name.split('/')[3].split('.')[0][-8:]
