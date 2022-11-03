@@ -46,7 +46,7 @@ DECLARE batch  STRING;
 
 SET flist_count = flst_smlmrc_count + flst_edg_count + flst_egfuel_count;
 
-IF minitaf_count = 0 OR flst_mtaf <> flist_count 
+IF minitaf_count = 0 OR flist_count=0 
 THEN
     RETURN;
 END IF;
