@@ -1,6 +1,7 @@
 --Start of Script
 --load Settlement Listing add Source CY
 --2022-10-11 Cater for string input for rrn from isg
+--20221103 Include Amex transactions
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
 --
@@ -130,17 +131,20 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
            and ifnull(st1.setlmnt_result_file,"") <> ""),
    trcy as (
             Select concat("CY_",cast(tcy.tran_uid as string),"_",
-               left(rpad(cast(tcy.trasnaction_timestamp as string),14,"0"),8),"T",
-              right(rpad(cast(tcy.trasnaction_timestamp as string),14,"0"),6),"_",
+               left(rpad(cast(tcy.transaction_timestamp as string),14,"0"),8),"T",
+              right(rpad(cast(tcy.transaction_timestamp as string),14,"0"),6),"_",
                upper(trim(tcy.transaction_type)),"_",
                cast(abs(ifnull(tcy.transaction_amount,0) * 0.01) as string)
                ) as tran_uid,
                    st2.division,
                    st2.store_id,
-                   tcy.terminal_id,
+                   case --20221103 get terminal_id from ref_key_value if empty in isg_tran
+                      when trim(ifnull(tcy.terminal_id,"")) = "" then trim(rk.value)
+                      else trim(tcy.terminal_id)
+                   end terminal_id,
                    st2.tran_settlement_amount + st2.discount_amt as trans_amt,
                    st2.transaction_timestamp,
-                   rpad(cast(tcy.trasnaction_timestamp as string),14,"0") as timestamp_local,
+                   rpad(cast(tcy.transaction_timestamp as string),14,"0") as timestamp_local,
                    tcy.pan as CardNumber,
                    cast(null as string) stan,
                    ifnull(tcy.retrieval_reference_number,"0") as rrn, /* 2022-10-11 */
@@ -172,13 +176,16 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
       from `pdh_rd_data_navigator.isg_wpay_tran` tcy
       join  pdh_analytics_ds.stlm_standard_settlement_table st2
             on st2.tran_uid = concat("CY_",cast(tcy.tran_uid as string),"_",
-               left(rpad(cast(tcy.trasnaction_timestamp as string),14,"0"),8),"T",
-              right(rpad(cast(tcy.trasnaction_timestamp as string),14,"0"),6),"_",
+               left(rpad(cast(tcy.transaction_timestamp as string),14,"0"),8),"T",
+              right(rpad(cast(tcy.transaction_timestamp as string),14,"0"),6),"_",
                upper(trim(tcy.transaction_type)),"_",
                cast(abs(ifnull(tcy.transaction_amount,0) * 0.01) as string)
                )   /* 2022-07-06 */
             and ifnull(st2.tlf_name,"") = "" 
             and ifnull(st2.setlmnt_result_file,"") <> ""
+      left join pdh_ref_ds.ref_key_value rk 
+           on rk.attribute = "merchant-terminalid mapping"
+          and upper(trim(rk.key)) = upper(trim(cast(tcy.merchant_id as string)))
                ),
 --
      trlk as (
@@ -212,11 +219,11 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    cast(null as string) as card_subtype,
                    st3.posting_date as settlement_date,
                    case upper(trim(tlk.ResHRC)) 
-                      when "SUCCESS" then "00" 
+                      when "SUCCESS" then "00" 
                       else "12"
                    end as  response_code,
                    case upper(trim(tlk.ResHRC)) 
-                      when "SUCCESS" then "1" 
+                      when "SUCCESS" then "1" 
                       else "0"
                    end as approval_status,
                   cast(null as string) as approval_code,
@@ -254,8 +261,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    st4.transaction_timestamp,
                    case
                       when tdp.txnTime is null then "19000101000000" /* 2022-10-11 */
-                      else format_datetime("%Y%m%d%H%M%S",datetime(txnTime))
-                   end as  timestamp_local,
+                      else format_datetime("%Y%m%d%H%M%S",datetime(txnTime))
+                   end as  timestamp_local,
                    cast(null as string) as CardNumber,
                    cast(null as string) as stan,
                    tdp.RRN as rrn,
@@ -287,7 +294,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    cast(null as string) as original_scheme,
                    cast(null as string) as    mcr_ind,
                    "" as outlet
-      from `pdh_rd_data_navigator.digitalpay_gc_txns`  tdp
+      from `pdh_rd_data_navigator.digitalpay_gc_txns`  tdp
       join  pdh_analytics_ds.stlm_standard_settlement_table st4
             on st4.tran_uid = concat("DP_",trim(tdp.txnRef))
            and ifnull(st4.tlf_name,"") = "" 

@@ -3,13 +3,12 @@ truncate table pdh_analytics_ds.visa_cyber_fee_analysis_rpt ;
 insert into pdh_analytics_ds.visa_cyber_fee_analysis_rpt  
 SELECT
   s.file_date AS file_date,
-  PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,	
+  PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8))	 as transaction_date,	
   LEFT(s.term_id,5)AS card_acpt_term_id,
    i.domesitic_international_ind AS domestic_or_international,
   i.card_type,
     i.transaction_type,
-  
-  Case 
+    Case 
   when i.transaction_type = 'PURCHASE'
    then CAST(i.transaction_amount/100 AS FLOAT64)
     when i.transaction_type = 'REFUND'
@@ -22,9 +21,9 @@ SELECT
     then CAST(s.interchange_fee_atm/1000000/1.1 AS FLOAT64)*-1 
     end  AS interchange_fee, 
    CAST(s.interchange_fee_atm/1000000 AS FLOAT64)/ CAST(i.transaction_amount/100 AS FLOAT64) AS calc_interchange_fee,
-    i.trasnaction_timestamp AS tstamp_trans,
-  PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) AS tran_date,
-  i.trasnaction_local_timestamp AS tstamp_local,
+    i.transaction_timestamp AS tstamp_trans,
+  PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) AS tran_date,
+  i.transaction_local_timestamp AS tstamp_local,
    ref_store_details.division AS division,
   ref_store_details.brand AS brand,
   ref_store_details.store_id,
@@ -69,7 +68,7 @@ ON
   UPPER(ref_store_details.ratecard_group) = UPPER(ref_rate_card.merchant)
   AND
    upper(i.card_type) = UPPER(ref_rate_card.card_type)
-  AND PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))
+  AND PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8))
    BETWEEN ref_rate_card.from_date  AND IFNULL(ref_rate_card.to_date, '2999-12-31')
   AND UPPER(ref_rate_card.scheme) = "VISA"
 

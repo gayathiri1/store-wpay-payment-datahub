@@ -4,7 +4,7 @@ insert into pdh_analytics_ds.mastercard_cyber_fee_analysis_rpt
 WITH d AS (
    (SELECT		
     s.file_date,	
-     PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,	
+     PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8))	 as transaction_date,	
     r.division,		
     r.company,		
     r.merchant_group,		
@@ -56,10 +56,9 @@ left JOIN (  SELECT    *,
 
 union all
 (
-  
- SELECT		
+   SELECT		
     s.file_date,
-     PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,		
+     PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8))	 as transaction_date,		
     r.division,		
     r.company,		
     r.merchant_group,		
@@ -85,7 +84,7 @@ Left JOIN
 
 (SELECT *, RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank FROM pdh_rd_data_navigator.tn70_mc) s
 on (i.terminal_id = s.card_acceptor_terminal_id and i.pan = s.pan and s.processing_code = 200000
- and PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8)) = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
+ and PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8)) = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
 and (i.transaction_type = 'REFUND' and s.processing_code = 200000)
 and i.transaction_amount = s.transaction_amt)
 and s.rank = 1  
@@ -115,7 +114,7 @@ and
   d1 AS (
    (SELECT
     s.file_date,
-     PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,		
+     PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8))	 as transaction_date,		
     r.division,		
     r.company,		
     r.merchant_group,		
@@ -172,7 +171,7 @@ FROM  pdh_rd_data_navigator.isg_wpay_tran i
 
       SELECT
     s.file_date,
-     PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8))	 as transaction_date,		
+     PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8))	 as transaction_date,		
     r.division,		
     r.company,		
     r.merchant_group,		
@@ -199,7 +198,7 @@ FROM  pdh_rd_data_navigator.isg_wpay_tran i
 
 (SELECT *, RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank FROM pdh_rd_data_navigator.tn70_mc) s
 on (i.terminal_id = s.card_acceptor_terminal_id and i.pan = s.pan and s.processing_code = 200000
- and PARSE_DATE("%Y%m%d", LEFT(CAST(i.trasnaction_timestamp AS STRING), 8)) = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
+ and PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8)) = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
 and (i.transaction_type = 'REFUND' and s.processing_code = 200000)
 and i.transaction_amount = s.transaction_amt)
 and s.rank = 1

@@ -3,6 +3,9 @@ DECLARE end_date DATE DEFAULT Date_sub(current_date('+10:00'),Interval 3 day);
 DECLARE data_req_date DATE DEFAULT Date_sub(current_date('+10:00'),Interval 2 day);
 
 DECLARE missing_data ARRAY<STRING>;
+
+DECLARE missing_intermediate_data ARRAY<DATE>;
+
 DECLARE error_rows ARRAY<STRING>;
 
 
@@ -50,8 +53,138 @@ SET missing_data = (SELECT ARRAY((
 	GROUP BY 1 HAVING MAX(file_date) < data_req_date
 )));
 
+
+
+
+SET missing_intermediate_data = (SELECT ARRAY((
+
+	select distinct clndr_date from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.gfs_pdh_txn_interface` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+	UNION ALL
+	
+	select distinct clndr_date from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.gfs_pdh_txn_interface_super` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+
+
+	UNION ALL
+	
+	
+	select distinct clndr_date from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.digitalpay_gc_txns` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+	UNION ALL
+	
+	
+	select  distinct clndr_date from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_quickcilver.qc_detail_transactions` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+	UNION ALL
+	
+	select  distinct clndr_date  from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_apm.alipay_linkly` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+	UNION ALL
+	
+	
+	select  distinct clndr_date  from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.isg_wpay_tran` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+	UNION ALL
+	
+	select  distinct clndr_date  from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.mastercard_TFL6` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+	UNION ALL
+	
+
+	select  distinct clndr_date  from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.mastercard_T1G0` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+	UNION ALL
+	
+	
+	
+	select  distinct clndr_date  from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.gfs_aux_visa` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+	
+	UNION ALL
+	
+	
+	select  distinct clndr_date from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.gfs_aux_eftpos` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+
+	
+	UNION ALL
+
+
+	select  distinct clndr_date  from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.tc33_visa` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+	UNION ALL
+	
+	
+	select  distinct clndr_date  from (
+	SELECT d.clndr_date,count(s.file_date) name FROM 
+	`pdh_ref_ds.dim_date` d 
+	left join `pdh_rd_data_navigator.tn70_mc` s on d.clndr_date=s.file_date
+	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
+	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
+	
+)));
+
 IF ARRAY_LENGTH(missing_data) > 0 THEN
 	SELECT ERROR(CONCAT("Raw billing data is not up to date in tables: ", ARRAY_TO_STRING(missing_data, ", ")));
+END IF;
+
+IF ARRAY_LENGTH(missing_intermediate_data) > 0 THEN
+	SELECT ERROR(CONCAT("Raw billing data is not up to date in tables for last 1 week: ", ARRAY_TO_STRING(missing_intermediate_data, ", ")));
+
 END IF;
 
 SET start_date = (SELECT MAX(switch_tran_date) + 1 FROM `pdh_analytics_ds.tbl_fees_all`);
@@ -61,7 +194,9 @@ IF start_date > end_date THEN
 END IF;
 
 -- EARLY SETTLEMENT DATE ARRAY
-SET switch_date_array = (SELECT GENERATE_DATE_ARRAY(start_date-1, end_date+1, INTERVAL 1 DAY));
+
+SET switch_date_array = (SELECT GENERATE_DATE_ARRAY(start_date-10, end_date+10, INTERVAL 1 DAY));
+
 
 CREATE OR REPLACE TABLE `pdh_staging_ds.temp_early_settlement_fee` AS
 	SELECT *,0 as cost_factor from UNNEST(switch_date_array) as switch_date;
@@ -89,7 +224,7 @@ with clr as
     mssg_reversal_indicator
      from `pdh_rd_data_navigator.mastercard_T1G0`
      where trim(card_acceptor_terminal_id)<>''
-    and file_date > "2021-07-04"
+    and file_date > "2022-07-04"
 ),
 tlf as 
 (
@@ -105,7 +240,7 @@ tlf as
         file_date tfl6_file_date,
     from `pdh_rd_data_navigator.mastercard_TFL6` where
         trim(clearing_indicator)='Y'
-          and file_date > "2021-07-04"
+          and file_date > "2022-07-04"
     GROUP BY 1,2,3,4,5,6,7,8,9
     
 ),
@@ -422,7 +557,10 @@ Select
 	null tstamp_local,
 	CAST(CardNumber AS STRING) masked_pan,  -- MASK PAN
     CAST(TransactionDate AS DATE) date_recon_acq,
-    POSName net_term_id,  -- Add conditions where POSNAME Is not Store number
+    CASE
+		WHEN UPPER(POSName) LIKE '%ONLINE%' THEN CONCAT(OutletCode, "000")
+		ELSE POSName
+	END	net_term_id,
     Concat('01',OutletCode) rpt_lvl_id_b, -- Add conditions where POSNAME Is not Store number
     null as mti,
     null tran_type_id,
@@ -580,16 +718,16 @@ Select
 
 insert into `pdh_staging_ds.tbl_temp_billing_all`
 Select 
-	PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) switch_tran_date,
+	PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) switch_tran_date,
 	case
 		when scheme ='VISA' then cast(tran_uid as string)
 		when scheme = 'MASTERCARD' then trace_id
 		else  cast(tran_uid as string)
 	end as tran_uid,
-	CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(trasnaction_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(trasnaction_timestamp AS STRING), 6))) as timestamp) tstamp_trans,
-	CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(trasnaction_local_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(trasnaction_local_timestamp AS STRING), 6))) as timestamp) tstamp_local,
+	CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(transaction_timestamp AS STRING), 6))) as timestamp) tstamp_trans,
+	CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_local_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(transaction_local_timestamp AS STRING), 6))) as timestamp) tstamp_local,
 	pan masked_pan,  -- MASK PAN
-    PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) date_recon_acq,
+    PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) date_recon_acq,
     terminal_id net_term_id,  -- Add conditions where POSNAME Is not Store number
 	null as rpt_lvl_id_b, -- Add conditions where POSNAME Is not Store number
 	null as mti,
@@ -650,7 +788,7 @@ Select
     left(d.terminal_id,5) = s.store_id 
 	LEFT join `pdh_ref_ds.ref_merchant_settlement_window` msw
     ON UPPER(TRIM(s.division)) = msw.division
-    where PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) >= start_date and PARSE_DATE("%Y%m%d", LEFT(CAST(trasnaction_timestamp AS STRING), 8)) <= end_date
+    where PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) >= start_date and PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) <= end_date
     AND s.is_closed = FALSE;
 
 -------------------------------------------------------------------------------------------
@@ -874,13 +1012,17 @@ IF(LEFT(d.net_term_id, 5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNU
 000000 as settled_datetime,
 000000 as fncl_posted_datetime,
 case
-	when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y'
+
+	when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y' 
+
 	then d.amt_recon_net * (r.early_settle_fee_percent / 100) * f.cost_factor
 	else 0
 end as early_settlement_fees, -- cost to be passed on to the merchant for early settlement
 case
 	when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y'
-	then d.amt_recon_net * (r.cost_of_credit_percent / 100) * f.cost_factor
+
+	then d.amt_recon_net * (r.cost_of_credit_percent / 100) * COALESCE(f.cost_factor,0)
+
 	else 0
 
 end as cost_of_credit, -- cost incurred by WPAY for early settlement to merchants (internal only)
@@ -896,7 +1038,9 @@ LEFT JOIN `pdh_ref_ds.ref_rate_card` r
 LEFT JOIN `pdh_ref_ds.ref_str_to_sap_customermapping` c
 	ON LEFT(d.net_term_id, 5) = c.wpay_store_number
 LEFT JOIN `pdh_staging_ds.temp_early_settlement_fee` f
-	ON f.switch_date = d.switch_tran_date;
+
+	ON f.switch_date = d.date_recon_acq;
+
 
 ---------------------------------------------------------------------------------------------------------------------------------
 
