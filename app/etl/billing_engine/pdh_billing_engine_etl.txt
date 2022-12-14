@@ -3,13 +3,11 @@ DECLARE end_date DATE DEFAULT Date_sub(current_date('+10:00'),Interval 3 day);
 DECLARE data_req_date DATE DEFAULT Date_sub(current_date('+10:00'),Interval 2 day);
 
 DECLARE missing_data ARRAY<STRING>;
-
 DECLARE missing_intermediate_data ARRAY<DATE>;
-
 DECLARE error_rows ARRAY<STRING>;
 
+DECLARE settle_array ARRAY<STRUCT<settle_date DATE, cost_factor INT64, legacy_cost_factor INT64>>;
 
-DECLARE switch_date_array ARRAY<DATE>;
 
 SET missing_data = (SELECT ARRAY((
 	SELECT "gfs_pdh_txn_interface" name FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`
@@ -52,9 +50,6 @@ SET missing_data = (SELECT ARRAY((
 	SELECT "tn70_mc" name FROM `pdh_rd_data_navigator.tn70_mc`
 	GROUP BY 1 HAVING MAX(file_date) < data_req_date
 )));
-
-
-
 
 SET missing_intermediate_data = (SELECT ARRAY((
 
@@ -135,8 +130,6 @@ SET missing_intermediate_data = (SELECT ARRAY((
 	
 	UNION ALL
 	
-	
-	
 	select  distinct clndr_date  from (
 	SELECT d.clndr_date,count(s.file_date) name FROM 
 	`pdh_ref_ds.dim_date` d 
@@ -144,9 +137,7 @@ SET missing_intermediate_data = (SELECT ARRAY((
 	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
 	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
 	
-	
 	UNION ALL
-	
 	
 	select  distinct clndr_date from (
 	SELECT d.clndr_date,count(s.file_date) name FROM 
@@ -194,15 +185,10 @@ IF start_date > end_date THEN
 END IF;
 
 -- EARLY SETTLEMENT DATE ARRAY
-
-SET switch_date_array = (SELECT GENERATE_DATE_ARRAY(start_date-10, end_date+10, INTERVAL 1 DAY));
-
+CALL pdh_staging_ds.CalculateCostFactor(start_date, end_date, settle_array);
 
 CREATE OR REPLACE TABLE `pdh_staging_ds.temp_early_settlement_fee` AS
-	SELECT *,0 as cost_factor from UNNEST(switch_date_array) as switch_date;
-
-UPDATE `pdh_staging_ds.temp_early_settlement_fee` 
-	set cost_factor = pdh_staging_ds.CalculateCostFactor(switch_date) where 1=1;
+	SELECT * FROM UNNEST(settle_array);
 
 -- MASTERCARD JOIN QUERY
 -- The Mastercard scheme data is received as two files (TFL6 for transactions and T1G0 for settlements),
@@ -927,6 +913,7 @@ Then
 END IF;
 
 -- Check that all store IDs have an entry in the store to SAP mapping table
+
 SET error_rows = ARRAY((SELECT DISTINCT LEFT(d.net_term_id, 5) FROM `temp_billing_all` d
 	LEFT JOIN `pdh_ref_ds.ref_str_to_sap_customermapping` c ON LEFT(d.net_term_id, 5) = c.wpay_store_number
 	WHERE c.wpay_store_number IS NULL
@@ -1015,13 +1002,13 @@ case
 
 	when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y' 
 
-	then d.amt_recon_net * (r.early_settle_fee_percent / 100) * f.cost_factor
+	then d.amt_recon_net * (r.early_settle_fee_percent / 100) * IF(cc.stlm_schedule = "Legacy", f.legacy_cost_factor, f.cost_factor)
 	else 0
 end as early_settlement_fees, -- cost to be passed on to the merchant for early settlement
 case
 	when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y'
 
-	then d.amt_recon_net * (r.cost_of_credit_percent / 100) * COALESCE(f.cost_factor,0)
+	then d.amt_recon_net * (r.cost_of_credit_percent / 100) * COALESCE(IF(cc.stlm_schedule = "Legacy", f.legacy_cost_factor, f.cost_factor),0)
 
 	else 0
 
@@ -1039,7 +1026,11 @@ LEFT JOIN `pdh_ref_ds.ref_str_to_sap_customermapping` c
 	ON LEFT(d.net_term_id, 5) = c.wpay_store_number
 LEFT JOIN `pdh_staging_ds.temp_early_settlement_fee` f
 
-	ON f.switch_date = d.date_recon_acq;
+	ON f.settle_date = d.date_recon_acq
+LEFT JOIN `pdh_ref_ds.ref_store_details` s
+	ON LEFT(d.net_term_id, 5) = s.store_id
+LEFT JOIN `pdh_ref_ds.ref_company_config` cc
+	ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company));
 
 
 ---------------------------------------------------------------------------------------------------------------------------------

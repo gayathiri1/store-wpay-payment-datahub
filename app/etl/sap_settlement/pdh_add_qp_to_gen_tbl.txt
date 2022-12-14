@@ -2,6 +2,8 @@
 --Start of Script
 --Add QP data to generic settlement table Exit if Duplicate transactionc exist 
 --Block if company is null
+--2022-11-25 Add Key_value table and remove hard coding for store_id
+--2022-11-28 Add iGODirect
 declare sys_date date default current_date("Australia/Sydney");
 declare batch_end_datetime datetime;
 declare batch_end_mm_dd_hh_mm_ss datetime;
@@ -63,13 +65,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                   end as transaction_timestamp,
                   upper(trim(qpt.TransactionType)) as transactiontype,
                   "QP" as tran_qualifier,
-                  case   /* 2022-07-06 ignore outlet code */
-                     when upper(trim(qpt.Merchant)) = "PREZZEE-AUS"       then "Q0009"
-                     when upper(trim(qpt.Merchant)) = "DIGITAL GLUE"      then "Q0010"
-                     when upper(trim(qpt.Merchant)) = "PITSTOP"           then "Q0005"
-                     when upper(trim(qpt.Merchant)) = "BLACKHAWK NETWORK" then "Q0012"
-                     else null 
-                  end as store_id,
+                  upper(left(trim(rk.value),5))  as store_id,
                   qpt.InvoiceNumber as invoicenumber,
                   ifnull(qpt.Amount,0) as trans_amt,
                   ifnull(qpt.DiscountValue,0) as discount_amt
@@ -77,9 +73,16 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
          Join `pdh_ref_ds.ref_merchant_settlement_window` mw
               on mw.division_type = "PARTNER"
              and mw.is_active = "Y"
-             and mw.division = upper(trim(qpt.Merchant))
+             and mw.division = case upper(trim(qpt.Merchant))
+                                  when "IGODIRECT" then "IGODIRECT3P"
+                                  else upper(trim(qpt.Merchant))
+                               end
+         join `pdh_ref_ds.ref_key_value` rk 
+              on rk.attribute = "merchant-terminalid mapping"
+              and upper(trim(rk.key)) = upper(trim(qpt.Merchant))
         where upper(trim(qpt.TransactionType)) in ("ACTIVATION","CANCELLATION")
-        and (ifnull(qpt.Amount,0) <> 0 or ifnull(qpt.DiscountValue,0) <> 0)
+          and ifnull(qpt.Merchant,"") <> "" 
+          and (ifnull(qpt.Amount,0) <> 0 or ifnull(qpt.DiscountValue,0) <> 0)
         ),        
    trn_seq as (select *, row_number() over(partition by tran_uid) tran_uid_seq
                from tran_combined where ifnull(store_id,"") <> ""),
@@ -119,10 +122,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
     join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
            on tt.settlement_factor <> 0
           and tt.transaction_type = upper(trim(trn.transactiontype))
-          and tt.tran_qualifier = case left(trn.tran_uid,2)
-                                     when "QC" then msw.division_type
-                                     else trn.tran_qualifier
-                                  end
+          and tt.tran_qualifier = trn.tran_qualifier
     left join `pdh_analytics_ds.stlm_standard_settlement_table` std
          on std.tran_uid = trn.tran_uid
     where  std.tran_uid is null
