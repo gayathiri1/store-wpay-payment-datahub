@@ -343,7 +343,20 @@ msw.reporting_group merchant_group,
 s.ratecard_group rate_group,
 c.cur_symbol currency_code,
 dn.pymt_acct_ref,
-dn.scdr_token
+dn.scdr_token,
+-- WPAY ANALYTICS FIELDS
+'DataNav' source_application,
+CAST(null AS STRING) customerRef,
+CAST(null AS STRING) userId,
+CAST(null AS STRING) username,
+CAST(null AS STRING) userStatus,
+CAST(null AS STRING) containerId,
+CAST(null AS STRING) containerRef,
+CAST(null AS STRING) itemId,
+CAST(null AS STRING) itemtype,
+CAST(null AS STRING) item_token,
+CAST(null AS STRING) schemeName,
+CAST(null AS STRING) qc_CardNumber
 from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn  
 Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
 left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
@@ -424,7 +437,20 @@ msw.reporting_group merchant_group,
 s.ratecard_group rate_group,
 c.cur_symbol currency_code,
 dn.pymt_acct_ref,
-dn.scdr_token
+dn.scdr_token,
+-- WPAY ANALYTICS FIELDS
+'DataNavSuper' source_application,
+null customerRef,
+null userId,
+null username,
+null userStatus,
+null containerId,
+null containerRef,
+null itemId,
+null itemtype,
+null item_token,
+null schemeName,
+null qc_CardNumber
 from `pdh_rd_data_navigator.gfs_pdh_txn_interface_super` dn  
 Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
 left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
@@ -511,7 +537,20 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
     s.ratecard_group rate_group,
 	NULL currency_code,
 	NULL pymt_acct_ref,
-	NULL scdr_token
+	NULL scdr_token,
+	-- WPAY ANALYTICS FIELDS
+	'DigitalPay' source_application,
+	d.customerRef as customerRef,
+	CAST(d.userId AS STRING) as userId,
+	d.username as username,
+	d.userStatus as userStatus,
+	CAST(containerId AS STRING) containerId,
+	CAST(d.containerRef AS STRING) as containerRef,
+	CAST(d.itemId AS STRING) itemId,
+	d.itemType as itemtype,
+	d.item_token as item_token,
+	d.schemeName as schemeName,
+	null qc_CardNumber
     FROM `pdh_rd_data_navigator.digitalpay_gc_txns` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     (CASE WHEN MerchantName = 'WowOnline' then 'W8843'
@@ -607,7 +646,20 @@ Select
     s.ratecard_group rate_group,
 	NULL currency_code,
 	NULL pymt_acct_ref,
-	NULL scdr_token
+	NULL scdr_token,
+	-- WPAY ANALYTICS FIELDS
+	'QuikCilver' source_application,
+	null customerRef,
+	null userId,
+	null username,
+	null userStatus,
+	null containerId,
+	null containerRef,
+	null itemId,
+	null itemtype,
+	null item_token,
+	null schemeName,
+	CAST(CardNumber AS STRING) as qc_CardNumber
     FROM `pdh_rd_quickcilver.qc_detail_transactions` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     (
@@ -688,7 +740,20 @@ Select
     s.ratecard_group rate_group,
 	NULL currency_code,
 	NULL pymt_acct_ref,
-	NULL scdr_token
+	NULL scdr_token,
+	-- WPAY ANALYTICS FIELDS
+	'Linkly' source_application,
+	null customerRef,
+	null userId,
+	null username,
+	null userStatus,
+	null containerId,
+	null containerRef,
+	null itemId,
+	null itemtype,
+	null item_token,
+	null schemeName,
+	null qc_CardNumber
     FROM `pdh_rd_apm.alipay_linkly` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     d.ReqStore = s.store_id
@@ -768,7 +833,20 @@ Select
     s.ratecard_group rate_group,
 	cast(source_currency_code as string) currency_code,
 	NULL pymt_acct_ref,
-	NULL scdr_token
+	NULL scdr_token,
+	-- WPAY ANALYTICS FIELDS
+	'ISG' source_application,
+	null customerRef,
+	null userId,
+	null username,
+	null userStatus,
+	null containerId,
+	null containerRef,
+	null itemId,
+	null itemtype,
+	null item_token,
+	null schemeName,
+	null qc_CardNumber
     FROM `pdh_rd_data_navigator.isg_wpay_tran` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     left(d.terminal_id,5) = s.store_id 
@@ -927,8 +1005,299 @@ END IF;
 
 -------------------------------------------------------------------------------------------
 
+
+CREATE TEMP TABLE `temp_fee_calc` AS
+SELECT
+	d.switch_tran_date,
+	d.tran_uid,
+	d.tstamp_trans,
+	d.tstamp_local,
+	d.masked_pan,
+	d.date_recon_acq,
+	d.net_term_id,
+	d.rpt_lvl_id_b,
+	d.mti,
+	d.tran_type_id,
+	d.amt_recon_net,
+	d.act_code,
+	d.response_code,
+	d.account_type,
+	d.transaction_total,
+	d.purchase_total,
+	d.cashout_total,
+	d.retrieval_ref_no,
+	d.stan,
+	d.original_stan,
+	d.proc_id_acq_b,
+	d.inst_id_recn_acq_b,
+	d.card_acpt_name_loc,
+	d.proc_id_iss_b,
+	d.issuer_institution_id,
+	d.inst_id_recon_iss_name,
+	d.card_owner,
+	d.pos_crd_dat_in_mod,
+	d.pos_crdhldr_presnt,
+	d.order_number,
+	d.approval_code,
+	d.adtnl_response_data,
+	d.card_acpt_id,
+	d.merchant_store_id,
+	d.dom_int_ind,
+	d.card_type,
+	d.card_subtype,
+	d.bin_product_code,
+	d.scheme,
+	d.tran_type_desc,
+	d.tran_type_abbr,
+	d.approval_flag,
+	d.link_route,
+	d.merchant_group,
+	d.rate_group,
+	d.currency_code,
+	d.calc_tran_type_abbr,
+	d.calc_approval_flag,
+	d.calc_scheme,
+	d.calc_card_type,
+	case act_code
+		when '400' then if(mti='1440' ,concat(calc_tran_type_abbr , " REVERSAL"),calc_tran_type_abbr)
+		else calc_tran_type_abbr 
+	end calc_tran_type_description,
+	if(calc_approval_flag='A',
+		if(intchg_fee_code ='ALL', ((d.transaction_total * int_fee_percent/100) + int_fee_fixed*100),
+		if(intchg_fee_code ='FIXED', int_fee_fixed*100, if(intchg_fee_code ='PERCENT',(d.transaction_total * int_fee_percent/100),0)))
+	, 0) as interchange_fees_calc,
+	0.0 interchange_fees_actual, -- should be null
+	0.0 interchange_fees_invoiced, -- should be null
+	0.0 interchange_fees_rebate,
+	'' fee_indicator,
+	if(proc_fee_code ='ALL', ((d.transaction_total * proc_fee_percent/100) + proc_fee_fixed*100),
+		if(proc_fee_code ='FIXED', proc_fee_fixed*100,
+		if(proc_fee_code ='PERCENT',(d.transaction_total * proc_fee_percent/100),0))) 
+	as processing_fees,
+	IF(LEFT(d.net_term_id, 5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNULL(fraud_fee_fixed * 100, 0), 0) fraud_fees,
+	000000 as settled_datetime,
+	000000 as fncl_posted_datetime,
+	case
+
+
+		when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y' 
+
+
+
+		then d.amt_recon_net * (r.early_settle_fee_percent / 100) * IF(cc.stlm_schedule = "Legacy", f.legacy_cost_factor, f.cost_factor)
+		else 0
+	end as early_settlement_fees, -- cost to be passed on to the merchant for early settlement
+	case
+		when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y'
+
+		then d.amt_recon_net * (r.cost_of_credit_percent / 100) * COALESCE(IF(cc.stlm_schedule = "Legacy", f.legacy_cost_factor, f.cost_factor),0)
+
+		else 0
+
+	end as cost_of_credit, -- cost incurred by WPAY for early settlement to merchants (internal only)
+	d.pymt_acct_ref,
+	d.scdr_token,
+	-- WPAY ANALYTICS FIELDS
+	d.source_application,
+	d.customerRef,
+	d.userId,
+	d.username,
+	d.userStatus,
+	d.containerId,
+	d.containerRef,
+	d.itemId,
+	d.itemtype,
+	d.item_token,
+	d.schemeName,
+	d.qc_CardNumber,
+	case 
+		when source_application = 'DataNav'         then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'SCDR'||scdr_token)
+		when source_application = 'DataNavSuper'     then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'SCDR'||scdr_token)
+		when source_application = 'DigitalPay'         then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'customerRef'||customerRef||'userId'||userId||'containerId'||containerId||'itemId'||itemId)
+		when source_application = 'QuikCilver'         then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'qc_CardNumber'||qc_CardNumber)
+		when source_application = 'Linkly'             then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'masked_pan'||masked_pan)
+		when source_application = 'ISG'             then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'masked_pan'||masked_pan)
+	end card_id
+from `temp_billing_all` d
+LEFT JOIN `pdh_ref_ds.ref_rate_card` r
+	ON trim(upper(d.calc_scheme))=trim(upper(r.scheme)) 
+	AND trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
+	AND trim(upper(d.rate_group)) = trim(upper(r.merchant))
+	AND d.switch_tran_date BETWEEN r.from_date AND IFNULL(r.to_date, '2999-12-31')
+LEFT JOIN `pdh_ref_ds.ref_str_to_sap_customermapping` c
+	ON LEFT(d.net_term_id, 5) = c.wpay_store_number
+LEFT JOIN `pdh_staging_ds.temp_early_settlement_fee` f
+
+	ON f.settle_date = d.date_recon_acq
+LEFT JOIN `pdh_ref_ds.ref_store_details` s
+	ON LEFT(d.net_term_id, 5) = s.store_id
+LEFT JOIN `pdh_ref_ds.ref_company_config` cc
+	ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company));
+
+
+---------------------------------------------------------------------------------------------------------------------------------
+
+IF (SELECT MAX(switch_tran_date) FROM `temp_fee_calc`) < end_date THEN
+    SELECT ERROR("Billing table not fully updated");
+END IF;
+
+IF (SELECT COUNT(*) FROM `pdh_staging_ds.tbl_temp_billing_all`) <> (SELECT COUNT(*) FROM `temp_fee_calc` WHERE switch_tran_date BETWEEN start_date AND end_date) THEN
+    SELECT ERROR("Mismatched row count between temp table and final table");
+END IF;
+
+									 
+
+---------------------------------------------------------------------------------------------------------------------------------
+
+--Mastercard Update
+
+Update `temp_fee_calc` i
+set i.interchange_fees_actual = int_fees*100,
+i.fee_indicator='A'
+ from (select pan, 
+   amount_txn,
+   card_acceptor_terminal_id,  
+   datetime_local_txn,
+   system_trace_audit_num,
+   retrieval_reference_number,
+   min(int_fees) int_fees
+   from
+   (SELECT 
+   pan,    
+   amount_txn,
+   card_acceptor_terminal_id,  
+   datetime_local_txn,
+   system_trace_audit_num,
+   retrieval_reference_number,
+   if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee/1.1,amount_txn_fee) int_fees,
+   count(1)
+   from `pdh_staging_ds.gfs_aux_mastercard`  where t1g0_file_date > '2021-07-02' 
+   group by 1,2,3,4,5,6,7
+  ) c group by 1,2,3,4,5,6 ) v 
+where i.tstamp_local = parse_timestamp('%y%m%d%H%M%S', trim(v.datetime_local_txn))
+and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acceptor_terminal_id), 5)
+and i.retrieval_ref_no = v.retrieval_reference_number
+and i.stan = v.system_trace_audit_num
+and i.transaction_total = CAST(v.amount_txn*100 AS int64)
+and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
+and TRIM(proc_id_iss_b)='MC';
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+--VISA UPDATE
+
+Update `temp_fee_calc` i
+set interchange_fees_actual= v.interchange_fee/10000/1.1,
+i.fee_indicator='A'
+from (Select mti,tstamp_local,card_acpt_term_id,rrn,stan,tran_amt,pan,
+SUM(ABS(interchange_fee)) interchange_fee from  `pdh_rd_data_navigator.gfs_aux_visa`
+GROUP BY 1,2,3,4,5,6,7) v
+--from invoice_gfs_taf.aux_visa_apr2021 v
+where i.tstamp_local = v.tstamp_local
+and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acpt_term_id), 5)
+--and cast(i.retrieval_ref_no as Int64) = v.rrn
+and i.stan = v.stan
+and i.transaction_total = v.tran_amt
+and i.mti = CASE v.mti WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
+and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
+and trim(i.proc_id_iss_b) = 'VDCS'
+;
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+--EFTPOS UPDATE
+
+Update `temp_fee_calc` i
+set interchange_fees_actual= v.issuer_interchange_amt + v.acquirer_interchange_amt,
+i.fee_indicator='A'
+from (Select distinct tstamp_local,card_acpt_term_id,rrn,stan,
+tran_amt,pan,mti, acquirer_interchange_amt, issuer_interchange_amt from `pdh_rd_data_navigator.gfs_aux_eftpos`) v
+where i.tstamp_local = v.tstamp_local
+and  i.net_term_id = v.card_acpt_term_id
+and i.retrieval_ref_no = v.rrn
+and i.stan=v.stan
+and i.transaction_total = v.tran_amt
+and i.mti = CASE CAST(v.mti AS STRING) WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
+and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
+and link_route = 'EFTPOS'
+;
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+--ALIPAY UPDATE
+
+Update `temp_fee_calc` i
+set interchange_fees_actual = s.Fee * 100,
+i.fee_indicator = 'A'
+from `pdh_rd_apm.alipay_stlm` s
+where i.tran_uid = CAST(s.transaction_id AS STRING)
+and CAST(ROUND(s.amount * 100) AS INT64) = i.transaction_total
+and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+and (case i.calc_tran_type_abbr when 'PURCHASE' THEN 'P' WHEN 'REFUND' then 'R' else null end) = TRIM(s.Type)
+and i.approval_flag = 'Y';
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+--ISG UPDATE FOR VISA
+
+Update `temp_fee_calc` i
+set interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
+i.fee_indicator = 'A'
+from (SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM (SELECT DISTINCT pdh_load_time, interchange_fee_atm, txn_id, txn_code_of_fin_txn, samt FROM `pdh_rd_data_navigator.tc33_visa`) v) s
+where i.tran_uid = CAST(s.txn_id AS STRING)
+and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
+and i.amt_recon_net = s.samt
+and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+and s.rank = 1
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
+and i.approval_flag = 'Y';
+
+
+--ISG UPDATE FOR MC
+
+-- PURCHASE transactions have TRACE_ID
+Update `temp_fee_calc` i
+set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
+i.fee_indicator = 'A'
+from (
+    SELECT DISTINCT trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt, extd_interchg_amt_fee, amt_tran_fee,
+    RANK() OVER (PARTITION BY trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank
+    FROM `pdh_rd_data_navigator.tn70_mc`
+) s
+where i.tran_uid = concat(right(s.trace_id,4), left(s.trace_id, length(s.trace_id)-4))
+and i.calc_tran_type_abbr = 'PURCHASE'
+and rank = 1
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
+and i.approval_flag = 'Y';
+
+-- REFUND transactions where TRACE_ID is NULL
+Update `temp_fee_calc` i
+set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
+i.fee_indicator = 'A'
+from (
+    SELECT DISTINCT card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt, extd_interchg_amt_fee, amt_tran_fee,
+    RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank
+    FROM `pdh_rd_data_navigator.tn70_mc`
+) s
+where (i.net_term_id = s.card_acceptor_terminal_id and i.masked_pan = s.pan and s.processing_code = 200000 and i.date_recon_acq = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
+and (i.tran_type_desc = 'REFUND' and s.processing_code = 200000)
+and i.amt_recon_net = s.transaction_amt)
+and i.calc_tran_type_abbr = 'REFUND'
+and s.rank = 1
+and i.fee_indicator <> 'A'
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
+and i.approval_flag = 'Y';
+
+-------------------------------------------------------------------------------------------------------------------------------------------
+
+update `temp_fee_calc` set interchange_fees_invoiced=interchange_fees_actual
+where fee_indicator='A';
+
+update `temp_fee_calc` set interchange_fees_invoiced=interchange_fees_calc,fee_indicator='C'
+where fee_indicator<>'A';
+
 INSERT INTO `pdh_analytics_ds.tbl_fees_all`
-select
+SELECT 
 d.switch_tran_date,
 d.tran_uid,
 d.tstamp_trans,
@@ -979,220 +1348,115 @@ d.calc_tran_type_abbr,
 d.calc_approval_flag,
 d.calc_scheme,
 d.calc_card_type,
-case act_code
-    when '400' then if(mti='1440' ,concat(calc_tran_type_abbr , " REVERSAL"),calc_tran_type_abbr)
-    else calc_tran_type_abbr 
-end calc_tran_type_description,
-if(calc_approval_flag='A',
-    if(intchg_fee_code ='ALL', ((d.transaction_total * int_fee_percent/100) + int_fee_fixed*100),
-    if(intchg_fee_code ='FIXED', int_fee_fixed*100, if(intchg_fee_code ='PERCENT',(d.transaction_total * int_fee_percent/100),0)))
-, 0) as interchange_fees_calc,
-0.0 interchange_fees_actual, -- should be null
-0.0 interchange_fees_invoiced, -- should be null
-0.0 interchange_fees_rebate,
-'' fee_indicator,
-if(proc_fee_code ='ALL', ((d.transaction_total * proc_fee_percent/100) + proc_fee_fixed*100),
-    if(proc_fee_code ='FIXED', proc_fee_fixed*100,
-    if(proc_fee_code ='PERCENT',(d.transaction_total * proc_fee_percent/100),0))) 
-as processing_fees,
-IF(LEFT(d.net_term_id, 5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNULL(fraud_fee_fixed * 100, 0), 0) fraud_fees,
-000000 as settled_datetime,
-000000 as fncl_posted_datetime,
-case
-
-	when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y' 
-
-	then d.amt_recon_net * (r.early_settle_fee_percent / 100) * IF(cc.stlm_schedule = "Legacy", f.legacy_cost_factor, f.cost_factor)
-	else 0
-end as early_settlement_fees, -- cost to be passed on to the merchant for early settlement
-case
-	when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y'
-
-	then d.amt_recon_net * (r.cost_of_credit_percent / 100) * COALESCE(IF(cc.stlm_schedule = "Legacy", f.legacy_cost_factor, f.cost_factor),0)
-
-	else 0
-
-end as cost_of_credit, -- cost incurred by WPAY for early settlement to merchants (internal only)
+d.calc_tran_type_description,
+d.interchange_fees_calc,
+d.interchange_fees_actual,
+d.interchange_fees_invoiced,
+d.interchange_fees_rebate,
+d.fee_indicator,
+d.processing_fees,
+d.fraud_fees,
+d.settled_datetime,
+d.fncl_posted_datetime,
+d.early_settlement_fees,
+d.cost_of_credit,
 d.pymt_acct_ref,
 d.scdr_token
+FROM `temp_fee_calc` d;
 
-from `temp_billing_all` d
-LEFT JOIN `pdh_ref_ds.ref_rate_card` r
-	ON trim(upper(d.calc_scheme))=trim(upper(r.scheme)) 
-	AND trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
-	AND trim(upper(d.rate_group)) = trim(upper(r.merchant))
-	AND d.switch_tran_date BETWEEN r.from_date AND IFNULL(r.to_date, '2999-12-31')
-LEFT JOIN `pdh_ref_ds.ref_str_to_sap_customermapping` c
-	ON LEFT(d.net_term_id, 5) = c.wpay_store_number
-LEFT JOIN `pdh_staging_ds.temp_early_settlement_fee` f
+INSERT INTO `wpay_analytics.wpay_billing_engine_tran_dtl`
+SELECT
+d.switch_tran_date,
+d.tran_uid,
+d.tstamp_trans,
+d.tstamp_local,
+d.masked_pan,
+d.date_recon_acq,
+d.net_term_id,
+d.rpt_lvl_id_b,
+d.mti,
+d.tran_type_id,
+d.amt_recon_net,
+d.act_code,
+d.response_code,
+d.account_type,
+d.transaction_total,
+d.purchase_total,
+d.cashout_total,
+d.retrieval_ref_no,
+d.stan,
+d.original_stan,
+d.proc_id_acq_b,
+d.inst_id_recn_acq_b,
+d.card_acpt_name_loc,
+d.proc_id_iss_b,
+d.issuer_institution_id,
+d.inst_id_recon_iss_name,
+d.card_owner,
+d.pos_crd_dat_in_mod,
+d.pos_crdhldr_presnt,
+d.order_number,
+d.approval_code,
+d.adtnl_response_data,
+d.card_acpt_id,
+d.merchant_store_id,
+d.dom_int_ind,
+d.card_type,
+d.card_subtype,
+d.bin_product_code,
+d.scheme,
+d.tran_type_desc,
+d.tran_type_abbr,
+d.approval_flag,
+d.link_route,
+d.merchant_group,
+d.rate_group,
+d.currency_code,
+d.calc_tran_type_abbr,
+d.calc_approval_flag,
+d.calc_scheme,
+d.calc_card_type,
+d.calc_tran_type_description,
+d.interchange_fees_calc,
+d.interchange_fees_actual,
+d.interchange_fees_invoiced,
+d.interchange_fees_rebate,
+d.fee_indicator,
+d.processing_fees,
+d.fraud_fees,
+d.settled_datetime,
+d.fncl_posted_datetime,
+d.early_settlement_fees,
+d.cost_of_credit,
+d.pymt_acct_ref,
+d.scdr_token,
+-- WPAY ANALYTICS FIELDS
+d.source_application,
+d.customerRef,
+d.userId,
+d.username,
+d.userStatus,
+d.containerId,
+d.containerRef,
+d.itemId,
+d.itemtype,
+d.item_token,
+d.schemeName,
+d.qc_CardNumber,
+d.card_id
 
-	ON f.settle_date = d.date_recon_acq
-LEFT JOIN `pdh_ref_ds.ref_store_details` s
-	ON LEFT(d.net_term_id, 5) = s.store_id
-LEFT JOIN `pdh_ref_ds.ref_company_config` cc
-	ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company));
+FROM `temp_fee_calc` d;
 
+------------------------------------------------------------------------------------------------------------------------------------------
+-- EDG SPECIFIC TABLES
+INSERT INTO `pdh_analytics_ds.tbl_fees_edg`
+SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
+WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
+AND merchant_group = 'ENDEAVOUR';
 
----------------------------------------------------------------------------------------------------------------------------------
-
-IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_all`) < end_date THEN
-    SELECT ERROR("Billing table not fully updated");
+IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_edg`) < end_date THEN
+    SELECT ERROR("EDG billing table not fully updated");
 END IF;
-
-IF (SELECT COUNT(*) FROM `pdh_staging_ds.tbl_temp_billing_all`) <> (SELECT COUNT(*) FROM `pdh_analytics_ds.tbl_fees_all` WHERE switch_tran_date BETWEEN start_date AND end_date) THEN
-    SELECT ERROR("Mismatched row count between temp table and final table");
-END IF;
-
----------------------------------------------------------------------------------------------------------------------------------
-
---Mastercard Update
-
-Update `pdh_analytics_ds.tbl_fees_all` i
-set i.interchange_fees_actual = int_fees*100,
-i.fee_indicator='A'
- from (select pan, 
-   amount_txn,
-   card_acceptor_terminal_id,  
-   datetime_local_txn,
-   system_trace_audit_num,
-   retrieval_reference_number,
-   min(int_fees) int_fees
-   from
-   (SELECT 
-   pan,    
-   amount_txn,
-   card_acceptor_terminal_id,  
-   datetime_local_txn,
-   system_trace_audit_num,
-   retrieval_reference_number,
-   if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee/1.1,amount_txn_fee) int_fees,
-   count(1)
-   from `pdh_staging_ds.gfs_aux_mastercard`  where t1g0_file_date > '2021-07-02' 
-   group by 1,2,3,4,5,6,7
-  ) c group by 1,2,3,4,5,6 ) v 
-where i.tstamp_local = parse_timestamp('%y%m%d%H%M%S', trim(v.datetime_local_txn))
-and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acceptor_terminal_id), 5)
-and i.retrieval_ref_no = v.retrieval_reference_number
-and i.stan = v.system_trace_audit_num
-and i.transaction_total = CAST(v.amount_txn*100 AS int64)
-and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
-AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
-and TRIM(proc_id_iss_b)='MC';
-
--------------------------------------------------------------------------------------------------------------------------------------------
---VISA UPDATE
-
-Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual= v.interchange_fee/10000/1.1,
-i.fee_indicator='A'
-from (Select mti,tstamp_local,card_acpt_term_id,rrn,stan,tran_amt,pan,
-SUM(ABS(interchange_fee)) interchange_fee from  `pdh_rd_data_navigator.gfs_aux_visa`
-GROUP BY 1,2,3,4,5,6,7) v
---from invoice_gfs_taf.aux_visa_apr2021 v
-where i.tstamp_local = v.tstamp_local
-and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acpt_term_id), 5)
---and cast(i.retrieval_ref_no as Int64) = v.rrn
-and i.stan = v.stan
-and i.transaction_total = v.tran_amt
-and i.mti = CASE v.mti WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
-and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
-AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
-and trim(i.proc_id_iss_b) = 'VDCS'
-;
-
--------------------------------------------------------------------------------------------------------------------------------------------
---EFTPOS UPDATE
-
-Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual= v.issuer_interchange_amt + v.acquirer_interchange_amt,
-i.fee_indicator='A'
-from (Select distinct tstamp_local,card_acpt_term_id,rrn,stan,
-tran_amt,pan,mti, acquirer_interchange_amt, issuer_interchange_amt from `pdh_rd_data_navigator.gfs_aux_eftpos`) v
-where i.tstamp_local = v.tstamp_local
-and  i.net_term_id = v.card_acpt_term_id
-and i.retrieval_ref_no = v.rrn
-and i.stan=v.stan
-and i.transaction_total = v.tran_amt
-and i.mti = CASE CAST(v.mti AS STRING) WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
-and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
-AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
-and link_route = 'EFTPOS'
-;
-
--------------------------------------------------------------------------------------------------------------------------------------------
---ALIPAY UPDATE
-
-Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual = s.Fee * 100,
-i.fee_indicator = 'A'
-from `pdh_rd_apm.alipay_stlm` s
-where i.tran_uid = CAST(s.transaction_id AS STRING)
-and CAST(ROUND(s.amount * 100) AS INT64) = i.transaction_total
-and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
-and (case i.calc_tran_type_abbr when 'PURCHASE' THEN 'P' WHEN 'REFUND' then 'R' else null end) = TRIM(s.Type)
-and i.approval_flag = 'Y';
-
--------------------------------------------------------------------------------------------------------------------------------------------
-
---ISG UPDATE FOR VISA
-
-Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
-i.fee_indicator = 'A'
-from (SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM (SELECT DISTINCT pdh_load_time, interchange_fee_atm, txn_id, txn_code_of_fin_txn, samt FROM `pdh_rd_data_navigator.tc33_visa`) v) s
-where i.tran_uid = CAST(s.txn_id AS STRING)
-and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
-and i.amt_recon_net = s.samt
-and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
-and s.rank = 1
-AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
-and i.approval_flag = 'Y';
-
-
---ISG UPDATE FOR MC
-
--- PURCHASE transactions have TRACE_ID
-Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
-i.fee_indicator = 'A'
-from (
-    SELECT DISTINCT trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt, extd_interchg_amt_fee, amt_tran_fee,
-    RANK() OVER (PARTITION BY trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank
-    FROM `pdh_rd_data_navigator.tn70_mc`
-) s
-where i.tran_uid = concat(right(s.trace_id,4), left(s.trace_id, length(s.trace_id)-4))
-and i.calc_tran_type_abbr = 'PURCHASE'
-and rank = 1
-AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
-and i.approval_flag = 'Y';
-
--- REFUND transactions where TRACE_ID is NULL
-Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
-i.fee_indicator = 'A'
-from (
-    SELECT DISTINCT card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt, extd_interchg_amt_fee, amt_tran_fee,
-    RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank
-    FROM `pdh_rd_data_navigator.tn70_mc`
-) s
-where (i.net_term_id = s.card_acceptor_terminal_id and i.masked_pan = s.pan and s.processing_code = 200000 and i.date_recon_acq = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
-and (i.tran_type_desc = 'REFUND' and s.processing_code = 200000)
-and i.amt_recon_net = s.transaction_amt)
-and i.calc_tran_type_abbr = 'REFUND'
-and s.rank = 1
-and i.fee_indicator <> 'A'
-AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
-and i.approval_flag = 'Y';
-
--------------------------------------------------------------------------------------------------------------------------------------------
-
-update `pdh_analytics_ds.tbl_fees_all` set interchange_fees_invoiced=interchange_fees_actual
-where fee_indicator='A'
-and cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date;
-
-update `pdh_analytics_ds.tbl_fees_all` set interchange_fees_invoiced=interchange_fees_calc,fee_indicator='C'
-where fee_indicator<>'A'
-and cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date;
 
 -- For EDG, Cash out only transactions have no interchange fee
 update `pdh_analytics_ds.tbl_fees_edg` set interchange_fees_calc=0 where fee_indicator = 'C' AND calc_scheme = 'EFTPOS'
@@ -1205,17 +1469,6 @@ update `pdh_analytics_ds.tbl_fees_edg` set interchange_fees_invoiced=interchange
 AND merchant_group = 'ENDEAVOUR'
 AND UPPER(calc_tran_type_description) IN ('PURCHASE WITH CASHOUT', 'CASHOUT')
 AND switch_tran_date BETWEEN start_date AND end_date;
-
-------------------------------------------------------------------------------------------------------------------------------------------
--- EDG SPECIFIC TABLES
-INSERT INTO `pdh_analytics_ds.tbl_fees_edg`
-SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
-WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
-AND merchant_group = 'ENDEAVOUR';
-
-IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_edg`) < end_date THEN
-    SELECT ERROR("EDG billing table not fully updated");
-END IF;
 
 -- This table is used in Tableau Report
 INSERT INTO `pdh_analytics_ds.tbl_edg_fees_rpt`
