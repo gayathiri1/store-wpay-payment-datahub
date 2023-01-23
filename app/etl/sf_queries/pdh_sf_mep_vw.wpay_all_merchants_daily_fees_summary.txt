@@ -129,7 +129,7 @@ WITH
       tbl_sml_merchant_fees_rpt.switch_tran_date =dd.clndr_date
     WHERE
       switch_tran_date >= DATE_ADD(DATE_ADD(DATE_TRUNC(DATE_ADD(current_date, INTERVAL -1 DAY),week), INTERVAL 1 DAY), INTERVAL -12 week) --switch_tran_date >= (CURRENT_DATE("Australia/Sydney")-60)
-      AND tbl_sml_merchant_fees_rpt.company <> 'Endeavour'
+     -- AND tbl_sml_merchant_fees_rpt.company <> 'Endeavour'
     GROUP BY
       1,
       2,
@@ -396,7 +396,7 @@ WITH
       `tbl_egfuel_fees_rpt`.`switch_tran_date` = `dd`.`clndr_date`
     WHERE
       switch_tran_date >= DATE_ADD(DATE_ADD(DATE_TRUNC(DATE_ADD(current_date, INTERVAL -1 DAY),week), INTERVAL 1 DAY), INTERVAL -12 week) --switch_tran_date >= (CURRENT_DATE("Australia/Sydney")-60)
-      AND `tbl_egfuel_fees_rpt`.company <> 'Endeavour'
+     -- AND `tbl_egfuel_fees_rpt`.company <> 'Endeavour'
     GROUP BY
       1,
       2,

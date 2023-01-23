@@ -1812,7 +1812,7 @@ END IF;
 INSERT INTO `pdh_analytics_ds.tbl_fees_sml_merchant`
 SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
 WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
-AND merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN', 'SUPERMARKETS');
+AND merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN', 'SUPERMARKETS', 'WOW ONLINE');
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_sml_merchant`) < end_date THEN
     SELECT ERROR("Small Merchant billing table not fully updated");
@@ -1918,7 +1918,7 @@ LEFT JOIN `pdh_ref_ds.dim_date` dt
 ON i.switch_tran_date = dt.clndr_date
 WHERE switch_tran_date BETWEEN start_date AND end_date
 AND m.is_closed = FALSE
-AND i.merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN', 'SUPERMARKETS');
+AND i.merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN', 'SUPERMARKETS', 'WOW ONLINE');
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt`) < end_date THEN
     SELECT ERROR("Small Merchant reporting table not fully updated");
@@ -1928,7 +1928,7 @@ END IF;
 INSERT INTO `pdh_analytics_ds.tbl_fees_super`
 SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
 WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
-AND merchant_group = 'SUPERMARKETS';
+AND merchant_group IN ('SUPERMARKETS', 'WOW ONLINE');
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_super`) < end_date THEN
     SELECT ERROR("Supermarkets billing table not fully updated");
@@ -2034,7 +2034,7 @@ LEFT JOIN `pdh_ref_ds.dim_date` dt
 ON i.switch_tran_date = dt.clndr_date
 WHERE switch_tran_date BETWEEN start_date AND end_date
 AND m.is_closed = FALSE
-AND i.merchant_group = 'SUPERMARKETS';
+AND i.merchant_group IN ('SUPERMARKETS', 'WOW ONLINE');
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_super_fees_rpt`) < end_date THEN
     SELECT ERROR("Supermarkets reporting table not fully updated");
