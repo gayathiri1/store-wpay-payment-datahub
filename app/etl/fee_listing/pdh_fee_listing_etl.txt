@@ -242,7 +242,7 @@ WITH result AS (
 	ftlf_prefix file_prefix
     FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
-    WHERE a.division = b.division
+    WHERE lower(a.division) = lower(b.division)
 	  AND b.ftlf_prefix is not null
     AND TRIM(issuer) <> ''
     AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
@@ -286,7 +286,7 @@ SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, 
 	ftlf_prefix file_prefix
     FROM `pdh_analytics_ds.tbl_edg_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
-    WHERE a.division = b.division
+    WHERE lower(a.division) = lower(b.division)
 	  AND b.ftlf_prefix is not null
     AND TRIM(issuer) <> ''
     AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
@@ -330,7 +330,7 @@ SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, 
 	ftlf_prefix file_prefix
     FROM `pdh_analytics_ds.tbl_egfuel_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
-    WHERE a.division = b.division
+    WHERE lower(a.division) = lower(b.division)
 	  AND b.ftlf_prefix is not null
     AND TRIM(issuer) <> ''
     AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date

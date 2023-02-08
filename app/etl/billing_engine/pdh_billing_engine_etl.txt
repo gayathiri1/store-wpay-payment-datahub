@@ -8,7 +8,6 @@ DECLARE error_rows ARRAY<STRING>;
 
 DECLARE settle_array ARRAY<STRUCT<settle_date DATE, cost_factor INT64, legacy_cost_factor INT64>>;
 
-
 SET missing_data = (SELECT ARRAY((
 	SELECT "gfs_pdh_txn_interface" name FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`
 	GROUP BY 1 HAVING MAX(CAST(tstamp_trans AS DATE)) < data_req_date
@@ -69,9 +68,7 @@ SET missing_intermediate_data = (SELECT ARRAY((
 	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
 	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
 
-
 	UNION ALL
-	
 	
 	select distinct clndr_date from (
 	SELECT d.clndr_date,count(s.file_date) name FROM 
@@ -81,7 +78,6 @@ SET missing_intermediate_data = (SELECT ARRAY((
 	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
 	
 	UNION ALL
-	
 	
 	select  distinct clndr_date from (
 	SELECT d.clndr_date,count(s.file_date) name FROM 
@@ -101,7 +97,6 @@ SET missing_intermediate_data = (SELECT ARRAY((
 	
 	UNION ALL
 	
-	
 	select  distinct clndr_date  from (
 	SELECT d.clndr_date,count(s.file_date) name FROM 
 	`pdh_ref_ds.dim_date` d 
@@ -119,7 +114,6 @@ SET missing_intermediate_data = (SELECT ARRAY((
 	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
 	
 	UNION ALL
-	
 
 	select  distinct clndr_date  from (
 	SELECT d.clndr_date,count(s.file_date) name FROM 
@@ -145,10 +139,8 @@ SET missing_intermediate_data = (SELECT ARRAY((
 	left join `pdh_rd_data_navigator.gfs_aux_eftpos` s on d.clndr_date=s.file_date
 	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
 	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
-
 	
 	UNION ALL
-
 
 	select  distinct clndr_date  from (
 	SELECT d.clndr_date,count(s.file_date) name FROM 
@@ -158,7 +150,6 @@ SET missing_intermediate_data = (SELECT ARRAY((
 	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
 	
 	UNION ALL
-	
 	
 	select  distinct clndr_date  from (
 	SELECT d.clndr_date,count(s.file_date) name FROM 
@@ -1078,22 +1069,14 @@ SELECT
 	000000 as settled_datetime,
 	000000 as fncl_posted_datetime,
 	case
-
-
 		when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y' 
-
-
-
 		then d.amt_recon_net * (r.early_settle_fee_percent / 100) * IF(cc.stlm_schedule = "Legacy", f.legacy_cost_factor, f.cost_factor)
 		else 0
 	end as early_settlement_fees, -- cost to be passed on to the merchant for early settlement
 	case
 		when d.calc_scheme in ('VISA','MASTERCARD','EFTPOS') and d.approval_flag = 'Y' and c.npp_flag = 'Y'
-
 		then d.amt_recon_net * (r.cost_of_credit_percent / 100) * COALESCE(IF(cc.stlm_schedule = "Legacy", f.legacy_cost_factor, f.cost_factor),0)
-
 		else 0
-
 	end as cost_of_credit, -- cost incurred by WPAY for early settlement to merchants (internal only)
 	d.pymt_acct_ref,
 	d.scdr_token,
@@ -1127,13 +1110,11 @@ LEFT JOIN `pdh_ref_ds.ref_rate_card` r
 LEFT JOIN `pdh_ref_ds.ref_str_to_sap_customermapping` c
 	ON LEFT(d.net_term_id, 5) = c.wpay_store_number
 LEFT JOIN `pdh_staging_ds.temp_early_settlement_fee` f
-
 	ON f.settle_date = d.date_recon_acq
 LEFT JOIN `pdh_ref_ds.ref_store_details` s
 	ON LEFT(d.net_term_id, 5) = s.store_id
 LEFT JOIN `pdh_ref_ds.ref_company_config` cc
 	ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company));
-
 
 ---------------------------------------------------------------------------------------------------------------------------------
 
@@ -1144,8 +1125,6 @@ END IF;
 IF (SELECT COUNT(*) FROM `pdh_staging_ds.tbl_temp_billing_all`) <> (SELECT COUNT(*) FROM `temp_fee_calc` WHERE switch_tran_date BETWEEN start_date AND end_date) THEN
     SELECT ERROR("Mismatched row count between temp table and final table");
 END IF;
-
-									 
 
 ---------------------------------------------------------------------------------------------------------------------------------
 
@@ -1176,7 +1155,7 @@ i.fee_indicator='A'
   ) c group by 1,2,3,4,5,6 ) v 
 where i.tstamp_local = parse_timestamp('%y%m%d%H%M%S', trim(v.datetime_local_txn))
 and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acceptor_terminal_id), 5)
-and i.retrieval_ref_no = v.retrieval_reference_number
+and i.retrieval_ref_no = LPAD(v.retrieval_reference_number,12,'0')
 and i.stan = v.system_trace_audit_num
 and i.transaction_total = CAST(v.amount_txn*100 AS int64)
 and substr(i.masked_pan,1,6) = substr(v.pan,1,6)

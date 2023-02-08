@@ -111,7 +111,8 @@ class PDHUtils:
             exit(1)
             
         #Logic to handle MMI Feed Format.
-        if (kwargs[object_name]['table_name']).lower() == 'mmi_store_data_feed':
+        if (kwargs[object_name]['table_name']).lower() == 'mmi_store_data_feed'\
+            or (kwargs[object_name]['table_name']).lower() == 'dn_wpaygfssst': #Bug fix- DATPAY-3390
             t1 = GoogleCloudStorageToBigQueryOperator(
                 task_id='load_csv_to_bq',
                 bucket=bucket,
