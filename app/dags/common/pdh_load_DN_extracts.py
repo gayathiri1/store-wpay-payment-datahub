@@ -221,14 +221,14 @@ def load_completed(**kwargs):
     input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)
     emailTo = input_params['emailTo']
     file_name = input_params['run_config']['file_name']
-    pu.PDHUtils.send_email(emailTo,'PDH Prod Load Status',
-                           f'File:=>{file_name} loaded successfully')
+    # pu.PDHUtils.send_email(emailTo,'PDH Prod Load Status',
+    #                        f'File:=>{file_name} loaded successfully')
 
 
 def skip_dataproc():
     config = Variable.get("v_non_gfs_load_params", deserialize_json=True)
     emailTo = config['emailTo']
-    pu.PDHUtils.send_email(emailTo,'spark init skipped','Cluster already in running state or task queue is not empty')
+    # pu.PDHUtils.send_email(emailTo,'spark init skipped','Cluster already in running state or task queue is not empty')
 
 
 def update_queue(**kwargs):
