@@ -347,7 +347,13 @@ CAST(null AS STRING) itemId,
 CAST(null AS STRING) itemtype,
 CAST(null AS STRING) item_token,
 CAST(null AS STRING) schemeName,
-CAST(null AS STRING) qc_CardNumber
+CAST(null AS STRING) qc_CardNumber,
+-- SETTLEMENT DATE FIELDS
+CAST(null AS STRING) AS dp_txnRef,
+CAST(null AS STRING) AS qc_ReferenceNumber,
+CAST(null AS NUMERIC) AS qc_BatchNumber,
+CAST(null AS STRING) AS lk_ResRef,
+CAST(null AS STRING) AS cy_tran_uid
 from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn  
 Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
 left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
@@ -441,7 +447,13 @@ null itemId,
 null itemtype,
 null item_token,
 null schemeName,
-null qc_CardNumber
+null qc_CardNumber,
+-- SETTLEMENT DATE FIELDS
+null AS dp_txnRef,
+null AS qc_ReferenceNumber,
+null AS qc_BatchNumber,
+null AS lk_ResRef,
+null AS cy_tran_uid
 from `pdh_rd_data_navigator.gfs_pdh_txn_interface_super` dn  
 Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
 left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
@@ -541,7 +553,13 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
 	d.itemType as itemtype,
 	d.item_token as item_token,
 	d.schemeName as schemeName,
-	null qc_CardNumber
+	null qc_CardNumber,
+	-- SETTLEMENT DATE FIELDS
+	TRIM(txnRef) AS dp_txnRef,
+	null AS qc_ReferenceNumber,
+	null AS qc_BatchNumber,
+	null AS lk_ResRef,
+	null AS cy_tran_uid
     FROM `pdh_rd_data_navigator.digitalpay_gc_txns` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     (CASE WHEN MerchantName = 'WowOnline' then 'W8843'
@@ -604,7 +622,7 @@ Select
     End as pos_crd_dat_in_mod, --CARD ENTRY MODE CODES
     null pos_crdhldr_presnt,
     InvoiceNumber order_number,
-    null approval_code,
+    ApprovalCode approval_code,
     null adtnl_response_data,
     null card_acpt_id,
     null merchant_store_id,
@@ -650,7 +668,13 @@ Select
 	null itemtype,
 	null item_token,
 	null schemeName,
-	CAST(CardNumber AS STRING) as qc_CardNumber
+	CAST(CardNumber AS STRING) as qc_CardNumber,
+	-- SETTLEMENT DATE FIELDS
+	null AS dp_txnRef,
+	ReferenceNumber AS qc_ReferenceNumber,
+	BatchNumber AS qc_BatchNumber,
+	null AS lk_ResRef,
+	null AS cy_tran_uid
     FROM `pdh_rd_quickcilver.qc_detail_transactions` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     (
@@ -744,7 +768,13 @@ Select
 	null itemtype,
 	null item_token,
 	null schemeName,
-	null qc_CardNumber
+	null qc_CardNumber,
+	-- SETTLEMENT DATE FIELDS
+	null AS dp_txnRef,
+	null AS qc_ReferenceNumber,
+	null AS qc_BatchNumber,
+	ResRef AS lk_ResRef,
+	null AS cy_tran_uid
     FROM `pdh_rd_apm.alipay_linkly` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     d.ReqStore = s.store_id
@@ -766,8 +796,14 @@ Select
 		when scheme = 'MASTERCARD' then trace_id
 		else  cast(tran_uid as string)
 	end as tran_uid,
-	CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(transaction_timestamp AS STRING), 6))) as timestamp) tstamp_trans,
-	CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_local_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(transaction_local_timestamp AS STRING), 6))) as timestamp) tstamp_local,
+	CASE
+		WHEN LENGTH(CAST(transaction_timestamp AS STRING)) = 14 THEN CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(transaction_timestamp AS STRING), 6))) as timestamp)
+		ELSE CAST(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_timestamp AS STRING), 8)) as timestamp)
+	END tstamp_trans,
+	CASE
+		WHEN LENGTH(CAST(transaction_local_timestamp AS STRING)) = 14 THEN CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_local_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(transaction_local_timestamp AS STRING), 6))) as timestamp)
+		ELSE CAST(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_local_timestamp AS STRING), 8)) as timestamp)
+	END tstamp_local,
 	pan masked_pan,  -- MASK PAN
     PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) date_recon_acq,
     terminal_id net_term_id,  -- Add conditions where POSNAME Is not Store number
@@ -837,7 +873,13 @@ Select
 	null itemtype,
 	null item_token,
 	null schemeName,
-	null qc_CardNumber
+	null qc_CardNumber,
+	-- SETTLEMENT DATE FIELDS
+	null AS dp_txnRef,
+	null AS qc_ReferenceNumber,
+	null AS qc_BatchNumber,
+	null AS lk_ResRef,
+	CAST(tran_uid AS STRING) AS cy_tran_uid
     FROM `pdh_rd_data_navigator.isg_wpay_tran` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     left(d.terminal_id,5) = s.store_id 
@@ -911,7 +953,7 @@ SELECT
 		when 'VERIFONE' then 'DEBIT'
         when 'PAYPAL' then 'OTHER'
         when 'ALIPAY' then 'OTHER'
-        else card_type
+        else if (trim(card_type) IN ('C', 'H', 'R') ,'CREDIT',if(trim(card_type) IN ('D','P') , 'DEBIT', card_type))
     end calc_card_type,
     from `pdh_staging_ds.tbl_temp_billing_all` dn;
 
@@ -996,7 +1038,6 @@ END IF;
 
 -------------------------------------------------------------------------------------------
 
-
 CREATE TEMP TABLE `temp_fee_calc` AS
 SELECT
 	d.switch_tran_date,
@@ -1004,7 +1045,9 @@ SELECT
 	d.tstamp_trans,
 	d.tstamp_local,
 	d.masked_pan,
-	d.date_recon_acq,
+	COALESCE(std.posting_date, d.date_recon_acq) date_recon_acq,
+	d.date_recon_acq orig_date_recon_acq,
+	CASE WHEN std.posting_date IS NOT NULL THEN 'Y' ELSE 'N' END settlement_date_indicator,
 	d.net_term_id,
 	d.rpt_lvl_id_b,
 	d.mti,
@@ -1114,7 +1157,47 @@ LEFT JOIN `pdh_staging_ds.temp_early_settlement_fee` f
 LEFT JOIN `pdh_ref_ds.ref_store_details` s
 	ON LEFT(d.net_term_id, 5) = s.store_id
 LEFT JOIN `pdh_ref_ds.ref_company_config` cc
-	ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company));
+	ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company))
+LEFT JOIN `pdh_analytics_ds.stlm_standard_settlement_table` std
+	ON pdh_ref_ds.get_tran_uid(
+		-- source
+		CASE source_application
+			WHEN 'DataNav' THEN 'TC'
+			WHEN 'DataNavSuper' THEN 'TC'
+			WHEN 'DigitalPay' THEN 'DP'
+			WHEN 'QuikCilver' THEN 'QC'
+			WHEN 'Linkly' THEN 'LK'
+			WHEN 'ISG' THEN 'CY'
+			ELSE source_application
+		END,
+		-- approvalcode
+		approval_code,
+		-- ReferenceNumber
+		CASE source_application
+			WHEN 'DigitalPay' THEN dp_txnRef
+			WHEN 'QuikCilver' THEN qc_ReferenceNumber
+			WHEN 'Linkly' THEN lk_ResRef
+			ELSE null
+		END,
+		-- BatchNumber
+		qc_BatchNumber,
+		-- pan
+		masked_pan,
+		-- yyyymmddThhmmss
+		FORMAT_TIMESTAMP('%Y%m%dT%H%M%S', tstamp_trans),
+		-- tran_uid
+		CASE
+			WHEN source_application IN ('DataNav', 'DataNavSuper') THEN d.tran_uid
+			WHEN source_application = 'ISG' THEN cy_tran_uid
+			ELSE null
+		END,
+		-- InvoiceNumber
+		null,
+		-- transaction_type
+		tran_type_desc,
+		-- trans_amount_in_cents
+		transaction_total
+	) = std.tran_uid;
 
 ---------------------------------------------------------------------------------------------------------------------------------
 
@@ -1340,7 +1423,10 @@ d.fncl_posted_datetime,
 d.early_settlement_fees,
 d.cost_of_credit,
 d.pymt_acct_ref,
-d.scdr_token
+d.scdr_token,
+-- SETTLEMENT DATE FIELDS
+d.orig_date_recon_acq,
+d.settlement_date_indicator
 FROM `temp_fee_calc` d;
 
 INSERT INTO `wpay_analytics.wpay_billing_engine_tran_dtl`
@@ -1422,7 +1508,10 @@ d.itemtype,
 d.item_token,
 d.schemeName,
 d.qc_CardNumber,
-d.card_id
+d.card_id,
+-- SETTLEMENT DATE FIELDS
+d.orig_date_recon_acq,
+d.settlement_date_indicator
 
 FROM `temp_fee_calc` d;
 
@@ -1535,7 +1624,9 @@ SELECT
 
 	i.cost_of_credit / 100 AS cost_of_credit,
 	i.pymt_acct_ref,
-	i.scdr_token
+	i.scdr_token,
+    CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
+    i.settlement_date_indicator
 
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
@@ -1651,7 +1742,9 @@ SELECT
 
 	i.cost_of_credit / 100 AS cost_of_credit,
 	i.pymt_acct_ref,
-	i.scdr_token
+	i.scdr_token,
+    CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
+    i.settlement_date_indicator
 
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
@@ -1767,7 +1860,9 @@ SELECT
 
 	i.cost_of_credit / 100 AS cost_of_credit,
 	i.pymt_acct_ref,
-	i.scdr_token
+	i.scdr_token,
+    CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
+    i.settlement_date_indicator
 
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
@@ -1883,7 +1978,9 @@ SELECT
 
 	i.cost_of_credit / 100 AS cost_of_credit,
 	i.pymt_acct_ref,
-	i.scdr_token
+	i.scdr_token,
+    CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
+    i.settlement_date_indicator
 
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
@@ -1999,7 +2096,9 @@ SELECT
 
 	i.cost_of_credit / 100 AS cost_of_credit,
 	i.pymt_acct_ref,
-	i.scdr_token
+	i.scdr_token,
+    CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
+    i.settlement_date_indicator
 
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join

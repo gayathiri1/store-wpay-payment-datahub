@@ -12,8 +12,6 @@ declare batch_end_datetime datetime;
 declare batch_start_mm_dd_hh_mm_ss datetime;
 declare batch_end_mm_dd_hh_mm_ss datetime;
 declare batch_end_yyyymmddhhmmss string;
-Declare min_tran_time datetime;
-Declare max_tran_time datetime;
 
 declare interfaceidentifier string DEFAULT "WPAYFEES";
 Declare companies ARRAY <string>;
@@ -227,24 +225,16 @@ end if;
  
 --update settlement window if detail exists
    update `pdh_ref_ds.ref_merchant_settlement_window` msw
-       set msw.last_execution_time = std2.min_transaction_timestamp,
+       set msw.last_execution_time = std1.max_transaction_timestamp,
            msw.last_updated_datetime = DATETIME_TRUNC(CURRENT_DATETIME("Australia/Sydney"),SECOND)
-   from (select std1.division, min(std1.max_transaction_timestamp) min_transaction_timestamp
-         from (
-               select left(tran_uid,2) source,division, max(transaction_timestamp) max_transaction_timestamp
-               from `pdh_analytics_ds.stlm_standard_settlement_table`
-               where left(tran_uid,2) = "QP"
-               group by left(tran_uid,2), division) std1
-         group by std1.division) std2
-   where upper(trim(msw.division)) = std2.division;
+   from (
+          select division, max(transaction_timestamp) max_transaction_timestamp
+          from `pdh_analytics_ds.stlm_standard_settlement_table`
+          where left(tran_uid,2) = "QP"
+          group by 1) std1
+    where upper(trim(msw.division)) = std1.division;
 --
  --Always Insert csv output control
-   set (min_tran_time,max_tran_time) = (select AS STRUCT datetime_trunc(min(transaction_timestamp),SECOND),
-                                                         datetime_trunc(max(transaction_timestamp),SECOND)
-                                        from `pdh_analytics_ds.stlm_standard_settlement_table`
-                                        where setlmnt_result_file is null
-                                          and left(tran_uid,2) = "QP" ); 
-  --Add file_gen_details control 
    insert into pdh_analytics_ds.file_gen_details 
       (batch_number,processing_date,merchant_name,etl_complete,extract_wf_complete,extract_start_datetime,
       	extract_end_datetime,file_date)

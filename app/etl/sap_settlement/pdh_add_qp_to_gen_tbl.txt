@@ -4,6 +4,10 @@
 --Block if company is null
 --2022-11-25 Add Key_value table and remove hard coding for store_id
 --2022-11-28 Add iGODirect
+--20230119 Remove dependency on missin g store
+--20230119 Process earliest loaded of duplicate tran_uid
+--20230123 use pdh_load_time to seq
+--20220130 Use function get_tran_uid
 declare sys_date date default current_date("Australia/Sydney");
 declare batch_end_datetime datetime;
 declare batch_end_mm_dd_hh_mm_ss datetime;
@@ -11,12 +15,7 @@ declare min_transaction_timestamp datetime;
 declare max_transaction_timestamp datetime;
 DECLARE inp_lookup STRING DEFAULT "QP Settlement";
 DECLARE batch string;
---
-if (Select count(*) from `pdh_analytics_ds.sap_missing_store_log`
-           Where create_by = "Settlement Process"
-             and data_source ="QP") > 0  then
-    return;
-end if; 
+Declare nullstr string;
 --
 --Get next Batch Number
 CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
@@ -42,7 +41,46 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
     discount_amt)
     --
     With  tran_combined as (
-           Select concat("QP_",trim(ifnull(qpt.InvoiceNumber,"Null")),"_",
+           Select pdh_ref_ds.get_tran_uid(
+                                "QP",
+                                nullstr, 
+                                nullstr,
+                                0,
+                                qpt.CardNumber, 
+                                case 
+                                 when qpt.TransactionDate is null 
+                                      then "19000101T000000"
+                                 else format_datetime("%Y%m%dT%H%M%S",cast(qpt.TransactionDate as datetime))
+                                end,
+                                nullstr,
+                                qpt.InvoiceNumber,
+                                qpt.TransactionType, 
+                                0) as tran_uid,
+                  qpt.pdh_load_time,
+                  qpt.file_name,
+                  case 
+                     when qpt.TransactionDate is null then cast("1900-01-01T00:00:00" as datetime)
+                     else datetime_trunc(cast(qpt.TransactionDate as datetime),second)
+                  end as transaction_timestamp,
+                  upper(trim(qpt.TransactionType)) as transactiontype,
+                  "QP" as tran_qualifier,
+                  upper(left(trim(rk.value),5))  as store_id, --2022-11-25 Add Key_value table 
+                  qpt.InvoiceNumber as invoicenumber,
+                  ifnull(qpt.Amount,0) as trans_amt,
+                  ifnull(qpt.DiscountValue,0) as discount_amt
+         from `pdh_rd_quickcilver.qc_partner_detail` qpt
+         Join `pdh_ref_ds.ref_merchant_settlement_window` mw
+              on mw.division_type = "PARTNER"
+             and mw.is_active = "Y"
+             and mw.division = case upper(trim(qpt.Merchant))
+                                  when "IGODIRECT" then "IGODIRECT3P"
+                                  else upper(trim(qpt.Merchant))
+                               end
+         join `pdh_ref_ds.ref_key_value` rk --2022-11-25 Add Key_value table to remove hard coding
+              on rk.attribute = "merchant-terminalid mapping"
+              and upper(trim(rk.key)) = upper(trim(qpt.Merchant))
+         left join `pdh_analytics_ds.stlm_standard_settlement_table` std
+         on std.tran_uid = concat("QP_",trim(ifnull(qpt.InvoiceNumber,"Null")),"_",
                          case 
                             when qpt.CardNumber is Null then "NULL"
                             when length(trim(qpt.CardNumber)) < 10 then trim(qpt.CardNumber)
@@ -57,41 +95,21 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                             else format_datetime("%Y%m%dT%H%M%S",
                                                  cast(qpt.TransactionDate as datetime)
                                                 )
-                         end) as tran_uid,
-                  qpt.file_name,
-                  case 
-                     when qpt.TransactionDate is null then cast("1900-01-01T00:00:00" as datetime)
-                     else datetime_trunc(cast(qpt.TransactionDate as datetime),second)
-                  end as transaction_timestamp,
-                  upper(trim(qpt.TransactionType)) as transactiontype,
-                  "QP" as tran_qualifier,
-                  upper(left(trim(rk.value),5))  as store_id,
-                  qpt.InvoiceNumber as invoicenumber,
-                  ifnull(qpt.Amount,0) as trans_amt,
-                  ifnull(qpt.DiscountValue,0) as discount_amt
-         from `pdh_rd_quickcilver.qc_partner_detail` qpt
-         Join `pdh_ref_ds.ref_merchant_settlement_window` mw
-              on mw.division_type = "PARTNER"
-             and mw.is_active = "Y"
-             and mw.division = case upper(trim(qpt.Merchant))
-                                  when "IGODIRECT" then "IGODIRECT3P"
-                                  else upper(trim(qpt.Merchant))
-                               end
-         join `pdh_ref_ds.ref_key_value` rk 
-              on rk.attribute = "merchant-terminalid mapping"
-              and upper(trim(rk.key)) = upper(trim(qpt.Merchant))
-        where upper(trim(qpt.TransactionType)) in ("ACTIVATION","CANCELLATION")
+                         end)
+      where  std.tran_uid is null
+          and upper(trim(qpt.TransactionType)) in ("ACTIVATION","CANCELLATION")
           and ifnull(qpt.Merchant,"") <> "" 
           and (ifnull(qpt.Amount,0) <> 0 or ifnull(qpt.DiscountValue,0) <> 0)
         ),        
-   trn_seq as (select *, row_number() over(partition by tran_uid) tran_uid_seq
+   trn_seq as (select *, row_number() over(partition by tran_uid 
+                                           order by tran_uid,pdh_load_time) tran_uid_seq
                from tran_combined where ifnull(store_id,"") <> ""),
-   --Eliminate duplicate tran_uid
+   --select earliest of each tran_uid                 
    trn as (      
-          Select * from trn_seq where tran_uid not in 
-                   (select tran_uid from trn_seq
-                    where tran_uid_seq = 2)   
+          Select * from trn_seq 
+          where tran_uid_seq = 1
           )
+  --     
    select datetime_trunc(current_datetime("Australia/Sydney"),SECOND)  as last_update_datetime,
            "Settlement Process" as last_updated_by,
            cast(null as date) as posting_date,
@@ -123,28 +141,26 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
            on tt.settlement_factor <> 0
           and tt.transaction_type = upper(trim(trn.transactiontype))
           and tt.tran_qualifier = trn.tran_qualifier
-    left join `pdh_analytics_ds.stlm_standard_settlement_table` std
-         on std.tran_uid = trn.tran_uid
-    where  std.tran_uid is null
-      and trn.transaction_timestamp
+    where trn.transaction_timestamp
               > (case 
                     when msw.last_execution_time is null then cast("1900-01-01T00:00:00" as datetime)
                     else cast(cast(msw.last_execution_time as date) + msw.days_lookback as datetime)
                  end) 
-      and trn.transaction_timestamp >= cast(msw.earliest_date as datetime)   /* 2022-07-06 */
+      and trn.transaction_timestamp >= cast(msw.earliest_date as datetime)   -- 2022-07-06 
       and trn.transaction_timestamp <= 
                    cast(concat(format_date("%Y-%m-%d",sys_date + msw.day_lag), "T",
                                left(lpad(cast(msw.settlement_cutoff as string),4,"0"),2), ":",
                               right(lpad(cast(msw.settlement_cutoff as string),4,"0"),2), ":00" 
-                              ) as datetime);   /* 2022-07-06 */
+                              ) as datetime);  -- 2022-07-06 
 
---add control rec to specify QC detail is added to generic settlement table
+--add control rec to specify QP detail is added to generic settlement table
 set batch_end_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),SECOND);
 set (min_transaction_timestamp, max_transaction_timestamp) = 
            (select AS STRUCT datetime_trunc(min(transaction_timestamp),SECOND),
                              datetime_trunc(max(transaction_timestamp),SECOND)
             from `pdh_analytics_ds.stlm_standard_settlement_table`
-            where setlmnt_result_file is null);
+            where setlmnt_result_file is null
+              and left(tran_uid,2) = "QP");
 --
 insert into pdh_analytics_ds.file_gen_details 
   select batch batch_number,

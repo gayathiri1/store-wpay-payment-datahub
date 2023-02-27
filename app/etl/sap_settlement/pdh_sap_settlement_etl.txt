@@ -1,4 +1,6 @@
---Perform SAP Settlement, Stop QP
+--Perform SAP Settlement, Stop QP, Add minitaf, commission model
+--20220110 Remove surcharge
+--2023012 Use function calc_commission
 declare sys_date date default CURRENT_DATE("Australia/Sydney");
 declare str_sysdate string default cast(sys_date as string);
 declare strt_settlement datetime default DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
@@ -13,16 +15,15 @@ declare batch_end_mm_dd_hh_mm_ss datetime;
 declare batch_end_yyyymmddhhmmss string;
 Declare min_tran_time datetime;
 Declare max_tran_time datetime;
-
 declare interfaceidentifier string DEFAULT "WPAYGFSST";
-Declare companies ARRAY <string>;
+declare companies ARRAY <string>;
 --
 --Get next Batch Number
 CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
 if (ifnull(batch,"") in ("NOContRec","UpdFailed"))  then
     return;
 end if; 
---             
+--            
 --perform settlement
    set batch_end_datetime = DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
    set batch_end_yyyymmddhhmmss = format_date("%Y%m%d%H%M%S",  batch_end_datetime);
@@ -34,7 +35,7 @@ end if;
                          from `pdh_ref_ds.ref_str_to_sap_customermapping`
                          where upper(ifnull(active_flag,"N")) <> "N"
                            and ifnull(wpay_company_code,"") <> "");
-   
+   --
    --Always Create CSV Header 
    truncate table `pdh_analytics_ds.stlm_settlement_result`;
    insert into `pdh_analytics_ds.stlm_settlement_result`
@@ -77,12 +78,13 @@ end if;
  --Create CSV Details if exists
    insert into `pdh_analytics_ds.stlm_settlement_result` 
        (file_name,merchant,company_code,npp_flag,f01,f02,f03,f04,f05,f06,f07,f08,f09,f10,f11,f12,f13) 
+ --
        with company_sequence as 
              (select  companies[SAFE_OFFSET(offset)] as company_code,offset as company_seq 
               from unnest(companies) with OFFSET
               ), 
             dtl as (
-              select 
+              select
                cs.company_code,
                cs.company_seq,
                scm.npp_flag,
@@ -93,7 +95,20 @@ end if;
                scm.sap_customer_number as f06,
                std.store_id f07, 
                scm.wpay_store_number as f08,
-               std.tran_settlement_amount * 100 as f09,
+               ifnull(scm2.wpay_store_number,
+                      trim(msw.commission_store)) commission_store,
+               ifnull(scm2.npp_flag,scm.npp_flag) scm2_npp,
+               pdh_ref_ds.calc_commission(msw.commission_store,
+                                          std.tran_settlement_amount,
+                                          scm.commission_percent,
+                                          scm.commission_fixed_value)
+                                        * 100 commission,
+               (ifnull(std.tran_settlement_amount,0) - 
+                pdh_ref_ds.calc_commission(msw.commission_store,
+                                          std.tran_settlement_amount,
+                                          scm.commission_percent,
+                                          scm.commission_fixed_value)) * 100
+                                           as settlement_amount,
                scm.currency_code as f10,
                cast(std.transaction_timestamp as date) as f11,
                case std.order_number
@@ -101,12 +116,18 @@ end if;
                   else order_number
                end as f12
          from `pdh_analytics_ds.stlm_standard_settlement_table` std
+         join `pdh_ref_ds.ref_merchant_settlement_window` msw on msw.division = std.division
          join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
-               on  left(std.tran_uid,2) <> "QP"   --stop QC Partners
-               and upper(trim(scm.wpay_store_number)) = std.store_id
+               on  upper(trim(scm.wpay_store_number)) = std.store_id
                and upper(ifnull(scm.active_flag,"")) <> "N" 
+         left join `pdh_ref_ds.ref_str_to_sap_customermapping` scm2
+               on  upper(trim(scm2.wpay_store_number)) = msw.commission_store
+               and upper(ifnull(scm2.active_flag,"")) <> "N" 
          join  company_sequence cs on cs.company_code = trim(scm.wpay_company_code)
-         where std.setlmnt_result_file is null)
+         where std.setlmnt_result_file is null
+           and left(std.tran_uid,2) <> "QP"   --stop QC Partners
+                        )
+         --
          select concat(interfaceidentifier,"_",
                      format_datetime("%Y%m%d%H%M%S",
                                      datetime_add(batch_end_datetime, 
@@ -123,13 +144,41 @@ end if;
                  npp_flag,
                  f01, f02, f03,f04, 
                  cast(null as string) as f05,f06,f07,f08,
-                 cast(cast(round(sum(f09),0) as int64) as string) as f09,
+                 cast(sum(settlement_amount) as string) as f09,
                  f10,
                  format_date("%Y%m%d",f11) as f11,
                  f12,
                  "/" as f13
           from dtl
-          group by company_code, company_seq,npp_flag,f01,f02,f03,f04,f06,f07,f08,f10,f11,f12;
+          group by company_code, company_seq,npp_flag,f01,f02,f03,f04,f06,f07,f08,f10,f11,f12
+          having sum(settlement_amount) <> 0
+          union all select concat(interfaceidentifier,"_",
+                     format_datetime("%Y%m%d%H%M%S",
+                                     datetime_add(batch_end_datetime, 
+                                                  Interval 
+                                                  company_seq second))) as file_name,
+                 concat("sapsettlement",
+                             case company_code
+                                when "1410" then "aus"
+                                when "2025" then "nzl"
+                                else "oth"
+                             end,
+                             company_code) as merchant,
+                 company_code as company,
+                 scm2_npp,
+                 f01, f02, f03,f04, 
+                 cast(null as string) as f05,f06,
+                 commission_store as f07,
+                 commission_store f08,
+                 cast(sum(commission) as string) as f09,
+                 f10,
+                 format_date("%Y%m%d",f11) as f11,
+                 f12,
+                 "/" as f13
+          from dtl
+          group by company_code, company_seq,scm2_npp,f01,f02,f03,f04,f06,
+          commission_store,f10,f11,f12
+          having sum(commission) <> 0;
 --
 --Always create CSV Trailor
     insert into `pdh_analytics_ds.stlm_settlement_result` 
@@ -154,8 +203,10 @@ end if;
 --   
 --Insert audit batch records if detail exists
      insert into `pdh_analytics_ds.audit_stlm_batch`
-      (batchnumber, division, record_type, batch_start,	batch_end, filename, posting_file_name,	cutoff_start, cutoff_end,
-       	first_trans_time,last_trans_time, no_trans_posted,amount_posted, comment, datetime_created,created_by)
+      (batchnumber, division, record_type, batch_start,	batch_end, filename, 
+       posting_file_name, cutoff_start, cutoff_end, first_trans_time,
+       last_trans_time, no_trans_posted,amount_posted,
+       comment, datetime_created, created_by, discount_amount)
       with company_sequence as 
              (select  companies[SAFE_OFFSET(offset)] as company_code,offset as company_seq 
               from unnest(companies) with OFFSET
@@ -168,25 +219,47 @@ end if;
              filename,
              concat(interfaceidentifier,"_",
                      format_datetime("%Y%m%d%H%M%S",
-                                     datetime_add(batch_end_datetime, 
-                                                  Interval 
-                                                  cs.company_seq second))) as postingfilename,
-             min( 
-                 case 
-                    when msw.last_execution_time is null then "1900-01-01T00:00:00"
+                          datetime_add(batch_end_datetime, 
+                                       Interval 
+                                       cs.company_seq second))) as postingfilename,
+             -- 2022-10-14  7day settlement start
+             min(case
+                  when wbs.store_id is null or msw.settle_by_store = "N" then                 
+                   case 
+                    when msw.last_execution_time is null 
+                            then "1900-01-01T00:00:00"
                     else msw.last_execution_time
-                 end),
-              max(cast(concat(format_date("%Y-%m-%d",sys_date + msw.day_lag), "T",
-                              left(rpad(cast(msw.settlement_cutoff as string),6,"0"),2), ":",
-                         substring(rpad(cast(msw.settlement_cutoff as string),6,"0"),3,2), ":",
-                             right(rpad(cast(msw.settlement_cutoff as string),6,"0"),2)) as datetime)),
-             cast(format_datetime("%Y-%m-%dT%H:%M:%S",min(std.transaction_timestamp)) as datetime),
-             cast(format_datetime("%Y-%m-%dT%H:%M:%S",max(std.transaction_timestamp)) as datetime),
-             count(*), 
-             round(sum(tran_settlement_amount),2),
-             max("processd transaction after cutoff_stat up to cutoff_end"),
-             cast(format_date("%Y-%m-%dT%H:%M:%S", current_datetime("Australia/Sydney")) as datetime),
-             "Settlement Process"
+                   end
+                  else
+                   case 
+                    when wbs.last_execution_time is null 
+                           then "1900-01-01T00:00:00"
+                    else wbs.last_execution_time
+                   end
+                 end) as cutoff_start,
+              max(cast(concat(
+                   case
+                    when wbs.store_id is null or msw.settle_by_store = "N" then
+                     concat(format_date("%Y-%m-%d",sys_date + msw.day_lag), "T",
+                            left(lpad(cast(msw.settlement_cutoff as string),4,"0"),2), ":",
+                           right(lpad(cast(msw.settlement_cutoff as string),4,"0"),2))
+                    else
+                     concat(format_date("%Y-%m-%d",sys_date + wbs.day_lag), "T",
+                            left(lpad(cast(wbs.settlement_cutoff as string),4,"0"),2), ":",
+                           right(lpad(cast(wbs.settlement_cutoff as string),4,"0"),2))       
+                    end, ":00") as datetime)) as cutoff_end,
+                    -- 2022-10-14  7day settlement end
+             cast(format_datetime("%Y-%m-%dT%H:%M:%S",
+                      min(std.transaction_timestamp)) as datetime) as first_trans_time,
+             cast(format_datetime("%Y-%m-%dT%H:%M:%S",
+                      max(std.transaction_timestamp)) as datetime) as last_trans_time, 
+             count(*) as no_trans_posted,
+             round(sum(tran_settlement_amount),2) amount_posted,
+             max("processd transaction after cutoff_stat up to cutoff_end") as comment,  
+             cast(format_date("%Y-%m-%dT%H:%M:%S", 
+                     current_datetime("Australia/Sydney")) as datetime) as datetime_created, 
+             "Settlement Process" as created_by,
+             sum(ifnull(std.discount_amt,0)) as discount_amount
       from `pdh_analytics_ds.stlm_standard_settlement_table` std
       join `pdh_ref_ds.ref_merchant_settlement_window` msw
          on msw.is_active = "Y"
@@ -196,6 +269,10 @@ end if;
            on upper(trim(scm.wpay_store_number)) = std.store_id
                and upper(ifnull(scm.active_flag,"")) <> "N" 
       join company_sequence cs on cs.company_code = trim(scm.wpay_company_code)
+      left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs
+           on wbs.is_active = "Y"
+          and wbs.division = std.division
+          and wbs.store_id = std.store_id
       group by std.division,
                std.record_type,
                batch_start_mm_dd_hh_mm_ss,
@@ -204,18 +281,52 @@ end if;
                postingfilename,
                cast(format_date("%Y-%m-%dT%H:%M:%S", current_datetime("Australia/Sydney")) as datetime);
 --
+--update settlement window by store
+   update `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs
+       set wbs.last_execution_time = std2.min_tran_time,
+           wbs.last_updated_datetime = 
+              DATETIME_TRUNC(CURRENT_DATETIME("Australia/Sydney"),SECOND)
+   from (select std1.division, 
+                std1.store_id,
+                min(std1.max_tran_time) min_tran_time
+         from (
+             select left(std.tran_uid,2) source,
+                    std.division, 
+                    std.store_id,
+                    max(std.transaction_timestamp) max_tran_time
+             from `pdh_analytics_ds.stlm_standard_settlement_table` std
+             join pdh_ref_ds.ref_merchant_settlement_window msw                 
+                    on msw.division = std.division
+             join pdh_ref_ds.ref_merchant_settlement_window_by_store wbs1 
+                         on wbs1.division = std.division 
+                        and wbs1.store_id = std.store_id
+             where left(std.tran_uid,2) <> "QP"
+             group by 1,2,3) std1
+         group by 1,2) std2
+   where wbs.division = std2.division
+     and wbs.store_id = std2.store_id;
+--
 --update settlement window if detail exists
    update `pdh_ref_ds.ref_merchant_settlement_window` msw
        set msw.last_execution_time = std2.min_transaction_timestamp,
            msw.last_updated_datetime = DATETIME_TRUNC(CURRENT_DATETIME("Australia/Sydney"),SECOND)
    from (select std1.division, min(std1.max_transaction_timestamp) min_transaction_timestamp
          from (
-               select left(tran_uid,2) source,division, max(transaction_timestamp) max_transaction_timestamp
-               from `pdh_analytics_ds.stlm_standard_settlement_table`
-               where left(tran_uid,2) <> "QP"
-               group by left(tran_uid,2), division) std1
-         group by std1.division) std2
-   where upper(trim(msw.division)) = std2.division;
+               select left(std.tran_uid,2) source,
+                      std.division,
+                      max(std.transaction_timestamp) max_transaction_timestamp
+               from `pdh_analytics_ds.stlm_standard_settlement_table` std
+               join pdh_ref_ds.ref_merchant_settlement_window msw                 
+                    on msw.division = std.division
+               left join pdh_ref_ds.ref_merchant_settlement_window_by_store wbs1 
+                         on wbs1.division = std.division 
+                        and wbs1.store_id = std.store_id
+                        and wbs1.is_active = "Y"
+               where left(std.tran_uid,2) <> "QP"
+                 and wbs1.store_id is null
+               group by 1,2) std1
+         group by 1) std2
+   where msw.division = std2.division;
 --
  --Always Insert csv output control
    set (min_tran_time,max_tran_time) = (select AS STRUCT datetime_trunc(min(transaction_timestamp),SECOND),
@@ -269,7 +380,8 @@ end if;
              std.last_update_datetime = pf.batch_end, 
              std.posting_date = cast(pf.batch_end as date) 
    from (with company_sequence as 
-             (select  companies[SAFE_OFFSET(offset)] as company_code,offset as company_seq 
+             (select companies[SAFE_OFFSET(offset)] as company_code,
+                     offset as company_seq 
               from unnest(companies) with OFFSET
               )
         select st.tran_uid,
@@ -293,3 +405,5 @@ end if;
                       
         )  pf
    where pf.tran_uid = std.tran_uid;
+   --
+   

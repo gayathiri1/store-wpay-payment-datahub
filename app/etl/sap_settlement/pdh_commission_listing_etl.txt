@@ -1,0 +1,110 @@
+--20230110 -Remove surcharg
+--2023012 Use function calc_commission
+declare batch_end_yyyy_mm_dd_hh_mm_ss datetime default
+          datetime_trunc(current_datetime("Australia/Sydney"),second);
+declare batch_end_yyyy_mm_dd_hh_mm_ss_1 datetime default
+          datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss,INTERVAL -1 DAY);
+DECLARE inp_lookup STRING DEFAULT "COM Commission Listing";
+DECLARE batch string;
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+if (ifnull(batch,"") in ("","NOContRec","UpdFailed"))  then
+    return;
+end if;
+--
+--truncate table `pdh_analytics_ds.stlm_commission_history`;
+truncate table `pdh_analytics_ds.stlm_commission`; 
+-- insert header
+insert into `pdh_analytics_ds.stlm_commission`
+   select "merchant" as merchant,
+          "H" as record_type,
+          "tran_uid" as tran_uid,
+          "commission_amt" as commission_amt;
+-- insert detail 
+insert into `pdh_analytics_ds.stlm_commission` 
+   with DET as (
+      select
+           tlf.stlf_prefix as merchant,
+           st.tran_uid as tran_uid,
+           pdh_ref_ds.calc_commission(m.commission_store,
+                                      st.tran_settlement_amount,
+                                      scm.commission_percent,
+                                      scm.commission_fixed_value) commission
+      from `pdh_analytics_ds.stlm_standard_settlement_table` st
+      join pdh_ref_ds.ref_merchant_settlement_window m 
+             on ifnull(m.commission_store,"") <> ""
+            and m.division = st.division 
+      join pdh_ref_ds.ref_stlm_tlf_config tlf 
+             on ifnull(tlf.stlf_prefix,"") <> ""
+            and upper(trim(tlf.division)) = st.division
+      join pdh_ref_ds.ref_str_to_sap_customermapping scm
+           on upper(trim(scm.wpay_store_number)) = st.store_id
+               and upper(ifnull(scm.active_flag,"")) <> "N" 
+               and (ifnull(commission_percent,"") <> ""
+                    or ifnull(commission_fixed_value,"") <> "")
+      where ifnull(st.commission_filename,"") = ""
+        and ifnull(st.setlmnt_result_file,"") <> ""
+   ) 
+      select merchant,
+             "D" as record_type,
+             tran_uid,
+             cast(cast(abs(commission) * 100 as int64) as string) as commission_amt
+      from DET
+      where commission <> 0; --commission is non zero
+--Insert Traiter
+insert into `pdh_analytics_ds.stlm_commission`
+   select merchant,
+          "T" as record_type,
+           cast(ifnull(count(*),0) as string) as tran_uid,
+           null as commission_amt
+   from `pdh_analytics_ds.stlm_commission`
+   where record_type = "D"
+   group by 1;
+
+--copy to history
+ insert into `pdh_analytics_ds.stlm_commission_history`
+    select batch_end_yyyy_mm_dd_hh_mm_ss as datetime_created,*
+    from `pdh_analytics_ds.stlm_commission`;
+
+--Always add control record based on config window          
+ insert into pdh_analytics_ds.file_gen_details 
+    select  batch,
+            cast(batch_end_yyyy_mm_dd_hh_mm_ss as date), 
+            lower(concat(tlf.stlf_prefix,"_commission_listing")),
+            true,
+            null, 
+            ifnull(std.min_transaction,batch_end_yyyy_mm_dd_hh_mm_ss_1),
+            ifnull(std.max_transaction,batch_end_yyyy_mm_dd_hh_mm_ss_1),
+            batch_end_yyyy_mm_dd_hh_mm_ss_1,
+            null
+    from pdh_ref_ds.ref_stlm_tlf_config tlf
+    join pdh_ref_ds.ref_merchant_settlement_window m 
+             on ifnull(m.commission_store,"") <> ""
+            and m.division = upper(trim(tlf.division))
+    left join (Select st.division,
+                     min(st.transaction_timestamp) min_transaction,
+                     max(st.transaction_timestamp) max_transaction
+               from `pdh_analytics_ds.stlm_standard_settlement_table` st 
+               join `pdh_analytics_ds.stlm_commission_history` cl 
+                        on cl.tran_uid = st.tran_uid
+               Where ifnull(st.commission_filename,"") = "" 
+                 and ifnull(st.setlmnt_result_file,"") <> ""
+               Group by 1
+               ) std on std.division = m.division
+         where ifnull(tlf.stlf_prefix,"") <> "";
+                                                          
+     --Update Generic table
+   Update  `pdh_analytics_ds.stlm_standard_settlement_table` std
+      set std.commission_filename = t.commission_filename,
+          std.last_update_datetime = batch_end_yyyy_mm_dd_hh_mm_ss,
+          std.last_updated_by  ="Commission Listing"
+   from (select std1.tran_uid, 
+                concat(cl.merchant,"_Commission_",
+                       format_date("%Y%m%d%H%M%S",
+                                   batch_end_yyyy_mm_dd_hh_mm_ss_1)) commission_filename 
+         from `pdh_analytics_ds.stlm_standard_settlement_table` std1
+         join `pdh_analytics_ds.stlm_commission_history` cl 
+                        on cl.tran_uid = std1.tran_uid
+         Where ifnull(std1.commission_filename,"") = "" 
+           and ifnull(std1.setlmnt_result_file,"") <> ""
+                ) t
+     Where t.tran_uid = std.tran_uid; 

@@ -2,8 +2,17 @@
 --load Settlement Listing add Source CY
 --2022-10-11 Cater for string input for rrn from isg
 --20221103 Include Amex transactions
+--20221114 Add minitaf and EDWm
+--20230201 Use function get_trans_uid
+--20230201 Replace minitaf(gfs_pdh_txn_interface) by NRT(lv_gfs_pdh_txn_interface)
+--20230207 Use function pdh_ref_ds.get_calc_trans_type for EDW
+--20230209 replace pdh_rd_data_navigator.lv_gfs_pdh_txn_interface 
+--              by pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface
+--20230220 For NRT Take pan and card_acceptor_name_location from transaction
+--
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
+DECLARE nullstr string;
 --
 declare trailorcount int64;
 declare sysdate date default current_date("Australia/Sydney");
@@ -21,7 +30,7 @@ end if;
 set batch_end_yyyy_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),second);
 set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss, 
                                                      INTERVAL -1 DAY);
---                                                   
+                                                
 -- Always add CSV Headers based on settlement window
   truncate table `pdh_analytics_ds.stlm_std_eg_transaction_listing`;
   --
@@ -70,18 +79,25 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
 --
 --Add details if settled not reported exists exists
  insert into `pdh_analytics_ds.stlm_std_eg_transaction_listing`
-   With trqc as (
-          Select concat("QC_",trim(ifnull(tqc.approvalcode,"Null")),"_",
-                               trim(ifnull(tqc.ReferenceNumber,"Null")),"_",
-                               cast(ifnull(tqc.BatchNumber,0) as string),"_",
-                               case 
-                                  when tqc.transactiondate is null then "19000101"
-                                  else format_date("%Y%m%d",tqc.transactiondate)
-                               end,"T",
-                               case 
-                                  when tqc.transactiontime is null then "000000"
-                                  else format_time("%H%M%S",tqc.transactiontime)
-                               end) as tran_uid,
+   With trqc as ( --1
+          Select pdh_ref_ds.get_tran_uid(
+                                    "QC",
+                                     tqc.approvalcode, 
+                                     tqc.ReferenceNumber, 
+                                     tqc.BatchNumber, 
+                                     nullstr,
+                                     concat(CASE 
+                                             when tqc.transactiondate is null then "19000101"
+                                            else format_date("%Y%m%d",tqc.transactiondate)
+                                            End,"T",
+                                            CASE 
+                                             when tqc.transactiontime is null then "000000"
+                                             else format_time("%H%M%S",tqc.transactiontime)
+                                            end),
+                                      nullstr,
+                                      nullstr, 
+                                      nullstr, 
+                                      0) as tran_uid,
                   st1.division,
                   st1.store_id,
                   tqc.POSName as terminal_id,
@@ -119,23 +135,49 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   cast(null as string) as   moto_type,
                   cast(null as string) as   original_scheme,
                   cast(null as string) as   mcr_ind,
-                  tqc.outlet
-      from `pdh_rd_quickcilver.qc_detail_transactions` tqc
-      join  pdh_analytics_ds.stlm_standard_settlement_table st1
-            on st1.tran_uid = concat("QC_",trim(tqc.approvalcode),"_",
-                                  trim(tqc.ReferenceNumber),"_",
-                                  cast(tqc.BatchNumber as string),"_",
-                                  format_date("%Y%m%d",tqc.transactiondate),"T",
-                                  format_time("%H%M%S",tqc.transactiontime))
-           and ifnull(st1.tlf_name,"") = "" 
-           and ifnull(st1.setlmnt_result_file,"") <> ""),
-   trcy as (
-            Select concat("CY_",cast(tcy.tran_uid as string),"_",
-               left(rpad(cast(tcy.transaction_timestamp as string),14,"0"),8),"T",
-              right(rpad(cast(tcy.transaction_timestamp as string),14,"0"),6),"_",
-               upper(trim(tcy.transaction_type)),"_",
-               cast(abs(ifnull(tcy.transaction_amount,0) * 0.01) as string)
-               ) as tran_uid,
+                  tqc.outlet,
+                  tlf.stlf_prefix
+      from pdh_analytics_ds.stlm_standard_settlement_table st1
+      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+                on upper(trim(tlf.division)) = st1.division
+               and ifnull(tlf.stlf_prefix,"") <> ""
+               and tlf.qc_flag = "Y" 
+      join `pdh_rd_quickcilver.qc_detail_transactions` tqc
+            on st1.tran_uid = pdh_ref_ds.get_tran_uid(
+                                    "QC",
+                                     tqc.approvalcode, 
+                                     tqc.ReferenceNumber, 
+                                     tqc.BatchNumber, 
+                                     nullstr,
+                                     concat(CASE 
+                                             when tqc.transactiondate is null then "19000101"
+                                            else format_date("%Y%m%d",tqc.transactiondate)
+                                            End,"T",
+                                            CASE 
+                                             when tqc.transactiontime is null then "000000"
+                                             else format_time("%H%M%S",tqc.transactiontime)
+                                            end),
+                                      nullstr,
+                                      nullstr, 
+                                      nullstr, 
+                                      0)
+      where ifnull(st1.tlf_name,"") = "" 
+        and ifnull(st1.setlmnt_result_file,"") <> ""
+           ),
+   trcy as ( --2
+            Select pdh_ref_ds.get_tran_uid(
+                                "CY",
+                                nullstr, 
+                                nullstr,
+                                0,
+                                nullstr,
+                                concat(
+                                left(rpad(cast(tcy.transaction_timestamp as string),14,"0"),8),"T",
+                               right(rpad(cast(tcy.transaction_timestamp as string),14,"0"),6)),
+                                cast(tcy.tran_uid as string),
+                                nullstr, 
+                                tcy.transaction_type, 
+                                tcy.transaction_amount) as tran_uid,
                    st2.division,
                    st2.store_id,
                    case --20221103 get terminal_id from ref_key_value if empty in isg_tran
@@ -147,7 +189,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    rpad(cast(tcy.transaction_timestamp as string),14,"0") as timestamp_local,
                    tcy.pan as CardNumber,
                    cast(null as string) stan,
-                   ifnull(tcy.retrieval_reference_number,"0") as rrn, /* 2022-10-11 */
+                   ifnull(tcy.retrieval_reference_number,"0") as rrn, -- 2022-10-11
                    cast(null as string) original_stan,
                    cast(null as string) mti,
                    cast(tcy.card_entry_mode as string) as CardEntryMode,
@@ -172,33 +214,52 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   cast(null as string) as   moto_type,
                   tcy.scheme original_scheme,
                   cast(null as string) as    mcr_ind,
-                  "" as outlet
-      from `pdh_rd_data_navigator.isg_wpay_tran` tcy
-      join  pdh_analytics_ds.stlm_standard_settlement_table st2
-            on st2.tran_uid = concat("CY_",cast(tcy.tran_uid as string),"_",
-               left(rpad(cast(tcy.transaction_timestamp as string),14,"0"),8),"T",
-              right(rpad(cast(tcy.transaction_timestamp as string),14,"0"),6),"_",
-               upper(trim(tcy.transaction_type)),"_",
-               cast(abs(ifnull(tcy.transaction_amount,0) * 0.01) as string)
-               )   /* 2022-07-06 */
-            and ifnull(st2.tlf_name,"") = "" 
-            and ifnull(st2.setlmnt_result_file,"") <> ""
+                  "" as outlet,
+                  tlf.stlf_prefix
+      from pdh_analytics_ds.stlm_standard_settlement_table st2
+      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+                on upper(trim(tlf.division)) = st2.division
+               and ifnull(tlf.stlf_prefix,"") <> ""
+               and tlf.cybsy_flag = "Y"
+      join `pdh_rd_data_navigator.isg_wpay_tran` tcy
+            on st2.tran_uid = pdh_ref_ds.get_tran_uid(
+                                "CY",
+                                nullstr, 
+                                nullstr,
+                                0,
+                                nullstr,
+                                concat(
+                                left(rpad(cast(tcy.transaction_timestamp as string),14,"0"),8),"T",
+                               right(rpad(cast(tcy.transaction_timestamp as string),14,"0"),6)),
+                                cast(tcy.tran_uid as string),
+                                nullstr, 
+                                tcy.transaction_type, 
+                                tcy.transaction_amount)   -- 2022-07-06 
       left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
           and upper(trim(rk.key)) = upper(trim(cast(tcy.merchant_id as string)))
+      where ifnull(st2.tlf_name,"") = "" 
+        and ifnull(st2.setlmnt_result_file,"") <> ""
                ),
 --
-     trlk as (
-            Select concat("LK_",
-                          trim(ifNull(tlk.ResRef,"NULL")),"_",
-                          case 
-                             when tlk.ReqDate is null then "19000101" 
-                             else format_date("%Y%m%d",tlk.ReqDate)
-                          end, "T",
-                          case 
-                             when tlk.ReqTime is null then "000000"
-                             else format_time("%H%M%S",tlk.ReqTime)
-                          end) as tran_uid,
+     trlk as ( --3
+            Select pdh_ref_ds.get_tran_uid(  "LK",
+                                     nullstr, 
+                                     tlk.ResRef,
+                                     0, 
+                                     nullstr,
+                                     concat(CASE 
+                                             when tlk.ReqDate is null then "19000101"
+                                            else format_date("%Y%m%d",tlk.ReqDate)
+                                            End,"T",
+                                            CASE 
+                                             when tlk.ReqTime is null then "000000"
+                                             else format_time("%H%M%S",tlk.ReqTime)
+                                            end),
+                                      nullstr,
+                                      nullstr, 
+                                      nullstr, 
+                                      0) as tran_uid,
                    st3.division,
                    st3.store_id,
                    tlk.TerminalID as terminal_id,
@@ -235,32 +296,53 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   cast(null as string) as moto_type,
                   cast(null as string) as original_scheme,
                   cast(null as string) as mcr_ind,
-                  "" as outlet
-      from `pdh_rd_apm.alipay_linkly` tlk
-      join  pdh_analytics_ds.stlm_standard_settlement_table st3
-            on st3.tran_uid = concat("LK_",
-                  trim(ifNull(tlk.ResRef,"NULL")),"_",
-                  case 
-                     when ReqDate is null then "19000101" 
-                     else format_date("%Y%m%d",tlk.ReqDate)
-                  end, "T",
-                  case 
-                     when tlk.ReqTime is null then "000000"
-                     else format_time("%H%M%S",tlk.ReqTime)
-                  end)
-           and ifnull(st3.tlf_name,"") = "" 
-           and ifnull(st3.setlmnt_result_file,"") <> ""
+                  "" as outlet,
+                  tlf.stlf_prefix
+      from pdh_analytics_ds.stlm_standard_settlement_table st3
+      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+                on upper(trim(tlf.division)) = st3.division
+               and ifnull(tlf.stlf_prefix,"") <> ""
+               and tlf.alipay_flag = "Y"
+      join `pdh_rd_apm.alipay_linkly` tlk
+                  on st3.tran_uid = pdh_ref_ds.get_tran_uid(  "LK",
+                                     nullstr, 
+                                     tlk.ResRef,
+                                     0, 
+                                     nullstr,
+                                     concat(CASE 
+                                             when tlk.ReqDate is null then "19000101"
+                                            else format_date("%Y%m%d",tlk.ReqDate)
+                                            End,"T",
+                                            CASE 
+                                             when tlk.ReqTime is null then "000000"
+                                             else format_time("%H%M%S",tlk.ReqTime)
+                                            end),
+                                      nullstr,
+                                      nullstr, 
+                                      nullstr, 
+                                      0)
+      where ifnull(st3.tlf_name,"") = "" 
+        and ifnull(st3.setlmnt_result_file,"") <> ""
                ),
---
-      trdp as (
-            Select concat("DP_",trim(tdp.txnRef)) as tran_uid,
+      trdp as ( --4
+            Select pdh_ref_ds.get_tran_uid(
+                         "DP",
+                         nullstr, 
+                         trim(tdp.txnRef), 
+                         0, 
+                         nullstr,
+                         nullstr,
+                         nullstr,
+                         nullstr, 
+                         nullstr, 
+                         0) as tran_uid,
                    st4.division,
                    st4.store_id,
                    tdp.terminal_id,
                    st4.tran_settlement_amount + st4.discount_amt as trans_amt,
                    st4.transaction_timestamp,
                    case
-                      when tdp.txnTime is null then "19000101000000" /* 2022-10-11 */
+                      when tdp.txnTime is null then "19000101000000" -- 2022-10-11
                       else format_datetime("%Y%m%d%H%M%S",datetime(txnTime))
                    end as  timestamp_local,
                    cast(null as string) as CardNumber,
@@ -293,26 +375,195 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    cast(null as string) as moto_type,
                    cast(null as string) as original_scheme,
                    cast(null as string) as    mcr_ind,
-                   "" as outlet
-      from `pdh_rd_data_navigator.digitalpay_gc_txns`  tdp
-      join  pdh_analytics_ds.stlm_standard_settlement_table st4
-            on st4.tran_uid = concat("DP_",trim(tdp.txnRef))
-           and ifnull(st4.tlf_name,"") = "" 
-           and ifnull(st4.setlmnt_result_file,"") <> ""
+                   "" as outlet,
+                  tlf.stlf_prefix
+      from pdh_analytics_ds.stlm_standard_settlement_table st4
+      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+                on upper(trim(tlf.division)) = st4.division
+               and ifnull(tlf.stlf_prefix,"") <> ""
+               and tlf.dpay_flag = "Y"
+      join `pdh_rd_data_navigator.digitalpay_gc_txns`  tdp
+               on st4.tran_uid = pdh_ref_ds.get_tran_uid(
+                         "DP",
+                         nullstr, 
+                         trim(tdp.txnRef), 
+                         0, 
+                         nullstr,
+                         nullstr,
+                         nullstr,
+                         nullstr, 
+                         nullstr, 
+                         0)
+      where ifnull(st4.tlf_name,"") = "" 
+        and ifnull(st4.setlmnt_result_file,"") <> ""
+               ),
+   trtc as ( 
+            Select pdh_ref_ds.get_tran_uid(
+                                "TC",
+                                nullstr, 
+                                nullstr,
+                                0,
+                                nullstr, 
+                                nullstr,
+                                dn.tran_uid,
+                                nullstr,
+                                nullstr, 
+                                0) as tran_uid,
+                   st5.division,
+                   st5.store_id,
+                   dn.net_term_id terminal_id,
+				       st5.tran_settlement_amount + st5.discount_amt as trans_amt,
+                   st5.transaction_timestamp,
+                   format_datetime("%Y%m%d%H%M%S",CAST(dn.tstamp_local AS DATETIME)) as timestamp_local,
+                   dn.masked_pan as CardNumber,
+                   cast(dn.stan as string) as stan,
+                   cast(dn.retrieval_ref_no as string) as rrn,
+                   cast(dn.original_stan as string) as original_stan,
+                   dn.mti,
+                   ifnull(em.description,"") as CardEntryMode,
+                   dn.purchase_total * 0.01 as sale_amt,
+                   dn.cashout_total * 0.01 as cashout_amt,
+                   upper(trim(ifnull(ds.description,t.abbr))) as transactiontype,
+                   pdh_ref_ds.get_scheme(dn.proc_id_iss_b,
+                                         dn.inst_id_recon_iss) scheme,
+                   cast(null as string) as card_type,
+                   cast(null as string) as card_subtype,
+                   st5.posting_date as settlement_date,
+                   "00" as response_code,
+                   "1"  as approval_status,
+                   dn.approval_code,
+                   st5.order_number,
+                   dn.adtnl_response_data as addtl_response_data,
+				       cast(null as string) as   account_type,
+                   0 as surcharge_amt,
+                   0 as tip_amt,
+                   cast(null as string) as moto_type,
+                   cast(null as string) as original_scheme,
+                   cast(null as string) as    mcr_ind,
+                   dn.card_acpt_name_loc as outlet,
+                  tlf.stlf_prefix
+    from pdh_analytics_ds.stlm_standard_settlement_table st5
+    join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+                on upper(trim(tlf.division)) = st5.division
+               and ifnull(tlf.stlf_prefix,"") <> ""
+               and tlf.minitaf_flag = "Y"
+    join pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface dn 
+             on st5.tran_uid = pdh_ref_ds.get_tran_uid(
+                                "TC",
+                                nullstr, 
+                                nullstr,
+                                0,
+                                nullstr, 
+                                nullstr,
+                                dn.tran_uid,
+                                nullstr,
+                                nullstr, 
+                                0)
+    Join `pdh_analytics_ds.ref_transaction_types` t 
+          on safe_cast(dn.tran_type_id as int64) = 
+                       cast(t.dn_tran_code as int64)
+    left join pdh_ref_ds.ref_entry_mode em on em.code = dn.pos_crd_dat_in_mod
+	 left join pdh_ref_ds.ref_transaction_type_codes ds
+                on trim(ds.code) = trim(dn.tran_type_id)
+    where ifnull(st5.tlf_name,"") = "" 
+      and ifnull(st5.setlmnt_result_file,"") <> ""
+		   ),
+   --
+tred as (
+         Select pdh_ref_ds.get_tran_uid(
+                                "ED",
+                                nullstr, 
+                                ted.retrieval_ref_num,
+                                0, 
+                                ted.pan,
+                                format_datetime("%Y%m%dT%H%M%S",datetime(ted.local_timestamp)),
+                                nullstr,
+                                nullstr, 
+                                nullstr, 
+                                0) as tran_uid,
+               st6.division,
+               st6.store_id,
+               ted.card_acceptor_terminal_id as terminal_id,
+               st6.tran_settlement_amount + st6.discount_amt as trans_amt,
+               st6.transaction_timestamp,
+               format_datetime("%Y%m%d%H%M%S",datetime(local_timestamp)) as  timestamp_local,
+               case 
+                    when ted.pan is Null then "NULL"
+                    when length(trim(ted.pan)) < 10 then trim(pan)
+                    else concat(left(trim(ted.pan),6),
+                                   repeat("*",length(trim(ted.pan)) - 9),
+                                   right(trim(ted.pan),3)
+                                  )
+                 end as CardNumber,
+               cast(null as string) as stan,
+               ted.retrieval_ref_num as rrn,
+               cast(null as string) as original_stan,
+               cast(null as string) as mti,
+               cast(null as string) as CardEntryMode,
+               st6.tran_settlement_amount + st6.discount_amt as sale_amt,
+               0 as cashout_amt,
+               pdh_ref_ds.get_calc_trans_type("", t.abbr ,safe_cast(ted.mti as string)) 
+                    as transactiontype, --20230207 use function
+               "GIFT CARDS" scheme,
+               cast(null as string) as card_type,
+               cast(null as string) as card_subtype,
+               st6.posting_date as settlement_date,
+               case ted.txn_disposition
+                  when 1 then "00" 
+                  else "12" 
+               end as response_code,
+               case ted.txn_disposition
+                  when 1 then "1" 
+                  else "0" 
+               end as approval_status,
+               cast(null as string) as approval_code,
+               st6.order_number,
+               cast(null as string) as addtl_response_data,
+               cast(null as string) as   account_type,
+               0 as surcharge_amt,
+               0 as tip_amt,
+               cast(null as string) as moto_type,
+               cast(null as string) as original_scheme,
+               cast(null as string) as    mcr_ind,
+               "" as outlet,
+               tlf.stlf_prefix
+      from pdh_analytics_ds.stlm_standard_settlement_table st6
+      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+                on upper(trim(tlf.division)) = st6.division
+               and ifnull(tlf.stlf_prefix,"") <> ""
+               and tlf.edp_flag = "Y"
+      join `pdh_rd_data_navigator.edwp_txnact`  ted
+            on st6.tran_uid = pdh_ref_ds.get_tran_uid(
+                                "ED",
+                                nullstr, 
+                                ted.retrieval_ref_num,
+                                0, 
+                                ted.pan,
+                                format_datetime("%Y%m%dT%H%M%S",datetime(ted.local_timestamp)),
+                                nullstr,
+                                nullstr, 
+                                nullstr, 
+                                0)
+      join `pdh_analytics_ds.ref_transaction_types` t 
+          on safe_cast(ted.txn_type_indicator as int64) = safe_cast(t.dn_tran_code as int64)
+      where ifnull(st6.tlf_name,"") = "" 
+        and ifnull(st6.setlmnt_result_file,"") <> ""
                ),
    trn_combined as (      select * from trqc where ifnull(store_id,"") <> ""
                 union all select * from trcy where ifnull(store_id,"") <> ""
                 union all select * from trlk where ifnull(store_id,"") <> ""
                 union all select * from trdp where ifnull(store_id,"") <> ""
+                union all select * from trtc where ifnull(store_id,"") <> ""
+                union all select * from tred where ifnull(store_id,"") <> ""
                    ),
    trn_seq as (
       select *, 
              row_number() over(partition by tran_uid order by store_id) tran_seq 
       from trn_combined
       where left(tran_uid,2) <> "QP")    --Stop QC Partner
-   Select concat(tlf.stlf_prefix,"_Settlement_",
+   Select concat(trn.stlf_prefix,"_Settlement_",
                     format_date("%Y%m%d%H%M%S",batch_end_yyyy_mm_dd_hh_mm_ss_1)) as file_name,
-                 tlf.stlf_prefix as merchant,
+                 trn.stlf_prefix as merchant,
                  "D" as record_type,
                  trn.tran_uid as transaction_uid,
                  trn.store_id wpay_store_id,
@@ -324,7 +575,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                  lpad(cast(cast(abs(trn.trans_amt) * 100 as int64) as string),18,"0") as transaction_amt,
                  format_datetime("%Y%m%d%H%M%S", trn.transaction_timestamp) transaction_timestamp,
                  trn.timestamp_local,
-                 case 
+                 Case  
+                    when left(tran_uid,2) = "TC" then  trim(trn.CardNumber)
                     when length(trim(trn.CardNumber)) < 10 then trim(trn.CardNumber)
                     else concat(left(trim(trn.CardNumber),6),
                                 repeat("*",length(trim(trn.CardNumber)) - 9),
@@ -349,6 +601,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                  trn.addtl_response_data,
                  Case left(tran_uid,2)
                     when "QC" then trn.outlet
+                    when "TC" then trn.outlet
                     else rsd.site_name
                  end card_acceptor_name_location, 
                  upper(trim(scm.merchant_store_number)) as merchant_store_id,
@@ -359,8 +612,6 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                  trn.original_scheme,
                  trn.mcr_ind
         from trn_seq trn
-        join `pdh_ref_ds.ref_stlm_tlf_config` tlf on tlf.division = trn.division
-             and ifnull(tlf.stlf_prefix,"") <> ""
         join `pdh_ref_ds.ref_store_details` rsd on upper(trim(rsd.store_id)) = trn.store_id 
         join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
              on upper(trim(scm.wpay_store_number)) = trn.store_id 
@@ -412,7 +663,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
             where cast(datetime_created as date) = max_settlementdate 
             and batchnumber between "S000000000" and "S999999999"
             group by division) batch_today on batch_today.division = std.division
-      join `pdh_ref_ds.ref_stlm_tlf_config` tlf on tlf.division = std.division
+      join `pdh_ref_ds.ref_stlm_tlf_config` tlf on upper(trim(tlf.division)) = std.division
                                                      and ifnull(tlf.stlf_prefix,"") <> "";
  --
 --Always add control record based on Settlement window          
@@ -430,7 +681,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                                                      max(st.transaction_timestamp) max_transaction
                               from `pdh_ref_ds.ref_stlm_tlf_config` tlf
                               join `pdh_analytics_ds.stlm_standard_settlement_table` st 
-                                          on tlf.division = st.division
+                                          on upper(trim(tlf.division)) = st.division
                               where ifnull(tlf.stlf_prefix,"") <> "" 
                              and ifnull(st.tlf_name,"") = ""
                              and ifnull(st.setlmnt_result_file,"") <> ""
@@ -449,8 +700,9 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                      concat(tlf.stlf_prefix,"_Settlement_",
                             format_date("%Y%m%d%H%M%S",batch_end_yyyy_mm_dd_hh_mm_ss_1)) tlf_name
               from `pdh_analytics_ds.stlm_standard_settlement_table` std1
-              join `pdh_ref_ds.ref_stlm_tlf_config` tlf on tlf.division = std1.division
-                                                       and ifnull(tlf.stlf_prefix,"") <> ""
+              join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+                       on upper(trim(tlf.division)) = std1.division
+                      and ifnull(tlf.stlf_prefix,"") <> ""
               Where ifnull(std1.tlf_name,"") = "" 
                 and ifnull(std1.setlmnt_result_file,"") <> "") t
      Where t.tran_uid = std.tran_uid;

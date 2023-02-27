@@ -112,7 +112,8 @@ class PDHUtils:
             
         #Logic to handle MMI Feed Format.
         if (kwargs[object_name]['table_name']).lower() == 'mmi_store_data_feed'\
-            or (kwargs[object_name]['table_name']).lower() == 'dn_wpaygfssst': #Bug fix- DATPAY-3390
+            or (kwargs[object_name]['table_name']).lower() == 'dn_wpaygfssst'\
+             or (kwargs[object_name]['table_name']).lower() == 'eftpos_tx_100_01':            
             t1 = GoogleCloudStorageToBigQueryOperator(
                 task_id='load_csv_to_bq',
                 bucket=bucket,
@@ -225,6 +226,10 @@ class PDHUtils:
             df = pd.read_csv('gs://' + src_file, sep='|', dtype=str, skiprows=1, encoding='ISO-8859-1', header=None)            
             df.drop(df.tail(1).index, inplace=True)
             df.to_csv('gs://'+trgt_file,sep='|', index=False, header=None)
+        elif 'eftpos_tx_100_01' in src_file:
+            df = pd.read_csv('gs://' + src_file, sep=',', dtype=str, skiprows=1, encoding='ISO-8859-1', header=None)            
+            df.drop(df.tail(1).index, inplace=True)
+            df.to_csv('gs://'+trgt_file,sep=',', index=False,header=None)
         elif 'dn_wpaygfssst' in src_file:
             df = pd.read_csv('gs://' + src_file, sep=',', dtype=str, skiprows=1, encoding='ISO-8859-1', header=None)            
             df.drop(df.tail(1).index, inplace=True)
