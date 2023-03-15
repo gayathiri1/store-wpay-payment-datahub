@@ -254,7 +254,7 @@ def load_completed(**kwargs):
 def skip_dataproc():
     config = Variable.get("v_non_gfs_load_params", deserialize_json=True)
     emailTo = config['emailTo']
-    pu.PDHUtils.send_email(emailTo,'spark init skipped','Cluster already in running state or task queue is not empty')
+    # pu.PDHUtils.send_email(emailTo,'spark init skipped','Cluster already in running state or task queue is not empty')
 
 
 def update_queue(**kwargs):
