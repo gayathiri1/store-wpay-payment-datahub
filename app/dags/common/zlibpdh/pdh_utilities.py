@@ -88,6 +88,7 @@ class PDHUtils:
         print(f'delimiter :=>{delimiter}')
         object_name = file_name.split('/')[2]
         load_type = kwargs[object_name]['load_type']
+
         if load_type == 'H':
             truncateSql= 'truncate table ' + kwargs[object_name]['dataset_name'] + \
                          '.' +kwargs[object_name]['table_name']
@@ -262,3 +263,22 @@ class PDHUtils:
         df.columns = map(str.lower, df.columns)
         df.columns = df.columns.str.replace(' ', '_')
         df.to_gbq(table_id, project_name, if_exists='replace')
+
+    @classmethod
+    def is_csv_file_empty(cls, file_path):
+        #check if csv file is empty, only for pdh_dev_incoming/gfs/landing/EFTPOS for now
+        print("Checking if csv file is empty, file name: " + file_path)
+        try:
+            if ('dn_wpaygfssst' in file_path or 'mmi_store_data_feed' in file_path or 'eftpos_tx_100_01' in file_path):
+                df = pd.read_csv(file_path, nrows=10, header=None)
+            else:
+                df = pd.read_csv(file_path, nrows=10)
+        except pd.errors.EmptyDataError as e:
+            return True
+
+        if df.empty:
+            print('%s is empty.' % file_path)
+            return True
+        else:
+            print('%s is not empty.' % file_path)
+            return False

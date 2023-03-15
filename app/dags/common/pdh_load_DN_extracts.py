@@ -83,7 +83,7 @@ def load_config_and_validate_run(**kwargs):
         dataproc_status = dataproc.list_clusters()
         dataproc_jobs = dataproc.list_jobs()
         if pattern == 'csv' or (pattern == 'txt' and delimiter == '|'):
-            return 'load_csv_file'        
+            return 'is_csv_file_empty'        
         elif dataproc_status is None:
             return 'start_cluster'
         elif dataproc_jobs <= 2:
@@ -102,6 +102,20 @@ def get_config(lkp_config,config):
         table_name = config[lkp_config]['table_name']
         pattern = config[lkp_config]['pattern']
         return dataset,table_name,pattern
+
+def is_csv_file_empty(**kwargs):
+    task_instance = kwargs['ti']
+    uid = task_instance.xcom_pull("generate_uuid")
+    print(f'uuid2 :=>{uid}')
+    input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)
+    bucket = input_params['run_config']['bucket']
+    file_name = input_params['run_config']['file_name']
+
+    file_path = 'gs://' + bucket + '/' + file_name
+    if pu.PDHUtils.is_csv_file_empty(file_path):
+        return 'load_failed'
+    else:
+        return 'load_csv_file'
 
 
 def load_csv_file(**kwargs):
@@ -134,7 +148,11 @@ def load_target_table(**kwargs):
         file_date = str(yy_val)+file_date
     elif 'edp_wallet' in file_name.lower()\
     or 'dn_wpaygfssst' in file_name.lower():
-        file_date = file_name.split('/')[3].split('.')[0][-14:-6]                
+        file_date = file_name.split('/')[3].split('.')[0][-14:-6]
+    elif 'saphybris_sales_report' in file_name.lower():
+        file_date = file_name.split('/')[3].split('.')[0][-13:-5]
+        file_date = datetime.datetime.strptime(file_date, '%Y%m%d')
+        file_date = file_date.strftime('%Y%m%d')
     else:
         file_date = file_name.split('/')[3].split('.')[0][-8:]
     now = datetime.datetime.now(tz)
@@ -214,6 +232,14 @@ def stop_cluster():
     t3 = spark_stop.stop_cluster()
     return t3
 
+def load_failed(**kwargs):
+    task_instance = kwargs['ti']
+    uid = task_instance.xcom_pull("generate_uuid")
+    input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)
+    emailTo = input_params['emailTo']
+    file_name = input_params['run_config']['file_name']
+    pu.PDHUtils.send_email(emailTo,'PDH Prod Load Status',
+                           f'File:=>{file_name} loading failed.')
 
 def load_completed(**kwargs):
     task_instance = kwargs['ti']
@@ -221,14 +247,14 @@ def load_completed(**kwargs):
     input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)
     emailTo = input_params['emailTo']
     file_name = input_params['run_config']['file_name']
-    # pu.PDHUtils.send_email(emailTo,'PDH Prod Load Status',
-    #                        f'File:=>{file_name} loaded successfully')
+    #pu.PDHUtils.send_email(emailTo,'PDH Prod Load Status',
+    #                       f'File:=>{file_name} loaded successfully')
 
 
 def skip_dataproc():
     config = Variable.get("v_non_gfs_load_params", deserialize_json=True)
     emailTo = config['emailTo']
-    # pu.PDHUtils.send_email(emailTo,'spark init skipped','Cluster already in running state or task queue is not empty')
+    pu.PDHUtils.send_email(emailTo,'spark init skipped','Cluster already in running state or task queue is not empty')
 
 
 def update_queue(**kwargs):
@@ -262,6 +288,14 @@ check_tasks = BranchPythonOperator(
     dag=dag
 )
 
+
+is_csv_file_empty_t = BranchPythonOperator(
+    task_id='is_csv_file_empty',
+    provide_context=True,
+    python_callable=is_csv_file_empty,
+    dag=dag
+)
+
 load_csv_file_t = PythonOperator(
     task_id='load_csv_file',
     provide_context=True,
@@ -281,6 +315,15 @@ spark_submit = BranchPythonOperator(
     provide_context=True,
     python_callable=spark_submit,
     trigger_rule='none_failed_or_skipped',
+    dag=dag
+)
+
+
+
+load_failed_t = PythonOperator(
+    task_id='load_failed',
+    provide_context=True,
+    python_callable=load_failed,
     dag=dag
 )
 
@@ -308,7 +351,8 @@ update_queue = PythonOperator(
 )
 
 
-generate_uuid >> load_config_and_validate_run_t >> load_csv_file_t >> load_target_table_t >> load_completed_t
+generate_uuid >> load_config_and_validate_run_t >> is_csv_file_empty_t >> load_csv_file_t >> load_target_table_t >> load_completed_t
+generate_uuid >> load_config_and_validate_run_t >> is_csv_file_empty_t >> load_failed_t
 generate_uuid >> load_config_and_validate_run_t >> start_cluster() >> spark_submit >> check_tasks >> stop_cluster() >> load_completed_t
 generate_uuid >> load_config_and_validate_run_t >> start_cluster() >> spark_submit >> check_tasks >> skip_dataproc
 generate_uuid >> load_config_and_validate_run_t >> spark_submit >> check_tasks >> stop_cluster() >> load_completed_t
