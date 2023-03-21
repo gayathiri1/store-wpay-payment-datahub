@@ -1,6 +1,7 @@
 --Perform SAP Settlement, Stop QP, Add minitaf, commission model
 --20220110 Remove surcharge
 --2023012 Use function calc_commission
+--20230308 Settle Net of Discount
 declare sys_date date default CURRENT_DATE("Australia/Sydney");
 declare str_sysdate string default cast(sys_date as string);
 declare strt_settlement datetime default DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
@@ -99,13 +100,15 @@ end if;
                       trim(msw.commission_store)) commission_store,
                ifnull(scm2.npp_flag,scm.npp_flag) scm2_npp,
                pdh_ref_ds.calc_commission(msw.commission_store,
-                                          std.tran_settlement_amount,
+                                          std.tran_settlement_amount
+                                          + std.discount_amt,
                                           scm.commission_percent,
                                           scm.commission_fixed_value)
                                         * 100 commission,
-               (ifnull(std.tran_settlement_amount,0) - 
+               (ifnull(std.tran_settlement_amount,0) + std.discount_amt - 
                 pdh_ref_ds.calc_commission(msw.commission_store,
-                                          std.tran_settlement_amount,
+                                          std.tran_settlement_amount
+                                          + std.discount_amt,
                                           scm.commission_percent,
                                           scm.commission_fixed_value)) * 100
                                            as settlement_amount,

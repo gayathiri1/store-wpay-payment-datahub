@@ -1,5 +1,6 @@
 --20230110 -Remove surcharg
 --2023012 Use function calc_commission
+--20230314 compute commission on NET
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime default
           datetime_trunc(current_datetime("Australia/Sydney"),second);
 declare batch_end_yyyy_mm_dd_hh_mm_ss_1 datetime default
@@ -26,7 +27,8 @@ insert into `pdh_analytics_ds.stlm_commission`
            tlf.stlf_prefix as merchant,
            st.tran_uid as tran_uid,
            pdh_ref_ds.calc_commission(m.commission_store,
-                                      st.tran_settlement_amount,
+                                      st.tran_settlement_amount
+                                      + st.discount_amt,
                                       scm.commission_percent,
                                       scm.commission_fixed_value) commission
       from `pdh_analytics_ds.stlm_standard_settlement_table` st

@@ -93,10 +93,11 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                           then substring(qct.notes,9,8)
                      else qct.invoicenumber
                   end as invoicenumber,
-
                   ifnull(qct.amount_transacting_merchants_currency_or_points,0) trans_amt,
                   0 as discount_amt,
-                  "NONE" as excluded_issuer 
+                  "NONE" as excluded_issuer,
+                  upper(trim(qct.Merchant)) Merchant,
+                  upper(trim(qct.Issuer)) Issuer
          from `pdh_rd_quickcilver.qc_detail_transactions` qct
          left Join `pdh_ref_ds.ref_merchant_settlement_window` mw
               on mw.division_type = "PARTNER"
@@ -139,7 +140,9 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                 "" as invoicenumber,
                 ifnull(ReqAmt,0) tran_amt,
                 0 as discount_amt,
-                "NONE" as excluded_issuer   
+                "NONE" as excluded_issuer,
+                "" Merchant,
+                "" Issuer  
    from  `pdh_rd_apm.alipay_linkly` 
     where ifnull(ReqStore,"NULL") <> "NULL"
       and ReqAmt <> 0
@@ -176,7 +179,9 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
              trim(orderNumber) as invoicenumber,
              ifnull(amount,0) as trans_amt,
              0 as discount_amt,
-             "NONE" as excluded_issuer   
+             "NONE" as excluded_issuer,
+             "" Merchant,
+             "" Issuer       
     from `pdh_rd_data_navigator.digitalpay_gc_txns` 
     where ifnull(amount,0) <> 0
       and upper(trim(MerchantName)) = "EVERYDAY PAY"
@@ -209,7 +214,9 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                 tt.settlement_amount_flag *
                    tt.spend_factor * 0.01 as trans_amt,
              0 as discount_amt,
-             "NONE" as excluded_issuer  
+             "NONE" as excluded_issuer,
+             "" Merchant,
+             "" Issuer      
    --20230207 change start 
     from `pdh_rd_data_navigator.edwp_txnact` dn
     Join `pdh_analytics_ds.ref_transaction_types` t 
@@ -263,7 +270,9 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
         case
            when ifnull(t.scheme,"") = "" then "NONE"
            else upper(trim(t.scheme))
-        end as excluded_issuer
+        end as excluded_issuer,
+        "" Merchant,
+        "" Issuer     
  from `pdh_rd_data_navigator.isg_wpay_tran` t
  left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
@@ -315,7 +324,9 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                                  dn.inst_id_recon_iss),"") = "" then "NONE"
            else upper(trim(pdh_ref_ds.get_scheme(dn.proc_id_iss_b,
                                  dn.inst_id_recon_iss)))
-         end as excluded_issuer
+         end as excluded_issuer,
+        "" Merchant,
+        "" Issuer    
     from pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface dn --20230209 minitaf->NTR view
     Join `pdh_analytics_ds.ref_transaction_types` t 
           on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
@@ -347,7 +358,6 @@ trn as (
       select distinct * except(tran_uid_seq) 
       from trn_seq where tran_uid_seq = 1)
 --
-   --select * from trn where left(tran_uid,2) = "TC";
 select datetime_trunc(current_datetime("Australia/Sydney"),SECOND) 
                as last_update_datetime,
        "Settlement Process" as last_updated_by,
@@ -397,19 +407,25 @@ left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by s
 left join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
            on tt.transaction_type = upper(trim(trn.transactiontype))
           and tt.tran_qualifier = case left(trn.tran_uid,2)
-                                     when "QC" then 
+                                     when "QC" then
+                                       concat( 
                                         case 
                                            when wbs.store_id is null or 
-                                                msw.settle_by_store = "N"  
-                                                   then msw.division_type
-                                           else wbs.division_type  --settle by store
-                                        end
+                                                msw.settle_by_store = "N" then msw.division_type
+                                           else wbs.division_type
+                                        end,
+                                        case   --20230313
+                                           when ifnull(scm.wpay_company_code,"") = "2025"
+                                                and trn.Merchant = "COUNTDOWN"
+                                                and trn.Issuer = "WPAY NEW ZEALAND LIMITED" then "WPAYNZ"
+                                           else ""
+                                        end)
                                      else trn.tran_qualifier
                                   end
 left join `pdh_analytics_ds.stlm_standard_settlement_table` std
          on std.tran_uid = trn.tran_uid
 where  std.tran_uid is null
-  and strpos(upper(trim(ifnull(scm.exclude__issuers,""))),trn.excluded_issuer) = 0
+  and  strpos(upper(trim(ifnull(scm.exclude__issuers,""))),trn.excluded_issuer) = 0
   and Case left(trn.tran_uid,2)
          when "LK" then ifnull(tlf.alipay_flag,"N")
          when "CY" then ifnull(tlf.cybsy_flag,"N") 
@@ -435,6 +451,7 @@ where  std.tran_uid is null
                                         wbs.day_lag,
                                         msw.settlement_cutoff,
                                         wbs.settlement_cutoff) = "Y";
+                                    
 --add control rec to specify QC detail is added to generic settlement table
 set batch_end_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),SECOND);
 set (min_transaction_timestamp, max_transaction_timestamp) = 

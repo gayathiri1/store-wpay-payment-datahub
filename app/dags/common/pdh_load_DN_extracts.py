@@ -239,7 +239,7 @@ def load_failed(**kwargs):
     emailTo = input_params['emailTo']
     file_name = input_params['run_config']['file_name']
     pu.PDHUtils.send_email(emailTo,'PDH Prod Load Status',
-                           f'File:=>{file_name} loading failed.')
+                           f'File:=>{file_name} loading failed due to empty file.')
 
 def load_completed(**kwargs):
     task_instance = kwargs['ti']

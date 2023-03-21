@@ -11,6 +11,7 @@
 --20230202 Replace minitaf(gfs_pdh_txn_interface) by NRT(lv_gfs_pdh_txn_interface)
 --20230209 replace pdh_rd_data_navigator.lv_gfs_pdh_txn_interface 
 --              by pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface
+--20230314 add WPAYNZ
 declare sys_datetime datetime default
  cast(format_datetime("%Y-%m-%dT%H:%M:%S",current_datetime("Australia/Sydney")) as datetime);
 declare sys_date date DEFAULT current_date("Australia/Sydney");
@@ -66,7 +67,9 @@ with trqc as (
                                     qct.POSName) store_id,
             upper(trim(qct.transactiontype)) as transactiontype,
             "" as tran_qualifier,
-            "NONE" as excluded_issuer
+            "NONE" as excluded_issuer,
+            upper(trim(qct.Merchant)) Merchant,
+            upper(trim(qct.Issuer)) Issuer
       from `pdh_rd_quickcilver.qc_detail_transactions`  qct
       left Join `pdh_ref_ds.ref_merchant_settlement_window` mw
               on mw.division_type = "PARTNER"
@@ -99,7 +102,9 @@ trdp as (
            when length(txnRef) = length(replace(txnRef,".","")) then "WEX"
            else "QC"
         end as tran_qualifier,
-        "NONE" as excluded_issuer
+        "NONE" as excluded_issuer,
+         "" Merchant,
+         "" Issuer
  from `pdh_rd_data_navigator.digitalpay_gc_txns`
  where upper(trim(transactiontype)) in ("PURCHASE","REFUND")
    and upper(trim(MerchantName)) = "EVERYDAY PAY"
@@ -138,7 +143,9 @@ trdp as (
           upper(trim(ReqStore)) as store_id,
           upper(trim(ReqType)) as transactiontype,
           "" as tran_qualifier,
-          "NONE" as excluded_issuer
+          "NONE" as excluded_issuer,
+         "" Merchant,
+         "" Issuer
    from `pdh_rd_apm.alipay_linkly`
    where ReqAmt <> 0
      and ResRT = "TRANSACTION APPROVED"
@@ -163,7 +170,9 @@ trdp as (
         upper(left(trim(card_acceptor_terminal_id),5)) as store_id,
         Upper(cast(txn_type_indicator as string)) as transactiontype,
         "EDP" as tran_qualifier,
-        "NONE" as excluded_issuer
+        "NONE" as excluded_issuer,
+         "" Merchant,
+         "" Issuer
  from `pdh_rd_data_navigator.edwp_txnact` 
     where txn_disposition = 1
       and local_timestamp is not NULL
@@ -201,7 +210,9 @@ trdp as (
         case
            when ifnull(t.scheme,"") = "" then "NONE"
            else upper(trim(t.scheme))
-        end as excluded_issuer
+        end as excluded_issuer,
+         "" Merchant,
+         "" Issuer
 from `pdh_rd_data_navigator.isg_wpay_tran` t
 left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
@@ -237,7 +248,9 @@ left join pdh_ref_ds.ref_key_value rk
             end store_id,
             upper(trim(qpt.TransactionType)) as transactiontype,
             "QP" as tran_qualifier,
-            "NONE" as excluded_issuer
+            "NONE" as excluded_issuer,
+         "" Merchant,
+         "" Issuer
       from `pdh_rd_quickcilver.qc_partner_detail`  qpt
       Join `pdh_ref_ds.ref_merchant_settlement_window` mw
               on mw.division_type = "PARTNER"
@@ -262,7 +275,7 @@ left join pdh_ref_ds.ref_key_value rk
                                 nullstr, 
                                 0) as tran_uid,
         dn.dn_insert_tstamp as pdh_load_time,
-        DATETIME_TRUNC(CAST(dn.tstamp_trans AS DATETIME),second)  as transaction_timestamp,
+        DATETIME_TRUNC(CAST(dn.tstamp_trans AS DATETIME),second)  as transaction_timestamp,
         Upper(left(trim(dn.net_term_id),5)) as store_id,
         upper(trim(ifnull(ds.description,t.abbr))) as transactiontype,
         "TC" as tran_qualifier,
@@ -271,7 +284,9 @@ left join pdh_ref_ds.ref_key_value rk
                                  dn.inst_id_recon_iss),"") = "" then "NONE"
            else upper(trim(pdh_ref_ds.get_scheme(dn.proc_id_iss_b,
                                  dn.inst_id_recon_iss)))
-         end as excluded_issuer
+         end as excluded_issuer,
+         "" Merchant,
+         "" Issuer
     from pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface dn   
     Join `pdh_analytics_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = 
                                                        cast(t.dn_tran_code as int64)
@@ -333,7 +348,7 @@ left join pdh_ref_ds.ref_key_value rk
                case
                   When scm.wpay_store_number is null then "Store is missing in SAP Settlement Mapping Table "
                   when strpos(upper(trim(ifnull(scm.exclude__issuers,""))),trn.excluded_issuer) > 0 then ""
-                  When ifnull(upper(trim(scm.active_flag)),"") = "N" then "Store is not active in SAP Settlement Mapping Table "
+                  When ifnull(upper(trim(scm.active_flag)),"N") = "N" then "Store is not active in SAP Settlement Mapping Table "
                   when ifnull(scm.wpay_company_code,"") = "" then "company code is missing in SAP Settlement Mapping Table"
                   else ""
                end) as comment,
@@ -353,10 +368,22 @@ left join pdh_ref_ds.ref_key_value rk
  left join `pdh_ref_ds.ref_str_to_sap_customermapping` scm  on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id))
  left join `pdh_analytics_ds.stlm_standard_settlement_table` std  on std.tran_uid = trn.tran_uid
  left join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt on tt.transaction_type = transactiontype
-            and tt.tran_qualifier = case
-                                       when left(trn.tran_uid,2) = "QC" then msw.division_type
-                                       else trn.tran_qualifier
-                                    end
+            and tt.tran_qualifier = case left(trn.tran_uid,2)
+                                     when "QC" then
+                                       concat( 
+                                        case 
+                                           when wbs.store_id is null or 
+                                                msw.settle_by_store = "N" then msw.division_type
+                                           else wbs.division_type
+                                        end,
+                                        case   --20230313
+                                           when ifnull(scm.wpay_company_code,"") = "2025"
+                                                and trn.Merchant = "COUNTDOWN"
+                                                and trn.Issuer = "WPAY NEW ZEALAND LIMITED" then "WPAYNZ"
+                                           else ""
+                                        end)
+                                     else trn.tran_qualifier
+                                  end
    where ifnull(std.tran_uid,"") = ""
      and ifnull(rsd.store_id,"") <> ""
      and rsd.is_closed = False
