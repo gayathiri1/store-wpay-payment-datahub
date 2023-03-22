@@ -386,6 +386,7 @@ select datetime_trunc(current_datetime("Australia/Sydney"),SECOND)
        cast(null as string) as tlf_name,
        case left(trn.tran_uid,2)
           when "TC" then trn.discount_amt
+		  when "ED" then trn.discount_amt
           else abs(trn.discount_amt) * tt.settlement_factor * -1
        end as discount_amt
 from  trn 
