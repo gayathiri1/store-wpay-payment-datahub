@@ -265,13 +265,20 @@ class PDHUtils:
         df.to_gbq(table_id, project_name, if_exists='replace')
 
     @classmethod
-    def is_csv_file_empty(cls, file_path):
+    def is_csv_file_empty(cls, file_path):        
         #check if csv file is empty, only for pdh_dev_incoming/gfs/landing/EFTPOS for now
         print("Checking if csv file is empty, file name: " + file_path)
         try:
-            if ('dn_wpaygfssst' in file_path or 'mmi_store_data_feed' in file_path or 'eftpos_tx_100_01' in file_path):
+            #Bugfix - DATPAY-3491
+            if ('MMI_AREA_INDUSTRY' in file_path \
+            or 'MMI_AREA_IND_TERCILE_FEED' in file_path \
+            or 'MMI_TICKET_RANGE' in file_path):                
+                df = pd.read_csv(file_path, nrows=10, sep='|')
+            elif ('dn_wpaygfssst' in file_path \
+            or 'MMI_STORE_FEED' in file_path \
+            or 'eftpos_tx_100_01' in file_path):
                 df = pd.read_csv(file_path, nrows=10, header=None)
-            else:
+            else:                
                 df = pd.read_csv(file_path, nrows=10)
         except pd.errors.EmptyDataError as e:
             return True
