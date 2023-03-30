@@ -7,15 +7,19 @@ from airflow.operators.python_operator import PythonOperator, ShortCircuitOperat
 from airflow.operators.dagrun_operator import TriggerDagRunOperator
 import logging
 from zlibpdh import pdh_utilities as pu
+import pendulum
 import pytz
 
+#Bugfix DATPAY-3505 to handle daylight savings
+local_tz = pendulum.timezone("Australia/Sydney")
+
 default_args = {
-    'start_date': datetime(2021, 7, 12),
+    'start_date': datetime(2021,7,12, tzinfo=local_tz),    
 }
 
 logging.info("constructing dag - using airflow as owner")
 
-dag = DAG('pdh_file_gen_etl', catchup=False, default_args=default_args, schedule_interval="30 17,18,19,22,00 * * *")
+dag = DAG('pdh_file_gen_etl', catchup=False, default_args=default_args, schedule_interval="30 04,05,06,09,11 * * *")
 
 
 def readexecuteQuery(**kwargs):
