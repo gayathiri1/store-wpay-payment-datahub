@@ -11,32 +11,40 @@ steps:
   - |
     echo 'Build:$BUILD_ID triggered after the merge to branch:${BRANCH_NAME}.'
     echo 'The commit is:$COMMIT_SHA'
-    echo "$$SSH_KEY" >> /root/.ssh/id_rsa
-    chmod 400 /root/.ssh/id_rsa
-    cp known_hosts.github /root/.ssh/known_hosts
-  volumes:
-  - name: 'ssh'
-    path: /root/.ssh
+    # revoking existing RSA key
+    # https://github.blog/2023-03-23-we-updated-our-rsa-ssh-host-key/
+    ssh-keygen -R github.com
+    # login to github.com and creating a  /root/.ssh/known_hosts file if it doesn't exists.
+    ssh -T git@github.com
+    # Get latest key fromgit hub and add it to /root/.ssh/known_hosts    
+    curl -L https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >>  /root/.ssh/id_ed25519
+    curl -L https://api.github.com/meta | jq -r '.ssh_keys | .[]' | sed -e 's/^/github.com /' >> /root/.ssh/known_hosts
+    echo "$$SSH_KEY" >> /root/.ssh/id_ed25519
+    chmod 400 /root/.ssh/id_ed25519
+    # cp known_hosts.github /root/.ssh/known_hosts
+  # volumes:
+  # - name: 'ssh'
+  #   path: /root/.ssh
 
 # This just gets current branch history of the repository. But this will not copy/clone other branches.
-- name: 'gcr.io/cloud-builders/git'
-  args: 
-  - fetch
-  - --unshallow
-  - git@github.com:w-pay/$REPO_NAME
-  volumes:
-  - name: 'ssh'
-    path: /root/.ssh
+# - name: 'gcr.io/cloud-builders/git'
+#   args: 
+#   - fetch
+#   - --unshallow
+#   - git@github.com:w-pay/$REPO_NAME
+#   volumes:
+#   - name: 'ssh'
+#     path: /root/.ssh
 
-# list the files which are changed in the current commit/pull request.
-- name: gcr.io/cloud-builders/gcloud
-  entrypoint: /bin/sh
-  args: 
-    - '-c'
-    - | 
-      ls -ltra && \
-      git diff --name-only HEAD~1 HEAD > /workspace/commitfiles.txt && \
-      cat /workspace/commitfiles.txt
+# # list the files which are changed in the current commit/pull request.
+# - name: gcr.io/cloud-builders/gcloud
+#   entrypoint: /bin/sh
+#   args: 
+#     - '-c'
+#     - | 
+#       ls -ltra && \
+#       git diff --name-only HEAD~1 HEAD > /workspace/commitfiles.txt && \
+#       cat /workspace/commitfiles.txt
 
 
 
