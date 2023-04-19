@@ -83,7 +83,7 @@ def load_config_and_validate_run(**kwargs):
         dataproc_status = dataproc.list_clusters()
         dataproc_jobs = dataproc.list_jobs()
         if pattern == 'csv' or (pattern == 'txt' and delimiter == '|'):
-            return 'is_csv_file_empty'        
+            return 'load_csv_file'        
         elif dataproc_status is None:
             return 'start_cluster'
         elif dataproc_jobs <= 2:
@@ -103,19 +103,19 @@ def get_config(lkp_config,config):
         pattern = config[lkp_config]['pattern']
         return dataset,table_name,pattern
 
-def is_csv_file_empty(**kwargs):
-    task_instance = kwargs['ti']
-    uid = task_instance.xcom_pull("generate_uuid")
-    print(f'uuid2 :=>{uid}')
-    input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)
-    bucket = input_params['run_config']['bucket']
-    file_name = input_params['run_config']['file_name']
+# def is_csv_file_empty(**kwargs):
+#     task_instance = kwargs['ti']
+#     uid = task_instance.xcom_pull("generate_uuid")
+#     print(f'uuid2 :=>{uid}')
+#     input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)
+#     bucket = input_params['run_config']['bucket']
+#     file_name = input_params['run_config']['file_name']
 
-    file_path = 'gs://' + bucket + '/' + file_name
-    if pu.PDHUtils.is_csv_file_empty(file_path):
-        return 'load_failed'
-    else:
-        return 'load_csv_file'
+#     file_path = 'gs://' + bucket + '/' + file_name
+#     if pu.PDHUtils.is_csv_file_empty(file_path):
+#         return 'load_failed'
+#     else:
+#         return 'load_csv_file'
 
 
 def load_csv_file(**kwargs):
@@ -289,12 +289,12 @@ check_tasks = BranchPythonOperator(
 )
 
 
-is_csv_file_empty_t = BranchPythonOperator(
-    task_id='is_csv_file_empty',
-    provide_context=True,
-    python_callable=is_csv_file_empty,
-    dag=dag
-)
+# is_csv_file_empty_t = BranchPythonOperator(
+#     task_id='is_csv_file_empty',
+#     provide_context=True,
+#     python_callable=is_csv_file_empty,
+#     dag=dag
+# )
 
 load_csv_file_t = PythonOperator(
     task_id='load_csv_file',
@@ -351,8 +351,13 @@ update_queue = PythonOperator(
 )
 
 
-generate_uuid >> load_config_and_validate_run_t >> is_csv_file_empty_t >> load_csv_file_t >> load_target_table_t >> load_completed_t
-generate_uuid >> load_config_and_validate_run_t >> is_csv_file_empty_t >> load_failed_t
+
+# generate_uuid >> load_config_and_validate_run_t >> is_csv_file_empty_t >> load_csv_file_t >> load_target_table_t >> load_completed_t
+# generate_uuid >> load_config_and_validate_run_t >> is_csv_file_empty_t >> load_failed_t
+
+
+generate_uuid >> load_config_and_validate_run_t >> load_csv_file_t >> load_target_table_t >> load_completed_t
+generate_uuid >> load_config_and_validate_run_t >> load_failed_t
 generate_uuid >> load_config_and_validate_run_t >> start_cluster() >> spark_submit >> check_tasks >> stop_cluster() >> load_completed_t
 generate_uuid >> load_config_and_validate_run_t >> start_cluster() >> spark_submit >> check_tasks >> skip_dataproc
 generate_uuid >> load_config_and_validate_run_t >> spark_submit >> check_tasks >> stop_cluster() >> load_completed_t

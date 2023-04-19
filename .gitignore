@@ -54,3 +54,9 @@ env-config*.json
 app/requirements.txt
 .gitignore
 venv/
+.python-version
+out.txt
+poetry.lock
+poetry.toml
+pylintrc
+pyproject.toml
