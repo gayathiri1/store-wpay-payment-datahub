@@ -8,15 +8,20 @@ import logging
 from zlibpdh import pdh_utilities as pu
 import pytz
 from zlibpdh import pdh_utilities as pu
+import pendulum
 
+
+#DATPAY-3521 UTC to Sydney timezone change
+local_tz = pendulum.timezone("Australia/Sydney")
 default_args = {
-    'start_date': datetime(2021,9, 8),    
+    'start_date': datetime(2021,9, 8, tzinfo=local_tz),    
 }
+
 
 logging.info("constructing dag - using airflow as owner")
 
 
-dag = DAG('pdh_external_table_refresh', catchup=False, default_args=default_args,schedule_interval= "10 21 * * *")
+dag = DAG('pdh_external_table_refresh', catchup=False, default_args=default_args,schedule_interval= "10 08 * * *")
 
 
 def refresh_table(**kwargs):

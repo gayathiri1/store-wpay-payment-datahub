@@ -22,13 +22,13 @@ DECLARE batch_end_time DATETIME;
 DECLARE fee_list,var_list,new_var_list ARRAY <string>;
 
 --To check if variable present in table
-DECLARE ftlf_prfx_cnt, var_cnt,new_var_len,x INT64 DEFAULT 0;
-DECLARE environment,bucket,project_id,email,prefix,view_name,etl_path,outgoing_path STRING;
+DECLARE ftlf_prfx_cnt, var_cnt,new_var_len,x,date_array_cnt,y INT64 DEFAULT 0;
+DECLARE environment,bucket,project_id,email,prefix,view_name,etl_path,outgoing_path,tran_uid_val STRING;
 
 -- Get count
 DECLARE minitaf_count DEFAULT (SELECT COUNT(0) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` WHERE file_date = tran_date);
 
-DECLARE flst_mtaf DEFAULT (SELECT COUNT(0) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` a, `pdh_ref_ds.ref_store_details` b,         `pdh_ref_ds.ref_stlm_tlf_config` c WHERE CAST(tstamp_local AS DATE) = tran_date AND SUBSTR(net_term_id,0,5) = b.store_id AND  b.division = c.division AND act_code <> '902' AND ftlf_prefix is not null);
+--DECLARE flst_mtaf DEFAULT (SELECT COUNT(0) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` a, `pdh_ref_ds.ref_store_details` b,         `pdh_ref_ds.ref_stlm_tlf_config` c WHERE CAST(tstamp_local AS DATE) = tran_date AND SUBSTR(net_term_id,0,5) = b.store_id AND  b.division = c.division AND act_code <> '902' AND ftlf_prefix is not null);
 
 DECLARE flst_smlmrc_count DEFAULT (SELECT COUNT(0) FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a, `pdh_ref_ds.ref_stlm_tlf_config` c WHERE PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date AND a.division = c.division AND action_code <> '902' AND ftlf_prefix is not null);
 
@@ -98,6 +98,10 @@ SET etl_path = (SELECT value from pdh_ref_ds.ref_key_value
 SET outgoing_path = (SELECT value from pdh_ref_ds.ref_key_value 
 					 WHERE attribute =  'outgoing-GCS'
 					   AND key = environment );
+
+SET tran_uid_val = (SELECT value from pdh_ref_ds.ref_key_value 
+				    WHERE attribute = 'tran-uid'
+					    AND key = 'Y' );
 							  
 IF ftlf_prfx_cnt <> var_cnt then
 
@@ -109,7 +113,7 @@ IF ftlf_prfx_cnt <> var_cnt then
 			(
 			etl_path,
 			'pdh_analytics_ds.gen_ctrl_data',
-			"select * from `pdh_analytics_ds.gen_ctrl_data` where processing_date = (CURRENT_DATE('Australia/Sydney')) and etl_complete = true and extract_wf_complete is null;",
+			"select * from `pdh_analytics_ds.gen_ctrl_data` where processing_date = (CURRENT_DATE('Australia/Sydney')) and etl_complete = true and extract_wf_complete is null order by merchant_name,extract_start_datetime asc;",
 			"update `ctrl` set extract_wf_complete = True, remarks = 'TRUE RUN BY COMPOSER' where batch_number='btc' and processing_date= (CURRENT_DATE('Australia/Sydney')) and merchant_name ='mrc' and etl_complete = true and extract_wf_complete is null and file_date='fldt';",
 			"update `ctrl` set remarks = 'TRUE RUN BY COMPOSER' where processing_date= (CURRENT_DATE('Australia/Sydney')) and merchant_name in (mrc) and extract_wf_complete = False;",
 			"select count(*) from `pdh_analytics_ds.gen_ctrl_data` where processing_date = (CURRENT_DATE('Australia/Sydney')) and etl_complete = true and extract_wf_complete is null;",
@@ -198,13 +202,17 @@ ELSE
 END IF;
 
 --Fetch extract start and end date
-SET ext_start_date = trans_date_range[offset(0)];
-SET ext_end_date = trans_date_range[ordinal(ARRAY_LENGTH(trans_date_range))];  
+SET date_array_cnt = (SELECT ARRAY_LENGTH(trans_date_range));								
+--SET ext_start_date = trans_date_range[offset(0)];
+--SET ext_end_date = trans_date_range[ordinal(ARRAY_LENGTH(trans_date_range))];  
 
 -- Populate data output table
 CREATE OR REPLACE TABLE `pdh_analytics_ds.fee_listing` AS
 WITH result AS (
-    SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
+    SELECT 'D' H, 
+	CASE WHEN UPPER(tran_uid_val) = UPPER(a.division) THEN a.tran_uid
+		 ELSE null END AS transaction_uid, 
+	terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
     LEFT(switch_timestamp, 14) transaction_timestamp,
     LEFT(local_timestamp, 14) transaction_local_timestamp,
     CONCAT(LEFT(pan, 6), "******", RIGHT(pan, 4)) pan,
@@ -239,16 +247,21 @@ WITH result AS (
     IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
 	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
-	ftlf_prefix file_prefix
+	ftlf_prefix file_prefix,
+	PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) tran_date													  
     FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
     WHERE lower(a.division) = lower(b.division)
 	  AND b.ftlf_prefix is not null
     AND TRIM(issuer) <> ''
-    AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
+	AND EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8))))
+    --AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
 	AND action_code <> '902'
 UNION ALL
-SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
+SELECT 'D' H, 
+	CASE WHEN UPPER(tran_uid_val) = UPPER(a.division) THEN a.tran_uid
+		 ELSE null END AS transaction_uid, 
+	terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
     LEFT(switch_timestamp, 14) transaction_timestamp,
     LEFT(local_timestamp, 14) transaction_local_timestamp,
     CONCAT(LEFT(pan, 6), "******", RIGHT(pan, 4)) pan,
@@ -283,16 +296,21 @@ SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, 
     IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
 	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
-	ftlf_prefix file_prefix
+	ftlf_prefix file_prefix,
+	PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) tran_date
     FROM `pdh_analytics_ds.tbl_edg_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
     WHERE lower(a.division) = lower(b.division)
 	  AND b.ftlf_prefix is not null
     AND TRIM(issuer) <> ''
-    AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
+	AND EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8))))
+    --AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
 	AND action_code <> '902'
 UNION ALL
-SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
+SELECT 'D' H, 
+	CASE WHEN UPPER(tran_uid_val) = UPPER(a.division) THEN a.tran_uid
+		 ELSE null END AS transaction_uid, 
+	terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
     LEFT(switch_timestamp, 14) transaction_timestamp,
     LEFT(local_timestamp, 14) transaction_local_timestamp,
     CONCAT(LEFT(pan, 6), "******", RIGHT(pan, 4)) pan,
@@ -327,13 +345,15 @@ SELECT 'D' H, null transaction_uid, terminal_id, card_acpt_id card_acceptor_id, 
     IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
 	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
-	ftlf_prefix file_prefix
+	ftlf_prefix file_prefix,
+	PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) tran_date
     FROM `pdh_analytics_ds.tbl_egfuel_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
     WHERE lower(a.division) = lower(b.division)
 	  AND b.ftlf_prefix is not null
     AND TRIM(issuer) <> ''
-    AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
+    --AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
+	AND EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8))))
 	AND action_code <> '902'
 )
 SELECT * FROM result;
@@ -342,9 +362,9 @@ SELECT * FROM result;
 --Insert Trailer Record
 
 INSERT INTO pdh_analytics_ds.fee_listing
-SELECT 'T', COUNT(0), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, file_prefix
+SELECT 'T', SAFE_CAST(COUNT(0) AS STRING), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, file_prefix,tran_date
 from pdh_analytics_ds.fee_listing
-group by file_prefix;
+group by file_prefix,tran_date;
 
 
 -- Copy data into historical data table
@@ -371,25 +391,37 @@ SELECT curr_date processing_date,
 	null additional_data_1,
 	null additional_data_2,
 	null additional_data_3,
-	early_settlement_fee
+	early_settlement_fee,
+	tran_date
 FROM `pdh_analytics_ds.fee_listing` WHERE H <> 'T';
 	
 --Insert data into control table
 
-INSERT INTO `pdh_analytics_ds.gen_ctrl_data`
-   (batch_number,processing_date,merchant_name,etl_complete,extract_wf_complete,extract_start_datetime,
-   	extract_end_datetime,file_date)
-   with feelist_prefix_seq as 
-          (select  fee_list [SAFE_OFFSET(offset)] as ftlf_prefix ,offset as ftlf_seq 
-           from unnest(fee_list) with OFFSET
-           )
-   SELECT current_batch_no as batch_number,
-          curr_date as processing_date, 
-          concat(fl.ftlf_prefix,"feelist") as merchant_name,
-          true etl_complete, 
-          cast(null as boolean) extract_wf_complete,
-          datetime_add(cast(ext_start_date as datetime), Interval fl.ftlf_seq second) extract_start_datetime,
-          datetime_add(cast(ext_end_date as datetime), Interval fl.ftlf_seq second) extract_end_datetime,
-          datetime_add(batch_start_time, Interval fl.ftlf_seq second) file_date
-	FROM  feelist_prefix_seq fl 
-	group By fl.ftlf_prefix,fl.ftlf_seq; 
+LOOP
+		INSERT INTO `pdh_analytics_ds.gen_ctrl_data`
+		(batch_number,processing_date,merchant_name,etl_complete,extract_wf_complete,extract_start_datetime,
+			extract_end_datetime,file_date)
+		with feelist_prefix_seq as 
+				(select  fee_list [SAFE_OFFSET(offset)] as ftlf_prefix ,offset as ftlf_seq 
+				from unnest(fee_list) with OFFSET
+				)
+		SELECT current_batch_no as batch_number,
+				curr_date as processing_date, 
+				concat(fl.ftlf_prefix,"feelist") as merchant_name,
+				true etl_complete, 
+				cast(null as boolean) extract_wf_complete,
+				datetime_add(cast(trans_date_range[offset(y)]  as datetime), Interval fl.ftlf_seq second) extract_start_datetime,
+				datetime_add(cast(trans_date_range[offset(y)]  as datetime), Interval fl.ftlf_seq second) extract_end_datetime,
+				--datetime_add(cast(ext_start_date as datetime), Interval fl.ftlf_seq second) extract_start_datetime,
+				--datetime_add(cast(ext_end_date as datetime), Interval fl.ftlf_seq second) extract_end_datetime,
+				datetime_add(batch_start_time, Interval fl.ftlf_seq second) file_date
+			FROM  feelist_prefix_seq fl 
+			group by fl.ftlf_prefix,fl.ftlf_seq; 
+			
+		SET y = y+1;
+
+		IF date_array_cnt = y THEN
+				LEAVE;
+		END IF;
+	
+END LOOP; 

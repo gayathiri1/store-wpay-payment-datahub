@@ -1,1 +1,1 @@
-create or replace table `stg` as select * from `src` order by H asc;
+create or replace table `stg` as select * except (tran_date) from `src` where tran_date = 'fldt' order by H asc;

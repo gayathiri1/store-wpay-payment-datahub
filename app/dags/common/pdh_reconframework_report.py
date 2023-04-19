@@ -9,14 +9,16 @@ import pytz
 import re
 from airflow.exceptions import AirflowFailException
 from zlibpdh import pdh_utilities as pu
+import pendulum
 
 
-
+#DATPAY-3521 UTC to Sydney timezone change
+local_tz = pendulum.timezone("Australia/Sydney")
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
     #'start_date': datetime(2099, 12, 1),
-    'start_date': datetime(2021,7,19),   # added  for python upgrade
+    'start_date': datetime(2021,7,19, tzinfo=local_tz),   # added  for python upgrade
     #'email': emailAlert,
     #'email_on_failure': True,
     #'email_on_retry': True,
@@ -30,7 +32,7 @@ default_args = {
 logging.info("constructing dag - using airflow as owner")
 
 
-dag = DAG('pdh_reconframework_report', catchup=False, default_args=default_args, schedule_interval= "30 23 * * *") 
+dag = DAG('pdh_reconframework_report', catchup=False, default_args=default_args, schedule_interval= "40 08,09 * * *") 
 
 #dag = DAG('pdh_reconframework_report', catchup=False, default_args=default_args, schedule_interval= None) 
 

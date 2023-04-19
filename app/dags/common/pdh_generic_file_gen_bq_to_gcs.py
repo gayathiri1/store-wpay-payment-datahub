@@ -141,6 +141,11 @@ def getConfigDetails(**kwargs):
                 logging.info("date_time_merchant {}".format(date_time_merchant))  
                 logging.info("src_date_column {}".format(src_date_column))
                 
+                if (extract_end_datetime!='None' or extract_end_datetime is not None):
+                    tranDate,trantime=extract_end_datetime.split(" ",2)
+                    #tranDate = tranDate.replace("-","")
+                    logging.info("tran_date {}".format(tranDate))
+                
                 if date_time_merchant=='Y' and (file_date!='None' or file_date is not None):
                     loadDate = file_date.replace("-","").replace(":","").replace(" ","")
                     logging.info("loadDate for file_date {}".format(loadDate))
@@ -167,7 +172,7 @@ def getConfigDetails(**kwargs):
                     logging.info("src_date_column {}" .format(src_date_column))
                     stg_query = stg_query.replace('stg',stg_target_table).replace('src',source_table).replace('ctrl',control_table).replace('src_date_column',src_date_column).replace('mrc',merchant)
                 else:
-                    stg_query = stg_query.replace('stg',stg_target_table).replace('src',source_table)         
+                    stg_query = stg_query.replace('stg',stg_target_table).replace('src',source_table).replace('fldt',tranDate)
                     logging.info("query_text - {} ".format(stg_query)) 
             
                 result,rows = query_execution(stg_query,email_to) 
@@ -230,7 +235,7 @@ def getConfigDetails(**kwargs):
                 kwargs['ti'].xcom_push(key="environment", value=environment_final)
                 kwargs['ti'].xcom_push(key="execTimeInAest", value=execTimeInAest.strftime("%Y-%m-%d %H:%M:%S"))
                 
-                break
+    #break
             
         
     if count >= 1 and count == totcount :
