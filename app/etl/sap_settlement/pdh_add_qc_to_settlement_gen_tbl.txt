@@ -15,6 +15,7 @@
 --20230207 Use function pdh_ref_ds.get_calc_trans_type for EDW
 --20230209 replace pdh_rd_data_navigator.lv_gfs_pdh_txn_interface 
 --              by pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface
+--20230417 include excluded transactions, surcharge, tip
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default format_date("%Y-%m-%d",sys_date);
 --
@@ -48,7 +49,9 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
     tran_settlement_amount,
     record_type,
     tlf_name,
-    discount_amt)  
+    discount_amt,
+    surcharge_amt,
+    tip_amt)  
 --
     With  QCTran as (
            Select pdh_ref_ds.get_tran_uid(
@@ -97,7 +100,9 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                   0 as discount_amt,
                   "NONE" as excluded_issuer,
                   upper(trim(qct.Merchant)) Merchant,
-                  upper(trim(qct.Issuer)) Issuer
+                  upper(trim(qct.Issuer)) Issuer,
+                  0 as surcharge_amt,
+                  0 as tip_amt
          from `pdh_rd_quickcilver.qc_detail_transactions` qct
          left Join `pdh_ref_ds.ref_merchant_settlement_window` mw
               on mw.division_type = "PARTNER"
@@ -107,7 +112,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
            and qct.amount_transacting_merchants_currency_or_points <> 0
         ),
     LKTran as (
-         select pdh_ref_ds.get_tran_uid(  "LK",
+         select pdh_ref_ds.get_tran_uid(  "LK",
                                      nullstr, 
                                      ResRef,
                                      0, 
@@ -127,24 +132,26 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                 cast(pdh_load_time as datetime) as pdh_load_time,                 
                 file_name,
                 cast(concat(case 
-                               when ReqDate is null then "1900-01-01"                
+                               when ReqDate is null then "1900-01-01"                
                                else format_date("%Y-%m-%d",ReqDate)
                             end,"T",
                             case 
                                when ReqTime is null then "00:00:00"
                                else format_time("%H:%M:%S",ReqTime)
-                            end) as datetime)  as transaction_timestamp,
+                            end) as datetime)  as transaction_timestamp,
                 Upper(ReqType) as transactiontype,
                 "" as tran_qualifier,
-                upper(trim(ReqStore)) store_id,
-                "" as invoicenumber,
+                upper(trim(ReqStore)) store_id,
+                "" as invoicenumber,
                 ifnull(ReqAmt,0) tran_amt,
                 0 as discount_amt,
                 "NONE" as excluded_issuer,
                 "" Merchant,
-                "" Issuer  
-   from  `pdh_rd_apm.alipay_linkly` 
-    where ifnull(ReqStore,"NULL") <> "NULL"
+                "" Issuer,
+                0 as surcharge_amt,
+                0 as tip_amt  
+   from  `pdh_rd_apm.alipay_linkly` 
+    where ifnull(ReqStore,"NULL") <> "NULL"
       and ReqAmt <> 0
       and ResRT =    "TRANSACTION APPROVED"
       and ReqMT in (200) --stop 400
@@ -153,7 +160,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
       and OrigData = "Alipay"
         ),
     DPTran as (
-      select pdh_ref_ds.get_tran_uid(
+      select pdh_ref_ds.get_tran_uid(
                          "DP",
                          nullstr, 
                          trim(txnRef), 
@@ -168,22 +175,25 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
              file_name,
              case
                 when txnTime is null then cast("1900-01-01T00:00:00" as datetime)
-                else datetime_trunc(datetime(txnTime),second)
-             end as transaction_timestamp,
-             upper(transactiontype) transactiontype,
+                else datetime_trunc(datetime(txnTime),second)
+             end as transaction_timestamp,
+             upper(transactiontype) transactiontype,
              case
                 when length(txnRef) = length(replace(txnRef,".",""))  then "WEX" 
                 else "QC"  
              end as tran_qualifier,
-             upper(left(trim(terminal_id),5)) as store_id,
+             upper(left(trim(terminal_id),5)) as store_id,
              trim(orderNumber) as invoicenumber,
              ifnull(amount,0) as trans_amt,
              0 as discount_amt,
              "NONE" as excluded_issuer,
              "" Merchant,
-             "" Issuer       
-    from `pdh_rd_data_navigator.digitalpay_gc_txns` 
-    where ifnull(amount,0) <> 0
+             "" Issuer,
+             0 as surcharge_amt,
+             0 as tip_amt  
+       
+    from `pdh_rd_data_navigator.digitalpay_gc_txns` 
+    where ifnull(amount,0) <> 0
       and upper(trim(MerchantName)) = "EVERYDAY PAY"
       and upper(trim(transactiontype)) in ("PURCHASE","REFUND") 
       and ifnull(responseCodeContainer,"") = "00" 
@@ -191,7 +201,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
       and (length(txnRef) - length(replace(txnRef,".",""))) in (0,2)
         ),
    EDTran as (
-      select pdh_ref_ds.get_tran_uid(
+      select pdh_ref_ds.get_tran_uid(
                                 "ED",
                                 nullstr, 
                                 dn.retrieval_ref_num,
@@ -204,11 +214,11 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                                 0) as tran_uid,  --20230130 use function
              cast(dn.pdh_load_time as datetime) as pdh_load_time,
              file_name,
-             datetime_trunc(datetime(dn.local_timestamp), second) as transaction_timestamp,
-             pdh_ref_ds.get_calc_trans_type("", t.abbr ,safe_cast(dn.mti as string))
+             datetime_trunc(datetime(dn.local_timestamp), second) as transaction_timestamp,
+             pdh_ref_ds.get_calc_trans_type("", t.abbr ,safe_cast(dn.mti as string))
                    as transactiontype,  --20230207 use function
              "EDP" as tran_qualifier,
-             upper(left(trim(dn.card_acceptor_terminal_id),5)) as store_id,
+             upper(left(trim(dn.card_acceptor_terminal_id),5)) as store_id,
              "" as invoicenumber,
              abs(ifnull(dn.amount_txn,0)) *
                 tt.settlement_amount_flag *
@@ -216,9 +226,11 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
              0 as discount_amt,
              "NONE" as excluded_issuer,
              "" Merchant,
-             "" Issuer      
+             "" Issuer,
+             0 as surcharge_amt,
+             0 as tip_amt      
    --20230207 change start 
-    from `pdh_rd_data_navigator.edwp_txnact` dn
+    from `pdh_rd_data_navigator.edwp_txnact` dn
     Join `pdh_analytics_ds.ref_transaction_types` t 
           on safe_cast(dn.txn_type_indicator as int64) = safe_cast(t.dn_tran_code as int64)
     join `pdh_ref_ds.ref_response_code` r on safe_cast(dn.action_code  as int64)
@@ -229,7 +241,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                 and tt.settlement_amount_flag <> 0
                 and tt.spend_factor <> 0
    --20230207 change end
-    where dn.txn_disposition = 1
+    where dn.txn_disposition = 1
       and dn.local_timestamp is not NULL
       and ifnull(dn.amount_txn,0)  <> 0
                 ),
@@ -256,7 +268,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                substring(rpad(cast(t.transaction_timestamp as string),14,"0"),9,2),":",
                substring(rpad(cast(t.transaction_timestamp as string),14,"0"),11,2),":",
                substring(rpad(cast(t.transaction_timestamp as string),14,"0"),13,2)
-              ) as datetime) as transaction_timestamp,
+              ) as datetime) as transaction_timestamp,
         upper(trim(t.transaction_type)) as transactiontype,
         "CY" as tran_qualifier,
         case
@@ -272,7 +284,9 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
            else upper(trim(t.scheme))
         end as excluded_issuer,
         "" Merchant,
-        "" Issuer     
+        "" Issuer,
+        0 as surcharge_amt,
+        0 as tip_amt     
  from `pdh_rd_data_navigator.isg_wpay_tran` t
  left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
@@ -310,7 +324,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                                 0) as tran_uid, --20230130 use function
         dn.dn_insert_tstamp as pdh_load_time,
         concat("NRT-",str_sysdate) file_name,
-        DATETIME_TRUNC(CAST(dn.tstamp_trans AS DATETIME),second)  as transaction_timestamp,
+        DATETIME_TRUNC(CAST(dn.tstamp_trans AS DATETIME),second)  as transaction_timestamp,
         upper(trim(ifnull(ds.description,t.abbr))) as transactiontype,
         "TC" as tran_qualifier,
         Upper(left(trim(dn.net_term_id),5)) as store_id,
@@ -326,7 +340,9 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                                  dn.inst_id_recon_iss)))
          end as excluded_issuer,
         "" Merchant,
-        "" Issuer    
+        "" Issuer,
+        ifnull(dn.surcharge_amount,0) * tt.spend_factor * 0.01 surcharge_amt,
+        ifnull(dn.tip_amount,0) * tt.spend_factor * 0.01  tip_amt
     from pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface dn --20230209 minitaf->NTR view
     Join `pdh_analytics_ds.ref_transaction_types` t 
           on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
@@ -362,7 +378,11 @@ select datetime_trunc(current_datetime("Australia/Sydney"),SECOND)
                as last_update_datetime,
        "Settlement Process" as last_updated_by,
        cast(null as date) as posting_date,
-       cast(null as string) as setlmnt_result_file,
+       case 
+          when strpos(upper(trim(ifnull(scm.exclude__issuers,""))),trn.excluded_issuer) = 0
+                  then cast(null as string)
+          else "Excluded"
+       end as setlmnt_result_file,
        trn.tran_uid,
        trn.file_name as filename,
        trn.transaction_timestamp,
@@ -386,15 +406,25 @@ select datetime_trunc(current_datetime("Australia/Sydney"),SECOND)
        cast(null as string) as tlf_name,
        case left(trn.tran_uid,2)
           when "TC" then trn.discount_amt
-		  when "ED" then trn.discount_amt
+	  when "ED" then trn.discount_amt
           else abs(trn.discount_amt) * tt.settlement_factor * -1
-       end as discount_amt
+       end as discount_amt,
+       case left(trn.tran_uid,2)
+          when "TC" then trn.surcharge_amt
+	  when "ED" then trn.surcharge_amt
+          else abs(trn.surcharge_amt) * tt.settlement_factor * -1
+       end as surcharge_amt,
+       case left(trn.tran_uid,2)
+          when "TC" then trn.tip_amt
+	  when "ED" then trn.tip_amt
+          else abs(trn.tip_amt) * tt.settlement_factor * -1
+       end as tip_amt
 from  trn 
 join `pdh_ref_ds.ref_store_details` rsd on upper(trim(rsd.store_id)) = trn.store_id
                                        and rsd.is_closed = False
-join `pdh_ref_ds.ref_merchant_settlement_window` msw
-      on msw.is_active = "Y"
-     and msw.division =  upper(trim(rsd.division))
+join  `pdh_ref_ds.ref_merchant_settlement_window` msw
+      on msw.division = upper(trim(rsd.division))
+      and msw.is_active = "Y"
 join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
       on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
      and upper(ifnull(scm.active_flag,"N")) <> "N" 
@@ -426,7 +456,7 @@ left join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
 left join `pdh_analytics_ds.stlm_standard_settlement_table` std
          on std.tran_uid = trn.tran_uid
 where  std.tran_uid is null
-  and  strpos(upper(trim(ifnull(scm.exclude__issuers,""))),trn.excluded_issuer) = 0
+ -- and  strpos(upper(trim(ifnull(scm.exclude__issuers,""))),trn.excluded_issuer) = 0
   and Case left(trn.tran_uid,2)
          when "LK" then ifnull(tlf.alipay_flag,"N")
          when "CY" then ifnull(tlf.cybsy_flag,"N") 

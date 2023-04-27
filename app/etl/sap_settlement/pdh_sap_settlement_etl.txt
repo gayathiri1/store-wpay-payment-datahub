@@ -2,6 +2,7 @@
 --20220110 Remove surcharge
 --2023012 Use function calc_commission
 --20230308 Settle Net of Discount
+--20230411 replace function calc_commission by calc_servicefee
 declare sys_date date default CURRENT_DATE("Australia/Sydney");
 declare str_sysdate string default cast(sys_date as string);
 declare strt_settlement datetime default DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
@@ -99,18 +100,27 @@ end if;
                ifnull(scm2.wpay_store_number,
                       trim(msw.commission_store)) commission_store,
                ifnull(scm2.npp_flag,scm.npp_flag) scm2_npp,
-               pdh_ref_ds.calc_commission(msw.commission_store,
+               pdh_ref_ds.calc_servicefee(case ifnull(msw.commission_store,"")
+                                             when "" then "N"
+                                             else "Y"
+                                          end,
                                           std.tran_settlement_amount
                                           + std.discount_amt,
+                                          std.surcharge_amt,
                                           scm.commission_percent,
                                           scm.commission_fixed_value)
                                         * 100 commission,
-               (ifnull(std.tran_settlement_amount,0) + std.discount_amt - 
-                pdh_ref_ds.calc_commission(msw.commission_store,
+               (ifnull(std.tran_settlement_amount,0) + ifnull(std.discount_amt,0) 
+               - pdh_ref_ds.calc_servicefee(case ifnull(msw.commission_store,"")
+                                             when "" then "N"
+                                             else "Y"
+                                          end,
                                           std.tran_settlement_amount
                                           + std.discount_amt,
+                                          std.surcharge_amt,
                                           scm.commission_percent,
-                                          scm.commission_fixed_value)) * 100
+                                          scm.commission_fixed_value)
+               ) * 100
                                            as settlement_amount,
                scm.currency_code as f10,
                cast(std.transaction_timestamp as date) as f11,

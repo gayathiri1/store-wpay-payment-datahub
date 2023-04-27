@@ -1,0 +1,73 @@
+declare utc_datetime datetime default datetime(current_timestamp());
+--
+declare syd_datetime datetime default current_datetime("Australia/Sydney");
+--
+declare syd_date date default cast(syd_datetime as date);
+--
+declare str_datetime string default 
+  replace(left(cast(syd_datetime as string),23)," ","T");
+declare day_of_week int64 default extract(dayofweek from syd_date); 
+declare next_monday date default case day_of_week 
+                                    when 1 then syd_date + 1
+                                    else syd_date + 9 - day_of_week
+                                 end;
+declare mon_10am_utc timestamp default 
+        TIMESTAMP(concat(format_date("%Y-%m-%d",next_monday)," 10:00:00"),
+             "Australia/Sydney");
+DECLARE inp_lookup STRING DEFAULT "PAS Settlement";
+DECLARE batch string;
+select syd_datetime todaydatetime, syd_date as today,  
+utc_datetime utc_datetime,next_monday next_monday,mon_10am_utc mon10utc;
+--
+--Get next Batch Number
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+if (ifnull(batch,"") in ("NOContRec","UpdFailed"))  then
+    return;
+end if; 
+--truncate table pdh_payto_internal.stlm_payout_instructions
+insert into pdh_payto_internal.stlm_payout_instructions 
+   (merchant_uid, payto_agreement_uid, merchant_payment_uid, merchant_customer_reference,
+    merchant_reference, description, amount, batch_name, batch_datetime, created_at,
+    payment_initiated_at
+   )
+With DET as (
+SELECT stlm.f11 as transactiondate,  --1
+       msw.npp_merchant_id, --2
+       scm.npp_agreement_id,--3
+       concat(scm.wpay_store_number,
+              stlm.f11,str_datetime) as merchant_payment_uid, --4 
+      "Oolio Settlement" as merchant_customer_reference,--5 
+      cast(null as string) as merchant_reference, --6 
+      cast(null as string) as description, --7
+       sum(cast(stlm.F09 as INT64)) as amount, --8
+       stlm.file_name as batch_name, --9
+       syd_datetime as batch_datetime, --10
+       utc_datetime as created_at, --11
+       cast(case day_of_week
+          when 1 then mon_10am_utc
+          when 7 then mon_10am_utc
+          else cast(null as timestamp) 
+      end as datetime) payment_initiated_at --12
+from `pdh_analytics_ds.stlm_settlement_result` stlm
+join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+      on scm.wpay_store_number = stlm.f07
+      and stlm.f01 not in ("H","T")
+join `pdh_ref_ds.ref_store_details` rsd on rsd.store_id = stlm.f07
+join  pdh_ref_ds.ref_merchant_settlement_window msw on 
+           msw.division_type = "ISO" and 
+           msw.division = upper(trim(rsd.division))
+where stlm.f07 <> msw.commission_store
+group by 1,2,3,4,5,6,7,9,10,11,12)
+select * except (transactiondate) from DET;
+--
+--Add conttrol record
+insert into pdh_analytics_ds.file_gen_details 
+  select batch batch_number,
+         cast(syd_datetime as date) processing_date, 
+         "payasservice" merchant_name,
+         true etl_complete, 
+         false extract_wf_complete, 
+         syd_datetime extract_start_datetime,
+         syd_datetime extract_end_datetime,
+         syd_datetime file_date,
+         cast(null as string)    remarks;
