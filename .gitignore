@@ -52,11 +52,11 @@ env-config*.json
 # Ignore service account file changes
 # **/zlibpdh/pdh_utilities.py
 app/requirements.txt
-.gitignore
+# .gitignore
 venv/
 .python-version
 out.txt
 poetry.lock
 poetry.toml
-pylintrc
-pyproject.toml
+# pylintrc
+# pyproject.toml

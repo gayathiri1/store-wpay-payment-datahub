@@ -2,6 +2,7 @@
 --2023012 Use function calc_commission
 --20230314 compute commission on NET
 --20230411 use calc_servicefee inctead of calc_commission
+--20230403 create header and trailor all times
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime default
           datetime_trunc(current_datetime("Australia/Sydney"),second);
 declare batch_end_yyyy_mm_dd_hh_mm_ss_1 datetime default
@@ -14,14 +15,18 @@ if (ifnull(batch,"") in ("","NOContRec","UpdFailed"))  then
 end if;
 --
 --truncate table `pdh_analytics_ds.stlm_commission_history`;
-truncate table `pdh_analytics_ds.stlm_commission`; 
--- insert header
-insert into `pdh_analytics_ds.stlm_commission`
-   select "merchant" as merchant,
+truncate table `pdh_analytics_ds.stlm_commission`;
+-- insert header 
+insert into  `pdh_analytics_ds.stlm_commission`
+   select tlf.stlf_prefix as merchant,
           "H" as record_type,
           "tran_uid" as tran_uid,
-          "commission_amt" as commission_amt;
--- insert detail 
+          "commission_amt" commission_amt
+ from pdh_ref_ds.ref_stlm_tlf_config tlf
+ join pdh_ref_ds.ref_merchant_settlement_window m 
+             on ifnull(m.commission_store,"") <> ""
+            and m.division = upper(trim(tlf.division));
+-- insert detail if exists
 insert into `pdh_analytics_ds.stlm_commission` 
    with DET as (
       select
@@ -55,19 +60,20 @@ insert into `pdh_analytics_ds.stlm_commission`
       select merchant,
              "D" as record_type,
              tran_uid,
-             cast(cast(round(abs(commission) * 100,0) as int64) as string) as commission_amt
+             cast(cast(round(abs(commission) * 100,0) as int64) 
+                      as string) as commission_amt
       from DET
       where commission <> 0; --commission is non zero
+--
 --Insert Traiter
 insert into `pdh_analytics_ds.stlm_commission`
    select merchant,
           "T" as record_type,
-           cast(ifnull(count(*),0) as string) as tran_uid,
+           cast(ifnull(count(*) - 1,0) as string) as tran_uid,
            null as commission_amt
    from `pdh_analytics_ds.stlm_commission`
-   where record_type = "D"
    group by 1;
-
+   
 --copy to history
  insert into `pdh_analytics_ds.stlm_commission_history`
     select batch_end_yyyy_mm_dd_hh_mm_ss as datetime_created,*
@@ -99,7 +105,7 @@ insert into `pdh_analytics_ds.stlm_commission`
                Group by 1
                ) std on std.division = m.division
          where ifnull(tlf.stlf_prefix,"") <> "";
-                                                          
+                                                      
      --Update Generic table
    Update  `pdh_analytics_ds.stlm_standard_settlement_table` std
       set std.commission_filename = t.commission_filename,
@@ -115,4 +121,4 @@ insert into `pdh_analytics_ds.stlm_commission`
          Where ifnull(std1.commission_filename,"") = "" 
            and ifnull(std1.setlmnt_result_file,"") <> ""
                 ) t
-     Where t.tran_uid = std.tran_uid; 
+     Where t.tran_uid = std.tran_uid;

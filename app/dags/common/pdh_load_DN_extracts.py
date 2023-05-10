@@ -8,6 +8,7 @@ from zlibpdh import pdh_utilities as pu
 from zlibpdh import pdh_dataproc_utils as du
 import json
 import uuid
+import logging
 
 
 default_dag_args = {
@@ -74,7 +75,7 @@ def load_config_and_validate_run(**kwargs):
     config['run_config'] = run_config
     config['delimiter_used'] = delimiter
     print(f'config is :{config}')
-    flag = pu.PDHUtils.check_delta(dataset, table_name, file_name)
+    flag = pu.PDHUtils.check_delta(dataset, table_name, file_name)    
     if flag != 1:
         print(f'uuid1 :=>{uid}')
         kwargs['ti'].xcom_push(key='input_params' + uid, value=config)
@@ -83,7 +84,19 @@ def load_config_and_validate_run(**kwargs):
         dataproc_status = dataproc.list_clusters()
         dataproc_jobs = dataproc.list_jobs()
         if pattern == 'csv' or (pattern == 'txt' and delimiter == '|'):
-            return 'load_csv_file'        
+            #check for empty flag.            
+            if "empty_flag" in config[lkp_config]:
+                print("Empty file flag is set...")
+                empty_flag=config[lkp_config]['empty_flag']# Get flag from variable
+            else:
+                print("Empty file flag is not set...")
+                empty_flag='N'
+            try:
+                kwargs['ti'].xcom_push(key="empty_flag", value=empty_flag)
+                print(f'empty_flag is :{empty_flag}')
+            except Exception as e:
+                logging.info("Exception:{}".format(e))     
+            return 'load_csv_file'           
         elif dataproc_status is None:
             return 'start_cluster'
         elif dataproc_jobs <= 2:
@@ -103,28 +116,72 @@ def get_config(lkp_config,config):
         pattern = config[lkp_config]['pattern']
         return dataset,table_name,pattern
 
-# def is_csv_file_empty(**kwargs):
-#     task_instance = kwargs['ti']
-#     uid = task_instance.xcom_pull("generate_uuid")
-#     print(f'uuid2 :=>{uid}')
-#     input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)
-#     bucket = input_params['run_config']['bucket']
-#     file_name = input_params['run_config']['file_name']
-
-#     file_path = 'gs://' + bucket + '/' + file_name
-#     if pu.PDHUtils.is_csv_file_empty(file_path):
-#         return 'load_failed'
-#     else:
-#         return 'load_csv_file'
-
 
 def load_csv_file(**kwargs):
     task_instance = kwargs['ti']
     uid = task_instance.xcom_pull("generate_uuid")
+    input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)    
     print(f'uuid2 :=>{uid}')
-    input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)
+    try:        
+        empty_flag = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='empty_flag')
+    except Exception as e:
+        logging.info("Exception:{}".format(e))
+    #Empty file check logic here.
+    if empty_flag == 'Y':
+        print("Empty File Check logic...")
+        status = is_empty_file(task_instance)
+        print(f'Staus is => {status}')
+    #BAU logic here.
+    print('BAU logic....')
     pu.PDHUtils.load_csv_to_bq(dag,uid,**input_params)
-    print('load_csv_file completed')
+    print('load_csv_file completed')    
+
+        
+#Empty file check function.
+def is_empty_file(task_instance) -> bool:    
+    #Get input paramters here.    
+    try:
+        uid = task_instance.xcom_pull("generate_uuid")
+        input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)    
+        bucket = input_params['run_config']['bucket']
+        file_name = input_params['run_config']['file_name']     
+        object_name = file_name.split('/')[0]
+        lkp_config = file_name.split('/')[2]
+    except Exception as e:
+        logging.info("Exception:{}".format(e))
+    is_empty = False #deafult value
+    #Get paramters from variables.
+    if 'gfs' in object_name:
+        config = Variable.get("v_gfs_datasets", deserialize_json=True)
+    else:
+        config = Variable.get("v_non_gfs_load_params", deserialize_json=True)    
+    #check for delimiter
+    if "delimiter" in config[lkp_config]:
+        print("is_csv_file_empty -->Delimiter is set in airflow var...")
+        delimiter=config[lkp_config]['delimiter']# Get delimiter from variable         
+    else:
+        print("is_csv_file_empty -->Delimiter is no set in airflow var")
+        delimiter=','
+    #check for header
+    if "header" in config[lkp_config]:
+        print("Header is set in airflow var...")        
+        header=config[lkp_config]['header']# Get header from variable
+        print(f'header is ==> {header}')
+    else:
+        print("Header is not set,using default value...")        
+        header=0
+        print(f'header is :=> {header}')
+    #Get filepath.    
+    file_path = 'gs://' + bucket + '/' + file_name
+    is_empty = pu.PDHUtils.is_csv_file_empty(file_path,delimiter,header)    
+    if is_empty == True:        
+        print(f'Empty file detected =>{file_name}')           
+        emailTo = input_params['emailTo']
+        pu.PDHUtils.send_email(emailTo,'PDH Prod Load Status',
+                           f'Empty File:=>{file_name} detected into PDH.')        
+    else:          
+        print(f'Non-Empty file detected =>{file_name}')        
+    return is_empty
 
 
 def load_target_table(**kwargs):
@@ -239,7 +296,8 @@ def load_failed(**kwargs):
     emailTo = input_params['emailTo']
     file_name = input_params['run_config']['file_name']
     pu.PDHUtils.send_email(emailTo,'PDH Prod Load Status',
-                           f'File:=>{file_name} loading failed due to empty file.')
+                           f'File:=>{file_name} loading failed.Please check file contents.')
+
 
 def load_completed(**kwargs):
     task_instance = kwargs['ti']
@@ -267,6 +325,7 @@ def update_queue(**kwargs):
     print('Queue update requested')
 
 
+
 generate_uuid = PythonOperator(
     task_id='generate_uuid',
     python_callable=lambda: str(uuid.uuid4().fields[-1])[:5],
@@ -289,12 +348,6 @@ check_tasks = BranchPythonOperator(
 )
 
 
-# is_csv_file_empty_t = BranchPythonOperator(
-#     task_id='is_csv_file_empty',
-#     provide_context=True,
-#     python_callable=is_csv_file_empty,
-#     dag=dag
-# )
 
 load_csv_file_t = PythonOperator(
     task_id='load_csv_file',
@@ -317,7 +370,6 @@ spark_submit = BranchPythonOperator(
     trigger_rule='none_failed_or_skipped',
     dag=dag
 )
-
 
 
 load_failed_t = PythonOperator(
@@ -349,11 +401,6 @@ update_queue = PythonOperator(
     trigger_rule='none_failed_or_skipped',
     dag=dag
 )
-
-
-
-# generate_uuid >> load_config_and_validate_run_t >> is_csv_file_empty_t >> load_csv_file_t >> load_target_table_t >> load_completed_t
-# generate_uuid >> load_config_and_validate_run_t >> is_csv_file_empty_t >> load_failed_t
 
 
 generate_uuid >> load_config_and_validate_run_t >> load_csv_file_t >> load_target_table_t >> load_completed_t

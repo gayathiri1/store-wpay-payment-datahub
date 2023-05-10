@@ -8,7 +8,9 @@
 --20230119 Process earliest loaded of duplicate tran_uid
 --20230123 use pdh_load_time to seq
 --20220130 Use function get_tran_uid
+--20230503 -Allow multiplerun per day
 declare sys_date date default current_date("Australia/Sydney");
+declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
 declare batch_end_datetime datetime;
 declare batch_end_mm_dd_hh_mm_ss datetime;
 declare min_transaction_timestamp datetime;
@@ -76,6 +78,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                                   when "IGODIRECT" then "IGODIRECT3P"
                                   else upper(trim(qpt.Merchant))
                                end
+            and mw.settlement_cycle <= syd_hour --multiple run per day
          join `pdh_ref_ds.ref_key_value` rk --2022-11-25 Add Key_value table to remove hard coding
               on rk.attribute = "merchant-terminalid mapping"
               and upper(trim(rk.key)) = upper(trim(qpt.Merchant))

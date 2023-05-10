@@ -1,4 +1,4 @@
---Log missing Store Information_Split By company
+--Log missing Store Information_Split By companyv
 --20221103 change column_name trasnaction_timestamp to transaction_timestamp
 --20221110 for isg, get store_id from key_value when terminal id is empty
 --20221110 Exclude transactions for excluded_issuers
@@ -12,8 +12,11 @@
 --20230209 replace pdh_rd_data_navigator.lv_gfs_pdh_txn_interface 
 --              by pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface
 --20230314 add WPAYNZ
+--20230317 includ excluded transactions
+--Allow multiple run per day
 declare sys_datetime datetime default
  cast(format_datetime("%Y-%m-%dT%H:%M:%S",current_datetime("Australia/Sydney")) as datetime);
+ declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
 declare sys_date date DEFAULT current_date("Australia/Sydney");
 DECLARE inp_lookup STRING DEFAULT "MST Settlement";
 DECLARE batch string;
@@ -65,25 +68,73 @@ with trqc as (
                                     qct.Issuer,
                                     qct.outlet,
                                     qct.POSName) store_id,
-            upper(trim(qct.transactiontype)) as transactiontype,
-            "" as tran_qualifier,
-            "NONE" as excluded_issuer,
-            upper(trim(qct.Merchant)) Merchant,
-            upper(trim(qct.Issuer)) Issuer
+            msw.division,
+            upper(trim(qct.transactiontype)) as transactiontype
       from `pdh_rd_quickcilver.qc_detail_transactions`  qct
-      left Join `pdh_ref_ds.ref_merchant_settlement_window` mw
-              on mw.division_type = "PARTNER"
-             and mw.division = upper(trim(qct.Merchant))
- Where ifnull(mw.division,"") = ""
-   and upper(trim(qct.transactionstatus)) =  "SUCCESS"
+      join `pdh_ref_ds.ref_store_details` rsd on 
+               upper(trim(rsd.store_id)) =  pdh_ref_ds.get_qc_store(qct.outletcode,
+                                          qct.Issuer,
+                                          qct.outlet,
+                                          qct.POSName)
+                and rsd.is_closed = False
+      join `pdh_ref_ds.ref_str_to_sap_customermapping` scm  
+            on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id))
+           and upper(ifnull(scm.active_flag,"N")) <> "N" 
+           and ifnull(scm.wpay_company_code,"") <> ""
+      join  `pdh_ref_ds.ref_merchant_settlement_window` msw
+             on msw.division = upper(trim(rsd.division))
+            and msw.is_active = "Y"
+            and msw.settlement_cycle <= syd_hour --multiple run per day
+            and msw.division_type <> "PARTNER"
+      left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
+        on wbs.store_id = upper(trim(rsd.store_id))
+       and wbs.is_active = "Y"
+      join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
+           on tt.transaction_type = upper(trim(qct.transactiontype))
+          and tt.settlement_factor <> 0
+          and tt.tran_qualifier = 
+                concat( 
+                       case 
+                          when (wbs.store_id is null or 
+                               msw.settle_by_store = "N") then msw.division_type
+                          else wbs.division_type
+                       end,
+                       case   --20230313
+                          when ifnull(scm.wpay_company_code,"") = "2025"
+                           and qct.Merchant = "COUNTDOWN"
+                           and qct.Issuer = "WPAY NEW ZEALAND LIMITED" then "WPAYNZ"
+                          else ""
+                       end)
+ Where upper(trim(qct.transactionstatus)) =  "SUCCESS"
    and ifnull(amount_transacting_merchants_currency_or_points,0) <> 0
+   and `pdh_ref_ds.trans_in_stlm_window`(
+                   msw.settle_by_store,
+                   wbs.store_id,
+                   cast(concat(case 
+                                  when qct.transactiondate is null then "1900-01-01"
+                                  else format_date("%Y-%m-%d",qct.transactiondate)
+                              end,"T",
+                              case 
+                                 when qct.transactiontime is null then "00:00:00"
+                                 else format_time("%H:%M:%S",qct.transactiontime)
+                              end) as datetime), 
+                   msw.last_execution_time,       
+                   wbs.last_execution_time, 
+                   msw.days_lookback,
+                   wbs.days_lookback,
+                   msw.earliest_date,
+                   wbs.earliest_date,
+                   msw.day_lag,
+                   wbs.day_lag,
+                   msw.settlement_cutoff,
+                   wbs.settlement_cutoff) = "Y"
   ),
 --
 trdp as (
  Select pdh_ref_ds.get_tran_uid(
                          "DP",
                          nullstr, 
-                         trim(txnRef), 
+                         trim(dpt.txnRef), 
                          0, 
                          nullstr,
                          nullstr,
@@ -91,93 +142,184 @@ trdp as (
                          nullstr, 
                          nullstr, 
                          0) as tran_uid,
-        cast(pdh_load_time as datetime) as pdh_load_time,
+        cast(dpt.pdh_load_time as datetime) as pdh_load_time,
         case 
-           when txnTime is null then cast("1900-01-01T00:00:00" as datetime)
-           else DATETIME_TRUNC(datetime(txnTime),SECOND)
+           when dpt.txnTime is null then cast("1900-01-01T00:00:00" as datetime)
+           else DATETIME_TRUNC(datetime(dpt.txnTime),SECOND)
         end as transaction_timestamp,
-        upper(left(trim(terminal_id),5)) as store_id,
-        upper(trim(transactiontype)) as transactiontype,
-        case
-           when length(txnRef) = length(replace(txnRef,".","")) then "WEX"
-           else "QC"
-        end as tran_qualifier,
-        "NONE" as excluded_issuer,
-         "" Merchant,
-         "" Issuer
- from `pdh_rd_data_navigator.digitalpay_gc_txns`
- where upper(trim(transactiontype)) in ("PURCHASE","REFUND")
-   and upper(trim(MerchantName)) = "EVERYDAY PAY"
-   and ifnull(responseCodeContainer,"") = "00"
-   and ifnull(trim(txnRef),"") <> ""
-   and (length(txnRef) - length(replace(txnRef,".",""))) in (0,2)
-   and ifnull(amount,0) <> 0
+        upper(left(trim(dpt.terminal_id),5)) as store_id,
+        msw.division,
+        upper(trim(dpt.transactiontype)) as transactiontype
+ from `pdh_rd_data_navigator.digitalpay_gc_txns` dpt
+ join `pdh_ref_ds.ref_store_details` rsd 
+            on upper(trim(rsd.store_id)) = upper(left(trim(dpt.terminal_id),5))
+           and rsd.is_closed = False
+join  `pdh_ref_ds.ref_merchant_settlement_window` msw
+      on msw.division = upper(trim(rsd.division))
+      and msw.is_active = "Y"
+      and msw.settlement_cycle <= syd_hour  --multiple run per day
+left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
+        on wbs.store_id = upper(trim(rsd.store_id))
+       and wbs.is_active = "Y"
+join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
+           on tt.transaction_type = upper(dpt.transactiontype)
+          and tt.settlement_factor <> 0
+          and tt.tran_qualifier = 
+                case
+                   when length(dpt.txnRef) = length(replace(dpt.txnRef,".",""))  then "WEX" 
+                   else "QC"  
+                end
+ where upper(trim(dpt.transactiontype)) in ("PURCHASE","REFUND")
+   and upper(trim(dpt.MerchantName)) = "EVERYDAY PAY"
+   and ifnull(dpt.responseCodeContainer,"") = "00"
+   and ifnull(trim(dpt.txnRef),"") <> ""
+   and (length(dpt.txnRef) - length(replace(dpt.txnRef,".",""))) in (0,2)
+   and ifnull(dpt.amount,0) <> 0
+   and `pdh_ref_ds.trans_in_stlm_window`(
+          msw.settle_by_store,
+          wbs.store_id,
+          case
+             when dpt.txnTime is null then cast("1900-01-01T00:00:00" as datetime)
+             else datetime_trunc(datetime(dpt.txnTime),second)
+          end, 
+          msw.last_execution_time,       
+          wbs.last_execution_time, 
+          msw.days_lookback,
+          wbs.days_lookback,
+          msw.earliest_date,
+          wbs.earliest_date,
+          msw.day_lag,
+          wbs.day_lag,
+          msw.settlement_cutoff,
+          wbs.settlement_cutoff) = "Y"
     ),
  trlk as (
    Select pdh_ref_ds.get_tran_uid(  "LK",
                                      nullstr, 
-                                     ResRef,
+                                     lkt.ResRef,
                                      0, 
                                      nullstr,
                                      concat(CASE 
-                                             when ReqDate is null then "19000101"
-                                            else format_date("%Y%m%d",ReqDate)
+                                             when lkt.ReqDate is null then "19000101"
+                                            else format_date("%Y%m%d",lkt.ReqDate)
                                             End,"T",
                                             CASE 
-                                             when ReqTime is null then "000000"
-                                             else format_time("%H%M%S",ReqTime)
+                                             when lkt.ReqTime is null then "000000"
+                                             else format_time("%H%M%S",lkt.ReqTime)
                                             end),
                                       nullstr,
                                       nullstr, 
                                       nullstr, 
                                       0) as tran_uid,
-         cast(pdh_load_time as datetime) as pdh_load_time,
+         cast(lkt.pdh_load_time as datetime) as pdh_load_time,
          cast(Concat(case 
-                        when ReqDate is null then "1900-01-01"
-                        else format_date("%Y-%m-%d",ReqDate)
+                        when lkt.ReqDate is null then "1900-01-01"
+                        else format_date("%Y-%m-%d",lkt.ReqDate)
                      end,"T",
                      case 
-                        when ReqTime is null then "00:00:00"
-                        else format_time("%H:%M:%S",ReqTime)
+                        when lkt.ReqTime is null then "00:00:00"
+                        else format_time("%H:%M:%S",lkt.ReqTime)
                      end) as datetime)  as transaction_timestamp,
-          upper(trim(ReqStore)) as store_id,
-          upper(trim(ReqType)) as transactiontype,
-          "" as tran_qualifier,
-          "NONE" as excluded_issuer,
-         "" Merchant,
-         "" Issuer
-   from `pdh_rd_apm.alipay_linkly`
-   where ReqAmt <> 0
-     and ResRT = "TRANSACTION APPROVED"
-     and ReqMT in (200) --Stop 400
-     and upper(trim(ReqType)) in ("N","N-","P","R","30001000","30002000")
-     and ReqDate is not NULL
-     and OrigData = "Alipay"),
+          upper(trim(lkt.ReqStore)) as store_id,
+          msw.division,
+          upper(trim(lkt.ReqType)) as transactiontype
+   from `pdh_rd_apm.alipay_linkly` lkt
+   join `pdh_ref_ds.ref_store_details` rsd on 
+               upper(trim(rsd.store_id)) =  upper(trim(lkt.ReqStore))
+                and rsd.is_closed = False
+      join  `pdh_ref_ds.ref_merchant_settlement_window` msw
+             on msw.division = upper(trim(rsd.division))
+            and msw.is_active = "Y"
+            and msw.settlement_cycle <= syd_hour --multiple run per day
+   left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
+        on wbs.store_id = upper(trim(rsd.store_id))
+       and wbs.is_active = "Y"
+   join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
+           on tt.transaction_type = upper(trim(lkt.ReqType))
+          and tt.tran_qualifier =   ""
+          and tt.settlement_factor <> 0
+
+   where lkt.ReqAmt <> 0
+     and lkt.ResRT = "TRANSACTION APPROVED"
+     and lkt.ReqMT in (200) --Stop 400
+     and upper(trim(lkt.ReqType)) in ("N","N-","P","R","30001000","30002000")
+     and lkt.ReqDate is not NULL
+     and lkt.OrigData = "Alipay"
+     and `pdh_ref_ds.trans_in_stlm_window`(
+                   msw.settle_by_store,
+                   wbs.store_id,
+                   cast(concat(case 
+                               when lkt.ReqDate is null then "1900-01-01"                
+                               else format_date("%Y-%m-%d",lkt.ReqDate)
+                            end,"T",
+                            case 
+                               when lkt.ReqTime is null then "00:00:00"
+                               else format_time("%H:%M:%S",lkt.ReqTime)
+                            end) as datetime), 
+                   msw.last_execution_time,       
+                   wbs.last_execution_time, 
+                   msw.days_lookback,
+                   wbs.days_lookback,
+                   msw.earliest_date,
+                   wbs.earliest_date,
+                   msw.day_lag,
+                   wbs.day_lag,
+                   msw.settlement_cutoff,
+                   wbs.settlement_cutoff) = "Y"
+     ),
  tred as (
  Select pdh_ref_ds.get_tran_uid(
                                 "ED",
                                 nullstr, 
-                                retrieval_ref_num,
+                                dn.retrieval_ref_num,
                                 0, 
-                                pan,
-                                format_datetime("%Y%m%dT%H%M%S",datetime(local_timestamp)),
+                                dn.pan,
+                                format_datetime("%Y%m%dT%H%M%S",datetime(dn.local_timestamp)),
                                 nullstr,
                                 nullstr, 
                                 nullstr, 
                                 0) as tran_uid,
-        cast(pdh_load_time as datetime) as pdh_load_time,
-        datetime_trunc(datetime(local_timestamp), second) as transaction_timestamp,
-        upper(left(trim(card_acceptor_terminal_id),5)) as store_id,
-        Upper(cast(txn_type_indicator as string)) as transactiontype,
-        "EDP" as tran_qualifier,
-        "NONE" as excluded_issuer,
-         "" Merchant,
-         "" Issuer
- from `pdh_rd_data_navigator.edwp_txnact` 
-    where txn_disposition = 1
-      and local_timestamp is not NULL
-      and ifnull(amount_txn,0)  <> 0
-      and right(cast(txn_type_indicator as string),4) in ("1000","2000")
+        cast(dn.pdh_load_time as datetime) as pdh_load_time,
+        datetime_trunc(datetime(dn.local_timestamp), second) as transaction_timestamp,
+        upper(left(trim(dn.card_acceptor_terminal_id),5)) as store_id,
+        msw.division,
+        Upper(cast(dn.txn_type_indicator as string)) as transactiontype
+ from `pdh_rd_data_navigator.edwp_txnact` dn
+ Join `pdh_analytics_ds.ref_transaction_types` t 
+          on safe_cast(dn.txn_type_indicator as int64) = safe_cast(t.dn_tran_code as int64)
+ join `pdh_ref_ds.ref_response_code` r on safe_cast(dn.action_code  as int64)
+                                             = safe_cast(r.action_code as int64)
+ join `pdh_analytics_ds.ref_tran_type_codes` tt
+                 on Upper(trim(tt.tran_type_desc)) = 
+                    pdh_ref_ds.get_calc_trans_type("", t.abbr ,safe_cast(dn.mti as string))
+                and tt.settlement_amount_flag <> 0
+                and tt.spend_factor <> 0
+ join `pdh_ref_ds.ref_store_details` rsd 
+      on upper(trim(rsd.store_id)) = upper(left(trim(dn.card_acceptor_terminal_id),5))
+      and rsd.is_closed = False
+ join  `pdh_ref_ds.ref_merchant_settlement_window` msw
+       on msw.division = upper(trim(rsd.division))
+      and msw.is_active = "Y"
+      and msw.settlement_cycle <= syd_hour --multiple run per day
+ left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
+        on wbs.store_id = upper(trim(rsd.store_id))
+       and wbs.is_active = "Y"
+  where dn.txn_disposition = 1
+  and dn.local_timestamp is not NULL
+  and ifnull(dn.amount_txn,0)  <> 0
+  and `pdh_ref_ds.trans_in_stlm_window`(msw.settle_by_store,
+                                        wbs.store_id,
+             datetime_trunc(datetime(dn.local_timestamp), second), 
+                                        msw.last_execution_time,       
+                                        wbs.last_execution_time, 
+                                        msw.days_lookback,
+                                        wbs.days_lookback,
+                                        msw.earliest_date,
+                                        wbs.earliest_date,
+                                        msw.day_lag,
+                                        wbs.day_lag,
+                                        msw.settlement_cutoff,
+                                        wbs.settlement_cutoff) = "Y"
     ),
  trcy as ( Select pdh_ref_ds.get_tran_uid(
                                 "CY",
@@ -205,22 +347,55 @@ trdp as (
                 then upper(left(trim(t.terminal_id),5))
            else upper(left(trim(rk.value),5)) --2022-11-02 INclude Amex transactions
         end as store_id,
-        upper(trim(t.transaction_type)) as transactiontype,
-        "CY" as tran_qualifier,
-        case
-           when ifnull(t.scheme,"") = "" then "NONE"
-           else upper(trim(t.scheme))
-        end as excluded_issuer,
-         "" Merchant,
-         "" Issuer
+        msw.division,
+        upper(trim(t.transaction_type)) as transactiontype
 from `pdh_rd_data_navigator.isg_wpay_tran` t
 left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
           and upper(trim(rk.key)) = upper(trim(cast(t.merchant_id as string))) 
- where upper(trim(transaction_type)) in ("PURCHASE","REFUND")
-   and ifnull(transaction_approval_status,0) = 0
-   and ifnull(transaction_amount,0) <> 0
+ join `pdh_ref_ds.ref_store_details` rsd 
+      on upper(trim(rsd.store_id)) = 
+        case
+           when trim(ifnull(t.terminal_id,"")) <> ""   
+                then upper(left(trim(t.terminal_id),5))
+           else upper(left(trim(rk.value),5)) 
+        end
+      and rsd.is_closed = False
+ join  `pdh_ref_ds.ref_merchant_settlement_window` msw
+       on msw.division = upper(trim(rsd.division))
+      and msw.is_active = "Y"
+      and msw.settlement_cycle <= syd_hour --multiple run per day
+ left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
+        on wbs.store_id = upper(trim(rsd.store_id))
+       and wbs.is_active = "Y"
+ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
+           on tt.transaction_type = upper(trim(t.transaction_type))
+          and tt.tran_qualifier = "CY"
+          and tt.settlement_factor <> 0
+ where upper(trim(t.transaction_type)) in ("PURCHASE","REFUND")
+   and ifnull(t.transaction_approval_status,0) = 0
+   and ifnull(t.transaction_amount,0) <> 0
    and ifnull(t.transaction_timestamp,0) <> 0
+    and `pdh_ref_ds.trans_in_stlm_window`(msw.settle_by_store,
+                                        wbs.store_id,
+             safe_cast(Concat(left(rpad(cast(t.transaction_timestamp as string),14,"0"),4),
+                              "-",
+               substring(rpad(cast(t.transaction_timestamp as string),14,"0"),5,2), "-",
+               substring(rpad(cast(t.transaction_timestamp as string),14,"0"),7,2), "T",
+               substring(rpad(cast(t.transaction_timestamp as string),14,"0"),9,2),":",
+               substring(rpad(cast(t.transaction_timestamp as string),14,"0"),11,2),":",
+               substring(rpad(cast(t.transaction_timestamp as string),14,"0"),13,2)
+              ) as datetime), 
+                                        msw.last_execution_time,       
+                                        wbs.last_execution_time, 
+                                        msw.days_lookback,
+                                        wbs.days_lookback,
+                                        msw.earliest_date,
+                                        wbs.earliest_date,
+                                        msw.day_lag,
+                                        wbs.day_lag,
+                                        msw.settlement_cutoff,
+                                        wbs.settlement_cutoff) = "Y"
    ),
  trqp as ( Select pdh_ref_ds.get_tran_uid(
                                 "QP",
@@ -246,21 +421,48 @@ left join pdh_ref_ds.ref_key_value rk
                when trim(ifnull(qpt.outletcode,"")) <> "" then upper(trim(qpt.outletcode))
                else upper(left(trim(rk.value),5)) --20221130 use key_value
             end store_id,
-            upper(trim(qpt.TransactionType)) as transactiontype,
-            "QP" as tran_qualifier,
-            "NONE" as excluded_issuer,
-         "" Merchant,
-         "" Issuer
+            mw.division,
+            upper(trim(qpt.TransactionType)) as transactiontype
       from `pdh_rd_quickcilver.qc_partner_detail`  qpt
       Join `pdh_ref_ds.ref_merchant_settlement_window` mw
               on mw.division_type = "PARTNER"
              and mw.division = upper(trim(qpt.Merchant))
+             and mw.is_active = "Y"
+             and mw.settlement_cycle <= syd_hour
       left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
           and upper(trim(rk.key)) = upper(trim(qpt.Merchant)) 
-
+      left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
+        on wbs.store_id = case 
+               when trim(ifnull(qpt.outletcode,"")) <> "" then upper(trim(qpt.outletcode))
+               else upper(left(trim(rk.value),5))
+            end
+       and wbs.is_active = "Y"
+       join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
+           on tt.settlement_factor <> 0
+          and tt.transaction_type = upper(trim(qpt.transactiontype))
+          and tt.tran_qualifier = "QP"
  Where upper(trim(qpt.TransactionType)) in ("ACTIVATION","CANCELLATION")
-   and (ifnull(qpt.Amount,0) <> 0 or ifnull(qpt.DiscountValue,0) <> 0)
+   and (ifnull(qpt.Amount,0) <> 0 or ifnull(qpt.DiscountValue,0) <> 0
+   and `pdh_ref_ds.trans_in_stlm_window`(
+                   mw.settle_by_store,
+                   wbs.store_id,
+                   case 
+                      when qpt.TransactionDate is null 
+                         then cast("1900-01-01T00:00:00" as datetime)
+                      else DATETIME_TRUNC(cast(qpt.transactiondate as datetime),SECOND)
+                   end, 
+                   mw.last_execution_time,       
+                   wbs.last_execution_time, 
+                   mw.days_lookback,
+                   wbs.days_lookback,
+                   mw.earliest_date,
+                   wbs.earliest_date,
+                   mw.day_lag,
+                   wbs.day_lag,
+                   mw.settlement_cutoff,
+                   wbs.settlement_cutoff) = "Y"
+   )
     ),
  trtc as (select 
         pdh_ref_ds.get_tran_uid(
@@ -277,16 +479,8 @@ left join pdh_ref_ds.ref_key_value rk
         dn.dn_insert_tstamp as pdh_load_time,
         DATETIME_TRUNC(CAST(dn.tstamp_trans AS DATETIME),second)  as transaction_timestamp,
         Upper(left(trim(dn.net_term_id),5)) as store_id,
-        upper(trim(ifnull(ds.description,t.abbr))) as transactiontype,
-        "TC" as tran_qualifier,
-        case
-           when ifnull(pdh_ref_ds.get_scheme(dn.proc_id_iss_b,
-                                 dn.inst_id_recon_iss),"") = "" then "NONE"
-           else upper(trim(pdh_ref_ds.get_scheme(dn.proc_id_iss_b,
-                                 dn.inst_id_recon_iss)))
-         end as excluded_issuer,
-         "" Merchant,
-         "" Issuer
+        mw.division,
+        upper(trim(ifnull(ds.description,t.abbr))) as transactiontype
     from pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface dn   
     Join `pdh_analytics_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = 
                                                        cast(t.dn_tran_code as int64)
@@ -296,16 +490,35 @@ left join pdh_ref_ds.ref_key_value rk
                     pdh_ref_ds.get_calc_trans_type(dn.proc_id_iss_b, t.abbr ,dn.mti)
                 and tt.settlement_amount_flag <> 0
                 and tt.spend_factor <> 0
-    join `pdh_ref_ds.ref_store_details` rsd on upper(trim(rsd.store_id)) = Upper(left(trim(dn.net_term_id),5))
+    join `pdh_ref_ds.ref_store_details` rsd on upper(trim(rsd.store_id)) = 
+                  Upper(left(trim(dn.net_term_id),5))
                                            and rsd.is_closed = False 
     join `pdh_ref_ds.ref_merchant_settlement_window` mw
          on mw.is_active = "Y"
         and mw.division_type <> "PARTNER"
         and mw.division =  upper(trim(rsd.division))
+    left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
+        on wbs.store_id = upper(trim(rsd.store_id))
+       and wbs.is_active = "Y"
     left join pdh_ref_ds.ref_transaction_type_codes ds 
                       on trim(ds.code) = trim(dn.tran_type_id)
     WHERE upper(trim(r.approval_flag)) = 'Y'
-      and (ifnull(dn.transaction_total,0) <> 0 or ifnull(dn.surcharge_amount,0) <> 0)),
+      and (ifnull(dn.transaction_total,0) <> 0 or ifnull(dn.surcharge_amount,0) <> 0)
+      and (mw.division <> "EG GROUP" or ifnull(wbs.store_id,"") <> "")
+      and `pdh_ref_ds.trans_in_stlm_window`(mw.settle_by_store,
+                                        wbs.store_id,
+             DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second), 
+                                        mw.last_execution_time,       
+                                        wbs.last_execution_time, 
+                                        mw.days_lookback,
+                                        wbs.days_lookback,
+                                        mw.earliest_date,
+                                        wbs.earliest_date,
+                                        mw.day_lag,
+                                        wbs.day_lag,
+                                        mw.settlement_cutoff,
+                                        wbs.settlement_cutoff) = "Y"
+                  ),
   --
  tran_combined as (           select * from trqc where ifnull(store_id,"") <> ""
                     Union all Select * from trdp where ifnull(store_id,"") <> ""
@@ -328,67 +541,28 @@ left join pdh_ref_ds.ref_key_value rk
                   When trn.tran_uid_seq > 1 then concat("Duplicate Trans ", trn.tran_uid," ")
                   Else ""
                End,
-               Case
-                  When rsd.store_id is Null then "Store not in Store Details "
-                  When rsd.is_closed = true then "Store is Closed "
-                  Else ""
-               End,
-               Case
-                  When msw.division is null then concat("division ",upper(trim(ifNull(rsd.division,"")))," is missing in Settlement Window ")
-                  When ifnull(msw.is_active,"N") = "N" then "Division is not active in settlement window "
-                  When ifnull(msw.settle_by_store,"") not in ("Y","N","P") 
-                        then "Invalid settle by store flag on settlement window" 
-                  else ""
-               end,
                case
-                  When left(trn.tran_uid,2) <> "TC" and tt.transaction_type is null then concat("tranType ",trn.transactiontype, " is missing in Settlement Factor Table ")
-                  when left(trn.tran_uid,2) <> "TC" and ifnull(tt.settlement_factor,0) not in (0,-1,1) then "Invalid Settlement factor "
-                  else ""
-               end,
-               case
-                  When scm.wpay_store_number is null then "Store is missing in SAP Settlement Mapping Table "
-                  when strpos(upper(trim(ifnull(scm.exclude__issuers,""))),trn.excluded_issuer) > 0 then ""
-                  When ifnull(upper(trim(scm.active_flag)),"N") = "N" then "Store is not active in SAP Settlement Mapping Table "
-                  when ifnull(scm.wpay_company_code,"") = "" then "company code is missing in SAP Settlement Mapping Table"
+                  When scm.wpay_store_number is null 
+                       then "Store is missing in SAP Settlement Mapping"
+                  When ifnull(upper(trim(scm.active_flag)),"N") = "N"
+                       then "Store not active in Settlement Mapping Table "
+                  when ifnull(scm.wpay_company_code,"") = "" 
+                       then "company code is missing in SAP Settlement Mapping Table"
                   else ""
                end) as comment,
                sys_datetime create_datetime,
                "Settlement Process" created_by,
                left(trn.tran_uid,2) as data_source,
-               upper(trim(rsd.division)) division,
-                trn.transaction_timestamp,
+               trn.division,
+               trn.transaction_timestamp,
  From trn_seq trn
- left join `pdh_ref_ds.ref_store_details` rsd on upper(trim(rsd.store_id)) = trn.store_id
- left join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
-      on upper(trim(tlf.division)) = upper(trim(rsd.division))
- left join `pdh_ref_ds.ref_merchant_settlement_window` msw on msw.division = upper(trim(rsd.division))
- left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs 
-               on wbs.division = upper(trim(rsd.division))
-              and wbs.store_id = trn.store_id
- left join `pdh_ref_ds.ref_str_to_sap_customermapping` scm  on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id))
+ join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+      on upper(trim(tlf.division)) = trn.division
+ left join `pdh_ref_ds.ref_str_to_sap_customermapping` scm  on 
+      upper(trim(scm.wpay_store_number)) = trn.store_id
  left join `pdh_analytics_ds.stlm_standard_settlement_table` std  on std.tran_uid = trn.tran_uid
- left join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt on tt.transaction_type = transactiontype
-            and tt.tran_qualifier = case left(trn.tran_uid,2)
-                                     when "QC" then
-                                       concat( 
-                                        case 
-                                           when wbs.store_id is null or 
-                                                msw.settle_by_store = "N" then msw.division_type
-                                           else wbs.division_type
-                                        end,
-                                        case   --20230313
-                                           when ifnull(scm.wpay_company_code,"") = "2025"
-                                                and trn.Merchant = "COUNTDOWN"
-                                                and trn.Issuer = "WPAY NEW ZEALAND LIMITED" then "WPAYNZ"
-                                           else ""
-                                        end)
-                                     else trn.tran_qualifier
-                                  end
-   where ifnull(std.tran_uid,"") = ""
-     and ifnull(rsd.store_id,"") <> ""
-     and rsd.is_closed = False
-     and ifnull(msw.division,"") <> ""
-     and (Case left(trn.tran_uid,2)
+      where ifnull(std.tran_uid,"") = ""
+        and (Case left(trn.tran_uid,2)
              when "LK" then ifnull(tlf.alipay_flag,"N")
              when "CY" then ifnull(tlf.cybsy_flag,"N") 
              when "QC" then ifnull(tlf.qc_flag,"N")    
@@ -397,20 +571,7 @@ left join pdh_ref_ds.ref_key_value rk
              when "TC" then ifnull(tlf.minitaf_flag,"N")
              else "N"
            end) = "Y"
-       and ifnull(scm.wpay_store_number,"") <> ""
-       and`pdh_ref_ds.trans_in_stlm_window`(msw.settle_by_store,
-                                        wbs.store_id,
-                                        trn.transaction_timestamp, 
-                                        msw.last_execution_time,       
-                                        wbs.last_execution_time, 
-                                        msw.days_lookback,
-                                        wbs.days_lookback,
-                                        msw.earliest_date,
-                                        wbs.earliest_date,
-                                        msw.day_lag,
-                                        wbs.day_lag,
-                                        msw.settlement_cutoff,
-                                        wbs.settlement_cutoff) = "Y")
+        )
 
  select * from trn_msg where comment <> "";
 --add control rec to specify missing store is logged
