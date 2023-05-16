@@ -313,6 +313,7 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
                 end
 where ifnull(dpt.amount,0) <> 0
   and upper(trim(dpt.MerchantName)) = "EVERYDAY PAY"
+  and upper(trim(dpt.schemeName)) = "GIFT_CARD"
   and upper(trim(dpt.transactiontype)) in ("PURCHASE","REFUND") 
   and ifnull(dpt.responseCodeContainer,"") = "00" 
   and ifnull(trim(dpt.txnRef),"") <> ""
