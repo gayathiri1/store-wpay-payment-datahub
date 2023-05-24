@@ -301,7 +301,11 @@ dn.approval_code,
 dn.adtnl_response_data,
 dn.card_acpt_id,
 dn.merchant_store_id,
-dn.dom_int_ind,
+CASE
+    WHEN TRIM(dn.proc_id_iss_b) = 'EHB' AND dn.currency_code = 36 THEN 'D'  -- AU EFTPOS transaction are always considered Domestic
+    WHEN dn.dom_int_ind IS NULL THEN 'D'
+    ELSE dn.dom_int_ind
+END AS dom_int_ind,
 dn.card_type,
 dn.card_subtype,
 dn.bin_product_code,
@@ -401,7 +405,11 @@ dn.approval_code,
 dn.adtnl_response_data,
 dn.card_acpt_id,
 dn.merchant_store_id,
-dn.dom_int_ind,
+CASE
+    WHEN TRIM(dn.proc_id_iss_b) = 'EHB' AND dn.currency_code = 36 THEN 'D'  -- AU EFTPOS transaction are always considered Domestic
+    WHEN dn.dom_int_ind IS NULL THEN 'D'
+    ELSE dn.dom_int_ind
+END AS dom_int_ind,
 dn.card_type,
 dn.card_subtype,
 dn.bin_product_code,
@@ -516,7 +524,7 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
     null card_owner,
     null pos_crd_dat_in_mod,
     '0' pos_crdhldr_presnt,
-    null order_number,
+    orderNumber order_number,
     null approval_code,
     null adtnl_response_data,
     null card_acpt_id,
@@ -789,11 +797,11 @@ Select
 -- ISG
 
 insert into `pdh_staging_ds.tbl_temp_billing_all`
-Select 
-	PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) switch_tran_date,
+select 
+    PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) switch_tran_date,
 	case
-		when scheme ='VISA' then cast(tran_uid as string)
-		when scheme = 'MASTERCARD' then trace_id
+		when upper(trim(scheme)) ='VISA' then cast(tran_uid as string)
+		when upper(trim(scheme)) = 'MASTERCARD' then trace_id
 		else  cast(tran_uid as string)
 	end as tran_uid,
 	CASE
@@ -806,7 +814,12 @@ Select
 	END tstamp_local,
 	pan masked_pan,  -- MASK PAN
     PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) date_recon_acq,
-    terminal_id net_term_id,  -- Add conditions where POSNAME Is not Store number
+    --terminal_id net_term_id,  -- Add conditions where POSNAME Is not Store number
+    case
+        when trim(ifnull(d.terminal_id,"")) <> ""
+            then upper(trim(d.terminal_id))
+        else upper(trim(rk.value)) -- Include Amex transactions
+    end net_term_id,
 	null as rpt_lvl_id_b, -- Add conditions where POSNAME Is not Store number
 	null as mti,
     null tran_type_id,
@@ -823,9 +836,11 @@ Select
     null proc_id_acq_b,
     null inst_id_recn_acq_b,
     null card_acpt_name_loc,
-	case scheme 
+	case upper(trim(scheme))
         WHEN 'VISA' THEN 'VDCS' 
         WHEN 'MASTERCARD' THEN 'MC' 
+        WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
+        WHEN 'AMEX' THEN 'AMEX'
         ELSE null
     end proc_id_iss_b,
     null issuer_institution_id,
@@ -842,11 +857,19 @@ Select
     case card_type
       when 'CREDIT' then 'C'
       when 'DEBIT' then 'D'
+      when 'PREPAID' then 'P'
+      when 'credit card' then 'C'
 	  else ''
 	end as card_type,
     null card_subtype,
     null bin_product_code,
-    scheme scheme, 
+    case upper(trim(scheme))
+        WHEN 'VISA' THEN 'VISA' 
+        WHEN 'MASTERCARD' THEN 'MASTERCARD' 
+        WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
+        WHEN 'AMEX' THEN 'AMEX'
+        ELSE null
+    end scheme, 
     trim(transaction_type) as tran_type_desc,
 	trim(transaction_type) as abbr,
     case 
@@ -855,7 +878,13 @@ Select
       when transaction_approval_status = 1 then 'N'
 	  else 'N'
 	end as approval_flag,
-	scheme link_route,
+    case upper(trim(scheme))
+        WHEN 'VISA' THEN 'VISA' 
+        WHEN 'MASTERCARD' THEN 'MASTERCARD' 
+        WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
+        WHEN 'AMEX' THEN 'AMEX'
+        ELSE null
+    end link_route,
 	msw.reporting_group merchant_group,
     s.ratecard_group rate_group,
 	cast(source_currency_code as string) currency_code,
@@ -881,12 +910,26 @@ Select
 	null AS lk_ResRef,
 	CAST(tran_uid AS STRING) AS cy_tran_uid
     FROM `pdh_rd_data_navigator.isg_wpay_tran` d
-	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
-    left(d.terminal_id,5) = s.store_id 
+    left join pdh_ref_ds.ref_key_value rk 
+        on rk.attribute = "merchant-terminalid mapping"
+        and upper(trim(rk.key)) = upper(trim(d.merchant_id))
+    left JOIN `pdh_ref_ds.ref_store_details` s ON 
+        (case
+            when trim(ifnull(d.terminal_id,"")) <> ""   
+                then upper(left(trim(d.terminal_id),5))
+            else upper(left(trim(rk.value),5)) -- Include Amex transactions
+        end) = s.store_id
 	LEFT join `pdh_ref_ds.ref_merchant_settlement_window` msw
     ON UPPER(TRIM(s.division)) = msw.division
-    where PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) >= start_date and PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) <= end_date
-    AND s.is_closed = FALSE;
+    where PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) >= start_date and PARSE_DATE("%Y%m%d", LEFT(CAST (transaction_timestamp AS STRING), 8)) <= end_date
+     AND s.is_closed = FALSE 
+     AND (upper(trim(scheme)) not in ('AMERICAN EXPRESS','AMEX') OR upper(trim(scheme)) in ('AMERICAN EXPRESS','AMEX') AND Upper(trim(transaction_type)) IN ('PURCHASE', 'REFUND') AND 
+     case 
+      when transaction_approval_status is null then 'Y'
+	  when transaction_approval_status = 0 then 'Y'
+      when transaction_approval_status = 1 then 'N'
+	  else 'N'
+	end = 'Y');
 
 -------------------------------------------------------------------------------------------
 
@@ -908,6 +951,12 @@ END IF;
 -- if the reporting group should not be included in billing
 DELETE FROM `pdh_staging_ds.tbl_temp_billing_all`
 WHERE merchant_group = "";
+
+-- We consider all AU EFTPOS routed transactions as domestic
+UPDATE `pdh_staging_ds.tbl_temp_billing_all`
+SET dom_int_ind = 'D'
+WHERE link_route = 'EFTPOS'
+AND currency_code = 'AUD';
 
 CREATE TEMP TABLE `temp_billing_all` AS
 SELECT 
@@ -1023,6 +1072,32 @@ Then
     SELECT ERROR("Rate card missing entry");
 END IF;
 
+-- MISSING SCHEME FEE RATES CHECK
+-- UNCOMMENT ONCE ALL RATES HAVE BEEN FINALISED
+/*
+if 
+	(select count(*) from temp_billing_all d 
+    left join pdh_ref_ds.ref_store_details s
+        ON LEFT(d.net_term_id, 5) = s.store_id
+	left join pdh_ref_ds.ref_scheme_fee_rate_card sr
+		ON trim(upper(s.scheme_ratecard_group)) = trim(upper(sr.scheme_fee_group))
+		AND trim(upper(d.calc_scheme)) = trim(upper(sr.scheme)) 
+		AND CASE WHEN d.calc_card_type IN ('MULTI-NETWORK', 'DIGITAL', 'PROPRIETARY') THEN 'DEBIT' ELSE trim(Upper(d.calc_card_type)) END = trim(upper(sr.card_type))
+		AND CASE WHEN d.dom_int_ind IN ('D', 'I') THEN d.dom_int_ind ELSE 'D' END = sr.dom_vs_int
+		AND d.switch_tran_date BETWEEN sr.from_date AND IFNULL(sr.to_date, '2999-12-31')
+    LEFT JOIN `pdh_ref_ds.ref_company_config` cc
+        ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company))
+        AND d.switch_tran_date BETWEEN cc.from_date AND IFNULL(cc.to_date, '2999-12-31')
+	where 
+		d.approval_flag = 'Y'
+        and cc.pricing_model = 'IC++'
+		and TRIM(d.proc_id_iss_b) not in ('PMK','ENZ','FIS','ANZ','VER') 
+		and (sr.scheme_fee_group IS NULL OR sr.scheme is NULL or sr.card_type is null or sr.transaction_type is null)) > 0 
+Then
+    SELECT ERROR("Scheme card missing entry");
+END IF;
+*/
+
 -- Check that all store IDs have an entry in the store to SAP mapping table
 
 SET error_rows = ARRAY((SELECT DISTINCT LEFT(d.net_term_id, 5) FROM `temp_billing_all` d
@@ -1096,18 +1171,24 @@ SELECT
 		when '400' then if(mti='1440' ,concat(calc_tran_type_abbr , " REVERSAL"),calc_tran_type_abbr)
 		else calc_tran_type_abbr 
 	end calc_tran_type_description,
-	if(calc_approval_flag='A',
-		if(intchg_fee_code ='ALL', ((d.transaction_total * int_fee_percent/100) + int_fee_fixed*100),
-		if(intchg_fee_code ='FIXED', int_fee_fixed*100, if(intchg_fee_code ='PERCENT',(d.transaction_total * int_fee_percent/100),0)))
-	, 0) as interchange_fees_calc,
+	case
+		when cc.pricing_model = 'Blended' then
+			0
+		when cc.pricing_model IN ('IC+', 'IC++') then
+			if(calc_approval_flag='A',
+				if(intchg_fee_code ='ALL', ((d.transaction_total * int_fee_percent/100) + int_fee_fixed*100),
+				if(intchg_fee_code ='FIXED', int_fee_fixed*100, if(intchg_fee_code ='PERCENT',(d.transaction_total * int_fee_percent/100),0)))
+			, 0)
+		else 0
+	end as interchange_fees_calc,
 	0.0 interchange_fees_actual, -- should be null
 	0.0 interchange_fees_invoiced, -- should be null
 	0.0 interchange_fees_rebate,
 	'' fee_indicator,
-	if(proc_fee_code ='ALL', ((d.transaction_total * proc_fee_percent/100) + proc_fee_fixed*100),
+	ifnull(if(proc_fee_code ='ALL', ((d.transaction_total * proc_fee_percent/100) + proc_fee_fixed*100),
 		if(proc_fee_code ='FIXED', proc_fee_fixed*100,
 		if(proc_fee_code ='PERCENT',(d.transaction_total * proc_fee_percent/100),0))) 
-	as processing_fees,
+	, 0) as processing_fees,
 	IF(LEFT(d.net_term_id, 5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNULL(fraud_fee_fixed * 100, 0), 0) fraud_fees,
 	000000 as settled_datetime,
 	000000 as fncl_posted_datetime,
@@ -1143,10 +1224,79 @@ SELECT
 		when source_application = 'QuikCilver'         then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'qc_CardNumber'||qc_CardNumber)
 		when source_application = 'Linkly'             then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'masked_pan'||masked_pan)
 		when source_application = 'ISG'             then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'masked_pan'||masked_pan)
-	end card_id
+	end card_id,
+	-- ADDITIONAL PRICING MODEL FIELDS
+	cc.pricing_model,
+	case
+		when d.calc_approval_flag = 'A' and cc.pricing_model = 'IC++' then
+			case when calc_scheme IN ('VISA', 'MASTERCARD') then
+				case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
+					ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+				when calc_tran_type_abbr = 'REFUND' then
+					ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol * -1 + (sr.extern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+				when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
+					ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+				else 0
+				end
+			when calc_scheme = 'EFTPOS' then
+				case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
+					ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100), 0)
+				when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
+					ifnull(sr.extern_scheme_fee_fixed_usd * 100, 0)
+				else 0
+				end
+            else 0
+			end
+		else 0
+	end as extern_scheme_fees,
+    case when d.calc_approval_flag = 'A' then
+		case when calc_scheme IN ('VISA', 'MASTERCARD') then
+			case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
+                ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+            when calc_tran_type_abbr = 'REFUND' then
+                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol * -1 + (sr.intern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+            when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
+                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+            else 0   
+            end
+		when calc_scheme = 'EFTPOS' then
+			case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
+				ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100), 0)
+			when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
+				ifnull(sr.intern_scheme_fee_fixed_usd * 100, 0)
+            else 0
+			end
+        else 0
+        end
+    else 0
+    end as intern_scheme_fees,
+	case when d.calc_approval_flag = 'A' then
+        case when calc_scheme IN ('VISA', 'MASTERCARD') then
+            case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
+                ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate_usd + (sr.scheme_fee_fixed_rebate_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+            when calc_tran_type_abbr = 'REFUND' then
+                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate_usd * -1 + (sr.scheme_fee_fixed_rebate_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+            when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
+                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate_usd + (sr.scheme_fee_fixed_rebate_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+            else 0   
+            end
+        when calc_scheme = 'EFTPOS' then
+            case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
+                ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate_usd + (sr.scheme_fee_fixed_rebate_usd * 100), 0)
+            when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
+                ifnull(sr.scheme_fee_fixed_rebate_usd * 100, 0)
+            else 0
+            end
+        else 0
+        end
+    else 0
+    end as scheme_fees_rebate,
+	CAST(null AS STRING) fraud_fee_indicator,
+	CAST(null AS STRING) c3ds_fee_indicator,
+	0 c3ds_fees
 from `temp_billing_all` d
 LEFT JOIN `pdh_ref_ds.ref_rate_card` r
-	ON trim(upper(d.calc_scheme))=trim(upper(r.scheme)) 
+	ON trim(upper(d.calc_scheme)) = trim(upper(r.scheme)) 
 	AND trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
 	AND trim(upper(d.rate_group)) = trim(upper(r.merchant))
 	AND d.switch_tran_date BETWEEN r.from_date AND IFNULL(r.to_date, '2999-12-31')
@@ -1158,6 +1308,14 @@ LEFT JOIN `pdh_ref_ds.ref_store_details` s
 	ON LEFT(d.net_term_id, 5) = s.store_id
 LEFT JOIN `pdh_ref_ds.ref_company_config` cc
 	ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company))
+	AND d.switch_tran_date BETWEEN cc.from_date AND IFNULL(cc.to_date, '2999-12-31')
+LEFT JOIN `pdh_ref_ds.ref_scheme_fee_rate_card` sr
+	ON trim(upper(s.scheme_ratecard_group)) = trim(upper(sr.scheme_fee_group))
+	AND trim(upper(d.calc_scheme)) = trim(upper(sr.scheme)) 
+    AND CASE WHEN d.calc_card_type IN ('MULTI-NETWORK', 'DIGITAL', 'PROPRIETARY') THEN 'DEBIT' ELSE trim(Upper(d.calc_card_type)) END = trim(upper(sr.card_type))
+    AND CASE WHEN d.dom_int_ind IN ('D', 'I') THEN d.dom_int_ind ELSE 'D' END = sr.dom_vs_int
+    AND (d.calc_tran_type_abbr = sr.transaction_type OR sr.transaction_type = 'ALL')
+    AND d.switch_tran_date BETWEEN sr.from_date AND IFNULL(sr.to_date, '2999-12-31')
 LEFT JOIN `pdh_analytics_ds.stlm_standard_settlement_table` std
 	ON pdh_ref_ds.get_tran_uid(
 		-- source
@@ -1352,8 +1510,10 @@ and i.approval_flag = 'Y';
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 
-update `temp_fee_calc` set interchange_fees_invoiced=interchange_fees_actual
-where fee_indicator='A';
+update `temp_fee_calc` i
+set interchange_fees_invoiced=interchange_fees_actual
+where i.fee_indicator='A'
+and pricing_model IN ('IC+', 'IC++');
 
 update `temp_fee_calc` set interchange_fees_invoiced=interchange_fees_calc,fee_indicator='C'
 where fee_indicator<>'A';
@@ -1426,7 +1586,15 @@ d.pymt_acct_ref,
 d.scdr_token,
 -- SETTLEMENT DATE FIELDS
 d.orig_date_recon_acq,
-d.settlement_date_indicator
+d.settlement_date_indicator,
+-- ADDITIONAL PRICING MODEL FIELDS
+d.pricing_model,
+d.extern_scheme_fees,
+d.intern_scheme_fees,
+d.scheme_fees_rebate,
+d.fraud_fee_indicator,
+d.c3ds_fee_indicator,
+d.c3ds_fees
 FROM `temp_fee_calc` d;
 
 INSERT INTO `wpay_analytics.wpay_billing_engine_tran_dtl`
@@ -1511,8 +1679,15 @@ d.qc_CardNumber,
 d.card_id,
 -- SETTLEMENT DATE FIELDS
 d.orig_date_recon_acq,
-d.settlement_date_indicator
-
+d.settlement_date_indicator,
+-- ADDITIONAL PRICING MODEL FIELDS
+d.pricing_model,
+d.extern_scheme_fees,
+d.intern_scheme_fees,
+d.scheme_fees_rebate,
+d.fraud_fee_indicator,
+d.c3ds_fee_indicator,
+d.c3ds_fees
 FROM `temp_fee_calc` d;
 
 ------------------------------------------------------------------------------------------------------------------------------------------
@@ -1626,8 +1801,15 @@ SELECT
 	i.pymt_acct_ref,
 	i.scdr_token,
     CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
-    i.settlement_date_indicator
-
+    i.settlement_date_indicator,
+	-- ADDITIONAL PRICING MODEL FIELDS
+	i.pricing_model,
+    i.extern_scheme_fees / 100 extern_scheme_fees_ex_gst,
+    i.intern_scheme_fees / 100 intern_scheme_fees_ex_gst,
+	i.scheme_fees_rebate / 100 scheme_fees_rebate_ex_gst,
+	i.fraud_fee_indicator,
+	i.c3ds_fee_indicator,
+	i.c3ds_fees / 100 c3ds_fees_ex_gst
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -1744,8 +1926,15 @@ SELECT
 	i.pymt_acct_ref,
 	i.scdr_token,
     CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
-    i.settlement_date_indicator
-
+    i.settlement_date_indicator,
+	-- ADDITIONAL PRICING MODEL FIELDS
+	i.pricing_model,
+    i.extern_scheme_fees / 100 extern_scheme_fees_ex_gst,
+    i.intern_scheme_fees / 100 intern_scheme_fees_ex_gst,
+	i.scheme_fees_rebate / 100 scheme_fees_rebate_ex_gst,
+	i.fraud_fee_indicator,
+	i.c3ds_fee_indicator,
+	i.c3ds_fees / 100 c3ds_fees_ex_gst
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -1862,8 +2051,15 @@ SELECT
 	i.pymt_acct_ref,
 	i.scdr_token,
     CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
-    i.settlement_date_indicator
-
+    i.settlement_date_indicator,
+	-- ADDITIONAL PRICING MODEL FIELDS
+	i.pricing_model,
+    i.extern_scheme_fees / 100 extern_scheme_fees_ex_gst,
+    i.intern_scheme_fees / 100 intern_scheme_fees_ex_gst,
+	i.scheme_fees_rebate / 100 scheme_fees_rebate_ex_gst,
+	i.fraud_fee_indicator,
+	i.c3ds_fee_indicator,
+	i.c3ds_fees / 100 c3ds_fees_ex_gst
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -1980,8 +2176,15 @@ SELECT
 	i.pymt_acct_ref,
 	i.scdr_token,
     CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
-    i.settlement_date_indicator
-
+    i.settlement_date_indicator,
+	-- ADDITIONAL PRICING MODEL FIELDS
+	i.pricing_model,
+    i.extern_scheme_fees / 100 extern_scheme_fees_ex_gst,
+    i.intern_scheme_fees / 100 intern_scheme_fees_ex_gst,
+	i.scheme_fees_rebate / 100 scheme_fees_rebate_ex_gst,
+	i.fraud_fee_indicator,
+	i.c3ds_fee_indicator,
+	i.c3ds_fees / 100 c3ds_fees_ex_gst
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
@@ -2098,8 +2301,15 @@ SELECT
 	i.pymt_acct_ref,
 	i.scdr_token,
     CAST(FORMAT_DATE('%Y%m%d', i.orig_date_recon_acq) AS INT64) orig_settlement_date,
-    i.settlement_date_indicator
-
+    i.settlement_date_indicator,
+	-- ADDITIONAL PRICING MODEL FIELDS
+	i.pricing_model,
+    i.extern_scheme_fees / 100 extern_scheme_fees_ex_gst,
+    i.intern_scheme_fees / 100 intern_scheme_fees_ex_gst,
+	i.scheme_fees_rebate / 100 scheme_fees_rebate_ex_gst,
+	i.fraud_fee_indicator,
+	i.c3ds_fee_indicator,
+	i.c3ds_fees / 100 c3ds_fees_ex_gst
 FROM
    `pdh_analytics_ds.tbl_fees_all` i left join
    `pdh_ref_ds.ref_tran_type_codes` tt
