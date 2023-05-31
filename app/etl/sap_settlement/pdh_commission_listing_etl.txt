@@ -3,12 +3,25 @@
 --20230314 compute commission on NET
 --20230411 use calc_servicefee inctead of calc_commission
 --20230403 create header and trailor all times
+--20230516 execute only if commission divisio exists for current hour
+--20230517 add control record only if commission is generated
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime default
           datetime_trunc(current_datetime("Australia/Sydney"),second);
 declare batch_end_yyyy_mm_dd_hh_mm_ss_1 datetime default
           datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss,INTERVAL -1 DAY);
+declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
 DECLARE inp_lookup STRING DEFAULT "COM Commission Listing";
 DECLARE batch string;
+if (select count(*) 
+    from `pdh_ref_ds.ref_merchant_settlement_window`
+    where is_active = "Y"
+      and settlement_cycle = syd_hour
+      and division_type <> "PARTNER"
+      and ifnull(commission_store,"") <> ""
+      ) = 0 then
+    return;
+end if;  
+
 CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
 if (ifnull(batch,"") in ("","NOContRec","UpdFailed"))  then
     return;
@@ -79,7 +92,7 @@ insert into `pdh_analytics_ds.stlm_commission`
     select batch_end_yyyy_mm_dd_hh_mm_ss as datetime_created,*
     from `pdh_analytics_ds.stlm_commission`;
 
---Always add control record based on config window          
+--add control record only if commission is generated.          
  insert into pdh_analytics_ds.file_gen_details 
     select  batch,
             cast(batch_end_yyyy_mm_dd_hh_mm_ss as date), 
@@ -94,18 +107,19 @@ insert into `pdh_analytics_ds.stlm_commission`
     join pdh_ref_ds.ref_merchant_settlement_window m 
              on ifnull(m.commission_store,"") <> ""
             and m.division = upper(trim(tlf.division))
-    left join (Select st.division,
-                     min(st.transaction_timestamp) min_transaction,
-                     max(st.transaction_timestamp) max_transaction
-               from `pdh_analytics_ds.stlm_standard_settlement_table` st 
-               join `pdh_analytics_ds.stlm_commission_history` cl 
+    join (Select st.division,
+                 min(st.transaction_timestamp) min_transaction,
+                 max(st.transaction_timestamp) max_transaction
+         from `pdh_analytics_ds.stlm_standard_settlement_table` st 
+         join `pdh_analytics_ds.stlm_commission` cl 
                         on cl.tran_uid = st.tran_uid
-               Where ifnull(st.commission_filename,"") = "" 
-                 and ifnull(st.setlmnt_result_file,"") <> ""
-               Group by 1
-               ) std on std.division = m.division
-         where ifnull(tlf.stlf_prefix,"") <> "";
-                                                      
+         Where ifnull(st.commission_filename,"") = "" 
+           and ifnull(st.setlmnt_result_file,"") <> ""                                                              
+         Group by 1
+            ) std on std.division = m.division
+     where ifnull(tlf.stlf_prefix,"") <> ""
+       and std.min_transaction is not null;
+                                                       
      --Update Generic table
    Update  `pdh_analytics_ds.stlm_standard_settlement_table` std
       set std.commission_filename = t.commission_filename,

@@ -235,7 +235,7 @@ insert into `pdh_analytics_ds.sap_fee_posting_partner`
           group by 1) std1
     where upper(trim(msw.division)) = std1.division;
 --
- --Add csv output control
+ --Add csv output control if data exists.
    insert into pdh_analytics_ds.file_gen_details 
       (batch_number,processing_date,merchant_name,etl_complete,extract_wf_complete,extract_start_datetime,
       	extract_end_datetime,file_date)
@@ -267,7 +267,7 @@ insert into `pdh_analytics_ds.sap_fee_posting_partner`
                          Interval 
                          cs.company_seq second) file_date
    from company_sequence cs 
-   left join (select trim(scm.wpay_company_code) as company_code,
+   join (select trim(scm.wpay_company_code) as company_code,
                      datetime_trunc(min(st.transaction_timestamp),SECOND) as min_trantime,
                      datetime_trunc(max(st.transaction_timestamp),SECOND) as max_trantime
               from `pdh_analytics_ds.stlm_standard_settlement_table` st

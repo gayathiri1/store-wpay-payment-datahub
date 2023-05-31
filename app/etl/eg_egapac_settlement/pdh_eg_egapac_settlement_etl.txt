@@ -9,7 +9,7 @@
 --20230209 replace pdh_rd_data_navigator.lv_gfs_pdh_txn_interface 
 --              by pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface
 --20230220 For NRT Take pan and card_acceptor_name_location from transaction
---
+--20230516 execute only if eg/std divisio exists for current hour
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
 DECLARE nullstr string;
@@ -17,12 +17,23 @@ DECLARE nullstr string;
 declare trailorcount int64;
 declare sysdate date default current_date("Australia/Sydney");
 declare batch_start_yyyy_mm_dd_hh_mm_ss datetime default datetime_trunc(current_datetime("Australia/Sydney"),second);
+declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime;
 declare batch_end_yyyy_mm_dd_hh_mm_ss_1 datetime;
 declare batch_end_yyyymmdd string;
 declare max_settlementdate date default (Select max(cast(datetime_created as date)) 
                                          FROM `pdh_analytics_ds.audit_stlm_batch`
                                          where batchnumber between "S000000001" and "S999999999");
+ if (select count(msw.division)
+    from `pdh_ref_ds.ref_merchant_settlement_window` msw
+    join `pdh_ref_ds.ref_stlm_tlf_config` tlf
+            on upper(trim(tlf.division)) = msw.division
+    where is_active = "Y"
+      and settlement_cycle = syd_hour
+      and division_type <> "PARTNER"
+      and ifnull(tlf.stlf_prefix,"")  <> "") = 0 then
+    return;
+end if;  
 CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
 if (ifnull(batch,"") in ("","NOContRec","UpdFailed"))  then
     return;
@@ -414,7 +425,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    dn.net_term_id terminal_id,
 				       st5.tran_settlement_amount + st5.discount_amt as trans_amt,
                    st5.transaction_timestamp,
-                   format_datetime("%Y%m%d%H%M%S",CAST(dn.tstamp_local AS DATETIME)) as timestamp_local,
+                   format_datetime("%Y%m%d%H%M%S",CAST(dn.tstamp_local AS DATETIME)) as timestamp_local,
                    dn.masked_pan as CardNumber,
                    cast(dn.stan as string) as stan,
                    cast(dn.retrieval_ref_no as string) as rrn,
@@ -527,7 +538,7 @@ tred as (
                cast(null as string) as    mcr_ind,
                "" as outlet,
                tlf.stlf_prefix
-      from pdh_analytics_ds.stlm_standard_settlement_table st6
+      from pdh_analytics_ds.stlm_standard_settlement_table st6
       join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
                 on upper(trim(tlf.division)) = st6.division
                and ifnull(tlf.stlf_prefix,"") <> ""
@@ -666,31 +677,29 @@ tred as (
       join `pdh_ref_ds.ref_stlm_tlf_config` tlf on upper(trim(tlf.division)) = std.division
                                                      and ifnull(tlf.stlf_prefix,"") <> "";
  --
---Always add control record based on Settlement window          
+--Always add control record based on Settlement window if details exists         
       insert into pdh_analytics_ds.file_gen_details 
          select  batch,
                  cast(batch_end_yyyy_mm_dd_hh_mm_ss as date), 
                  lower(concat(std.stlf_prefix,"_egsettlement")),
                  true,
                  null, 
-                 ifnull(std.min_transaction,batch_end_yyyy_mm_dd_hh_mm_ss_1),
-                 ifnull(std.max_transaction,batch_end_yyyy_mm_dd_hh_mm_ss_1),
+                 std.min_transaction,
+                 std.max_transaction,
                  batch_end_yyyy_mm_dd_hh_mm_ss_1,
                  null
-        from (with Gentbl as (Select tlf.stlf_prefix,min(st.transaction_timestamp) min_transaction,
-                                                     max(st.transaction_timestamp) max_transaction
-                              from `pdh_ref_ds.ref_stlm_tlf_config` tlf
-                              join `pdh_analytics_ds.stlm_standard_settlement_table` st 
-                                          on upper(trim(tlf.division)) = st.division
-                              where ifnull(tlf.stlf_prefix,"") <> "" 
-                             and ifnull(st.tlf_name,"") = ""
-                             and ifnull(st.setlmnt_result_file,"") <> ""
-                             group by tlf.stlf_prefix)
-             select distinct tlf2.stlf_prefix, g.min_transaction,g.max_transaction
-             from `pdh_ref_ds.ref_stlm_tlf_config` tlf2
-             left join Gentbl g on g.stlf_prefix = tlf2.stlf_prefix
-             where ifnull(tlf2.stlf_prefix,"") <> "") std;
-                                                          
+        from (Select tlf.stlf_prefix,
+                     min(st.transaction_timestamp) min_transaction,
+                     max(st.transaction_timestamp) max_transaction
+              from `pdh_ref_ds.ref_stlm_tlf_config` tlf
+              join `pdh_analytics_ds.stlm_standard_settlement_table` st 
+                        on upper(trim(tlf.division)) = st.division
+              where ifnull(tlf.stlf_prefix,"") <> "" 
+                and ifnull(st.tlf_name,"") = ""
+                and ifnull(st.setlmnt_result_file,"") <> ""
+              group by tlf.stlf_prefix) std
+         where std.min_transaction is not null;
+      --
      --Update Generic table
         Update  `pdh_analytics_ds.stlm_standard_settlement_table` std
            set std.tlf_name = t.tlf_name,

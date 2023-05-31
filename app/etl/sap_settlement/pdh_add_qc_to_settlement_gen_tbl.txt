@@ -18,6 +18,9 @@
 --20230417 include excluded transactions, surcharge, tip
 --20230503 - Allow multiple settlement
 --         -get selected EG GROUP stores from Minitaf 
+--20230515 -Restrict division to its settlement cycle
+--20230516 -Digital pay to GIFT_CARD
+--          execute only if divisio exists for current hour
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default format_date("%Y-%m-%d",sys_date);
 declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
@@ -29,6 +32,15 @@ declare max_transaction_timestamp datetime;
 DECLARE inp_lookup STRING DEFAULT "QC Settlement";
 DECLARE batch string;
 declare nullstr string;
+if (select count(*) 
+    from `pdh_ref_ds.ref_merchant_settlement_window`
+    where is_active = "Y"
+      and settlement_cycle = syd_hour
+      and division_type <> "PARTNER"
+      ) = 0 then
+    return;
+end if;  
+
 --Get next Batch Number
 CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
 if (ifnull(batch,"") in ("NOContRec","UpdFailed"))  then
@@ -115,7 +127,7 @@ join `pdh_ref_ds.ref_store_details` rsd on
 join  `pdh_ref_ds.ref_merchant_settlement_window` msw
       on msw.division = upper(trim(rsd.division))
       and msw.is_active = "Y"
-      and msw.settlement_cycle <= syd_hour --multiple run per day
+      and msw.settlement_cycle = syd_hour --multiple run per day
       and msw.division_type <> "PARTNER"
 join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
       on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
@@ -210,7 +222,7 @@ join `pdh_ref_ds.ref_store_details` rsd on upper(trim(rsd.store_id)) = upper(tri
 join  `pdh_ref_ds.ref_merchant_settlement_window` msw
       on msw.division = upper(trim(rsd.division))
       and msw.is_active = "Y"
-      and msw.settlement_cycle <= syd_hour --multiple run per day
+      and msw.settlement_cycle = syd_hour --multiple run per day
 join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
       on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
      and upper(ifnull(scm.active_flag,"N")) <> "N" 
@@ -279,7 +291,7 @@ DPTran as (
                 when upper(rsd.is_online) <> "ONLINE" then ""
                 else trim(dpt.orderNumber)
               end as invoicenumber, --9
-              
+         
              abs(ifnull(dpt.amount,0)) * tt.settlement_factor  as trans_amt, --10
              0 as discount_amt, --11
              0 as surcharge_amt, --12
@@ -292,7 +304,7 @@ join `pdh_ref_ds.ref_store_details` rsd
 join  `pdh_ref_ds.ref_merchant_settlement_window` msw
       on msw.division = upper(trim(rsd.division))
       and msw.is_active = "Y"
-      and msw.settlement_cycle <= syd_hour  --multiple run per day
+      and msw.settlement_cycle = syd_hour  --multiple run per day
 join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
       on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
      and upper(ifnull(scm.active_flag,"N")) <> "N" 
@@ -313,7 +325,7 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
                 end
 where ifnull(dpt.amount,0) <> 0
   and upper(trim(dpt.MerchantName)) = "EVERYDAY PAY"
-  and upper(trim(dpt.schemeName)) = "GIFT_CARD"
+  and upper(trim(dpt.schemeName)) = "GIFT_CARD" --limit to GIFT_CARD
   and upper(trim(dpt.transactiontype)) in ("PURCHASE","REFUND") 
   and ifnull(dpt.responseCodeContainer,"") = "00" 
   and ifnull(trim(dpt.txnRef),"") <> ""
@@ -380,7 +392,7 @@ join `pdh_ref_ds.ref_store_details` rsd
 join  `pdh_ref_ds.ref_merchant_settlement_window` msw
        on msw.division = upper(trim(rsd.division))
       and msw.is_active = "Y"
-      and msw.settlement_cycle <= syd_hour --multiple run per day
+      and msw.settlement_cycle = syd_hour --multiple run per day
 join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
       on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
      and upper(ifnull(scm.active_flag,"N")) <> "N" 
@@ -469,7 +481,7 @@ join `pdh_ref_ds.ref_store_details` rsd
 join  `pdh_ref_ds.ref_merchant_settlement_window` msw
       on msw.division = upper(trim(rsd.division))
       and msw.is_active = "Y"
-      and msw.settlement_cycle <= syd_hour  --multiple run per day
+      and msw.settlement_cycle = syd_hour  --multiple run per day
 join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
       on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id)) 
      and upper(ifnull(scm.active_flag,"N")) <> "N" 
@@ -587,7 +599,7 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
 join  `pdh_ref_ds.ref_merchant_settlement_window` msw
       on msw.division = upper(trim(rsd.division))
       and msw.is_active = "Y"
-      and msw.settlement_cycle <= syd_hour  --multiple run per day
+      and msw.settlement_cycle = syd_hour  --multiple run per day
 join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
       on upper(trim(scm.wpay_store_number)) = upper(trim(rsd.store_id))
      and upper(ifnull(scm.active_flag,"N")) <> "N" 
@@ -601,8 +613,8 @@ left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs
 WHERE upper(trim(r.approval_flag)) = 'Y'
   and ifnull(dn.transaction_total,0) <> 0 
   and SAFE_CAST(dn.tstamp_trans AS DATETIME) is not NULL
-  and (msw.division <> "EG GROUP" or
-       wbs.store_id is not NULL) --restrict EG GROUP stores from minitag by settle_by store table
+  and (msw.division not in ("EG GROUP","LIVE GROUP") or
+       wbs.store_id is not NULL) --restrict EG GROUP & LIVE GROUP from minitaf by settle_by store table
   and `pdh_ref_ds.trans_in_stlm_window`(msw.settle_by_store,
                                         wbs.store_id,
              DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second), 
@@ -655,7 +667,13 @@ left join `pdh_analytics_ds.stlm_standard_settlement_table` std
          on std.tran_uid = trn.tran_uid
 where  std.tran_uid is null
   and  trn.trans_amt <> 0;
-                                    
+
+if (select count(*)
+    from `pdh_analytics_ds.stlm_standard_settlement_table`
+    where ifnull(setlmnt_result_file,"") = ""
+      and cast(last_update_datetime as date) = sys_date) = 0 then 
+      return;
+ end if;                    
 --add control rec to specify QC detail is added to generic settlement table
 set batch_end_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),SECOND);
 set (min_transaction_timestamp, max_transaction_timestamp) = 

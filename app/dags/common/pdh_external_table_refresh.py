@@ -21,7 +21,7 @@ default_args = {
 logging.info("constructing dag - using airflow as owner")
 
 
-dag = DAG('pdh_external_table_refresh', catchup=False, default_args=default_args,schedule_interval= "10 08 * * *")
+dag = DAG('pdh_external_table_refresh', catchup=False, default_args=default_args,schedule_interval= "00 03 * * *")
 
 
 def refresh_table(**kwargs):

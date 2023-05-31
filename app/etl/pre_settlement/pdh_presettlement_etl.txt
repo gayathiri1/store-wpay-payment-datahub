@@ -9,20 +9,31 @@
 --20230207 Use function pdh_ref_ds.get_calc_trans_type for EDW
 --20230209 replace pdh_rd_data_navigator.lv_gfs_pdh_txn_interface 
 --              by pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface
-
 --
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default format_date("%Y-%m-%d",sys_date);
 declare sys_date_1 string default format_date("%Y%m%d",sys_date  - 1);
 declare batch_start_yyyy_mm_dd_hh_mm_ss datetime default 
             datetime_trunc(current_datetime("Australia/Sydney"),second);
+declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime;
 declare nullstr string;
---
 --
 DECLARE inp_lookup STRING DEFAULT "PRE Settlement";
 --declare interfaceidentifier string DEFAULT "OST_Deposit";
 DECLARE batch string;
+--
+if (select count(msw.division)
+    from `pdh_ref_ds.ref_merchant_settlement_window` msw
+    join `pdh_ref_ds.ref_stlm_tlf_config` tlf
+            on upper(trim(tlf.division)) = msw.division
+           and  ifnull(tlf.prestlm_prefix,"") <> ""
+    where msw.is_active = "Y"
+      and msw.settlement_cycle = syd_hour
+      and msw.division_type <> "PARTNER"
+      ) = 0 then
+    return;
+end if;
 --Get next Batch Number
 
 CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
@@ -325,6 +336,7 @@ trdp as (
         and msw.division = upper(trim(rsd.division))
     join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
          on upper(trim(tlf.division)) = upper(trim(rsd.division))
+        and ifnull(tlf.prestlm_prefix,"") <> ""
     left join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
            on tt.settlement_factor <> 0
           and tt.transaction_type = trn.transactiontype
@@ -345,7 +357,6 @@ trdp as (
     where  (left(trn.tran_uid,2) = "TC" or ifnull(tt.settlement_factor,0) <> 0)
       and strpos(upper(trim(ifnull(scm.exclude__issuers,""))),trn.excluded_issuer) = 0
       and  std.tran_uid is null
-      and  ifnull(tlf.prestlm_prefix,"") <> ""
       and  (case left(trn.tran_uid,2)
               when "LK" then ifnull(tlf.alipay_flag,"N")
               when "CY" then ifnull(tlf.cybsy_flag,"N") 
@@ -433,7 +444,13 @@ Insert into `pdh_analytics_ds.stlm_pre_settlement_csv`
           from `pdh_analytics_ds.stlm_pre_settlement_csv`
           group  by file_name,merchant;
       --
-      --Allways CSV Control
+      if (Select count(*)
+          From `pdh_analytics_ds.stlm_pre_settlement_csv`
+          where record_type = "D") = 0 then
+          return;
+      end if;
+      --
+      --Add CSV Control only if details exist
       insert into pdh_analytics_ds.file_gen_details 
          select  batch,
                  cast(batch_end_yyyy_mm_dd_hh_mm_ss as date), 

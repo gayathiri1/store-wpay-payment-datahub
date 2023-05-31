@@ -9,6 +9,8 @@
 --20230123 use pdh_load_time to seq
 --20220130 Use function get_tran_uid
 --20230503 -Allow multiplerun per day
+--20230515 Restrict division to its settlement_cycle
+--20230517 add control record only if details exists
 declare sys_date date default current_date("Australia/Sydney");
 declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
 declare batch_end_datetime datetime;
@@ -78,7 +80,7 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                                   when "IGODIRECT" then "IGODIRECT3P"
                                   else upper(trim(qpt.Merchant))
                                end
-            and mw.settlement_cycle <= syd_hour --multiple run per day
+            and mw.settlement_cycle = syd_hour --multiple run per day
          join `pdh_ref_ds.ref_key_value` rk --2022-11-25 Add Key_value table to remove hard coding
               on rk.attribute = "merchant-terminalid mapping"
               and upper(trim(rk.key)) = upper(trim(qpt.Merchant))
@@ -151,11 +153,17 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
                  end) 
       and trn.transaction_timestamp >= cast(msw.earliest_date as datetime)   -- 2022-07-06 
       and trn.transaction_timestamp <= 
-                   cast(concat(format_date("%Y-%m-%d",sys_date + msw.day_lag), "T",
-                               left(lpad(cast(msw.settlement_cutoff as string),4,"0"),2), ":",
-                              right(lpad(cast(msw.settlement_cutoff as string),4,"0"),2), ":00" 
-                              ) as datetime);  -- 2022-07-06 
-
+                   cast(concat(format_date("%Y-%m-%d",sys_date + msw.day_lag), "T",
+                               left(lpad(cast(msw.settlement_cutoff as string),4,"0"),2), ":",
+                              right(lpad(cast(msw.settlement_cutoff as string),4,"0"),2), ":00" 
+                              ) as datetime);  -- 2022-07-06 
+if (select count(*)
+    from `pdh_analytics_ds.stlm_standard_settlement_table`
+    where cast(last_update_datetime as date) = sys_date
+      and setlmnt_result_file is null
+      and tran_uid like "QP%") = 0 then
+      return;
+end if;
 --add control rec to specify QP detail is added to generic settlement table
 set batch_end_mm_dd_hh_mm_ss = datetime_trunc(current_datetime("Australia/Sydney"),SECOND);
 set (min_transaction_timestamp, max_transaction_timestamp) = 

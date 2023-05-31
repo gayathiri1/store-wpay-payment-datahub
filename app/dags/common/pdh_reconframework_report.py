@@ -32,7 +32,7 @@ default_args = {
 logging.info("constructing dag - using airflow as owner")
 
 
-dag = DAG('pdh_reconframework_report', catchup=False, default_args=default_args, schedule_interval= "40 08,09 * * *") 
+dag = DAG('pdh_reconframework_report', catchup=False, default_args=default_args, schedule_interval= "40 08,09,12 * * *") 
 
 #dag = DAG('pdh_reconframework_report', catchup=False, default_args=default_args, schedule_interval= None) 
 

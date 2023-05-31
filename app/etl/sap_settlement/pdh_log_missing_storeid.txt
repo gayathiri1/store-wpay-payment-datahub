@@ -1,4 +1,4 @@
---Log missing Store Information_Split By companyv
+--Log missing Store Information_Split By company
 --20221103 change column_name trasnaction_timestamp to transaction_timestamp
 --20221110 for isg, get store_id from key_value when terminal id is empty
 --20221110 Exclude transactions for excluded_issuers
@@ -13,7 +13,10 @@
 --              by pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface
 --20230314 add WPAYNZ
 --20230317 includ excluded transactions
+--20230515 Restrict division to its settlement_cycle
 --Allow multiple run per day
+--20230516 -Limit digitalpay to GIFT_CARD 
+--          execute only if divisio exists for current hour
 declare sys_datetime datetime default
  cast(format_datetime("%Y-%m-%dT%H:%M:%S",current_datetime("Australia/Sydney")) as datetime);
  declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
@@ -21,6 +24,12 @@ declare sys_date date DEFAULT current_date("Australia/Sydney");
 DECLARE inp_lookup STRING DEFAULT "MST Settlement";
 DECLARE batch string;
 Declare nullstr string;
+if (select count(*) 
+    from `pdh_ref_ds.ref_merchant_settlement_window`
+    where is_active = "Y"
+      and settlement_cycle = syd_hour)  = 0 then
+    return;
+end if;  
 --
 --Get next Batch Number
 CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
@@ -84,7 +93,7 @@ with trqc as (
       join  `pdh_ref_ds.ref_merchant_settlement_window` msw
              on msw.division = upper(trim(rsd.division))
             and msw.is_active = "Y"
-            and msw.settlement_cycle <= syd_hour --multiple run per day
+            and msw.settlement_cycle = syd_hour --multiple run per day
             and msw.division_type <> "PARTNER"
       left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
         on wbs.store_id = upper(trim(rsd.store_id))
@@ -157,7 +166,7 @@ trdp as (
 join  `pdh_ref_ds.ref_merchant_settlement_window` msw
       on msw.division = upper(trim(rsd.division))
       and msw.is_active = "Y"
-      and msw.settlement_cycle <= syd_hour  --multiple run per day
+      and msw.settlement_cycle = syd_hour  --multiple run per day
 left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
         on wbs.store_id = upper(trim(rsd.store_id))
        and wbs.is_active = "Y"
@@ -171,7 +180,7 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
                 end
  where upper(trim(dpt.transactiontype)) in ("PURCHASE","REFUND")
    and upper(trim(dpt.MerchantName)) = "EVERYDAY PAY"
-   and upper(trim(dpt.schemeName)) = "GIFT_CARD"
+   and upper(trim(dpt.schemeName)) = "GIFT_CARD" --limit to GIFT_CARD
    and ifnull(dpt.responseCodeContainer,"") = "00"
    and ifnull(trim(dpt.txnRef),"") <> ""
    and (length(dpt.txnRef) - length(replace(dpt.txnRef,".",""))) in (0,2)
@@ -231,7 +240,7 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
       join  `pdh_ref_ds.ref_merchant_settlement_window` msw
              on msw.division = upper(trim(rsd.division))
             and msw.is_active = "Y"
-            and msw.settlement_cycle <= syd_hour --multiple run per day
+            and msw.settlement_cycle = syd_hour --multiple run per day
    left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
         on wbs.store_id = upper(trim(rsd.store_id))
        and wbs.is_active = "Y"
@@ -301,7 +310,7 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
  join  `pdh_ref_ds.ref_merchant_settlement_window` msw
        on msw.division = upper(trim(rsd.division))
       and msw.is_active = "Y"
-      and msw.settlement_cycle <= syd_hour --multiple run per day
+      and msw.settlement_cycle = syd_hour --multiple run per day
  left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
         on wbs.store_id = upper(trim(rsd.store_id))
        and wbs.is_active = "Y"
@@ -365,7 +374,7 @@ left join pdh_ref_ds.ref_key_value rk
  join  `pdh_ref_ds.ref_merchant_settlement_window` msw
        on msw.division = upper(trim(rsd.division))
       and msw.is_active = "Y"
-      and msw.settlement_cycle <= syd_hour --multiple run per day
+      and msw.settlement_cycle = syd_hour --multiple run per day
  left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs --settle by store
         on wbs.store_id = upper(trim(rsd.store_id))
        and wbs.is_active = "Y"
@@ -429,7 +438,7 @@ left join pdh_ref_ds.ref_key_value rk
               on mw.division_type = "PARTNER"
              and mw.division = upper(trim(qpt.Merchant))
              and mw.is_active = "Y"
-             and mw.settlement_cycle <= syd_hour
+             and mw.settlement_cycle = syd_hour
       left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
           and upper(trim(rk.key)) = upper(trim(qpt.Merchant)) 
@@ -505,7 +514,8 @@ left join pdh_ref_ds.ref_key_value rk
                       on trim(ds.code) = trim(dn.tran_type_id)
     WHERE upper(trim(r.approval_flag)) = 'Y'
       and (ifnull(dn.transaction_total,0) <> 0 or ifnull(dn.surcharge_amount,0) <> 0)
-      and (mw.division <> "EG GROUP" or ifnull(wbs.store_id,"") <> "")
+      and (mw.division not in ("EG GROUP","LIVE GROUP")
+           or ifnull(wbs.store_id,"") <> "")
       and `pdh_ref_ds.trans_in_stlm_window`(mw.settle_by_store,
                                         wbs.store_id,
              DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second), 
@@ -575,7 +585,8 @@ left join pdh_ref_ds.ref_key_value rk
         )
 
  select * from trn_msg where comment <> "";
---add control rec to specify missing store is logged
+ 
+--add control rec only if record added to log missing
 insert into pdh_analytics_ds.file_gen_details
  values( batch,
  cast(sys_datetime as date),

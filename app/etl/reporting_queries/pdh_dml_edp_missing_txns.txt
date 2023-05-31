@@ -105,6 +105,7 @@ WITH
       'REFUND')
     AND MerchantName IN ('ScanGoSuper',
       'Everyday Pay')
+    and upper(trim(gateway))='WEX'
   GROUP BY
     1,
     2,3,

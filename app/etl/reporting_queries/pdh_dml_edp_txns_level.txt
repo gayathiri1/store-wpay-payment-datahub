@@ -103,8 +103,10 @@ WITH
     WHERE
       Transactiontype IN ('PURCHASE',
         'REFUND')
+      and upper(trim(gateway))='WEX'
       AND MerchantName IN ('ScanGoSuper',
         'Everyday Pay'))
+      
   GROUP BY
     1,
     2,3)
