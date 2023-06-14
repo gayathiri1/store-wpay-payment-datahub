@@ -61,16 +61,13 @@ def get_project_id():
     logger.debug(f"project_id = {project_id}")
     return project_id
 
-try:
-    publisher = pubsub_v1.PublisherClient()
-    project_id = get_project_id()
-    topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables?
-    topic_path = publisher.topic_path(project_id, topic_id)
-    # msg = {"dag_name": dag_name}
-    # publisher.publish(topic_path, data=json.dumps(msg).encode("utf-8"))
-except Exception as e:
-    logging.info("Exception in PublisherClient:{}".format(e))
 
+publisher = pubsub_v1.PublisherClient()
+project_id = get_project_id()
+topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables?
+topic_path = publisher.topic_path(project_id, topic_id)
+# msg = {"dag_name": dag_name}
+# publisher.publish(topic_path, data=json.dumps(msg).encode("utf-8"))
 
 
 def getConfigDetails(**kwargs):
@@ -104,6 +101,7 @@ def getConfigDetails(**kwargs):
     split_etl=[]
     split_merchant=[]
     email_attachment=[]
+    merchant_min_count = []
     email_to = Variable.get("stlm_file_gen_bq_to_gcs", deserialize_json=True)['email_to']
     errorcount = 0
     TotalRecordsExported = 0
@@ -224,8 +222,9 @@ def getConfigDetails(**kwargs):
                 split_etl.append(i['split_etl'])
                 split_merchant.append(i['split_merchant'])
                 email_attachment.append(i['email_attachment'])
+                merchant_min_count.append(i['merchant_min_count'])
                 qufile_date.append(file_date)
-                batch_number.append(batch_no)
+                batch_number.append(batch_no)                
                 
                 
                 kwargs['ti'].xcom_push(key="email_attachment", value=email_attachment)                
@@ -246,7 +245,8 @@ def getConfigDetails(**kwargs):
                 kwargs['ti'].xcom_push(key="control_table", value=control_table)
                 kwargs['ti'].xcom_push(key="merchant", value=merchant_code)
                 kwargs['ti'].xcom_push(key="execTimeInAest", value=execTimeInAest.strftime("%Y-%m-%d %H:%M:%S"))
-
+                kwargs['ti'].xcom_push(key="merchant_min_count", value=merchant_min_count)
+              
                 break    
 
     logging.info("Task getConfigDetails :=> errorcount : {}".format(errorcount))
@@ -348,6 +348,7 @@ def extractToGCS(**kwargs):
     email_to = kwargs.get('templates_dict').get('email_to')
     execTimeInAest = kwargs.get('templates_dict').get('execTimeInAest')
     merchant_code = kwargs.get('templates_dict').get('merchant')
+    merchant_min_count = kwargs.get('templates_dict').get('merchant_min_count') 
     
     count = 0
     merchant =[]
@@ -369,6 +370,7 @@ def extractToGCS(**kwargs):
     output_file_name = ast.literal_eval(output_file_name)
     outputGCSlocation = ast.literal_eval(outputGCSlocation)
     merchant_code = ast.literal_eval(merchant_code)
+    merchant_min_count = ast.literal_eval(merchant_min_count)  
 
     
     logging.info("table_id {}".format(table_id))    
@@ -397,6 +399,13 @@ def extractToGCS(**kwargs):
             logging.info("count {}".format(count))
             logging.info("header {}".format(header[index]))
             logging.info("lck_file {}" .format(lck_file[index]))
+            if len(merchant_min_count[index].strip()) > 0:
+                #value is set in airflow variable.
+                logging.info("merchant_min_count {}" .format(merchant_min_count[index]))
+            else:
+                #default value when variable is not set.
+                merchant_min_count[index] = "2"
+                logging.info("Default value - merchant_min_count {}" .format(merchant_min_count[index]))
             
             job_config.destination_format = str(extension[index])
             job_config.field_delimiter = str(delimiter[index])
@@ -409,12 +418,12 @@ def extractToGCS(**kwargs):
         
             tableRef = table_id[index]            
             #only generate file when source table has data.            
-            result,rowc =query_execution('select * from '+tableRef+' limit 10;')
+            result,rowc =query_execution('select * from '+tableRef+';')
             logging.info("Source table: {}".format(tableRef))           
             total_count = rowc.total_rows            
-            logging.info("total count: {}".format(total_count))
+            logging.info("total count: {}".format(total_count))            
             
-            if total_count > 2:
+            if total_count > int(merchant_min_count[index]):
                 extract_job = client.extract_table(
                     tableRef,
                     absoluteDestinationUri,
@@ -450,6 +459,7 @@ def extractToGCS(**kwargs):
                 result,rows = query_execution('drop table '+table_id[index]+';') #dropping table
                 logging.info("Dropped table {}" .format(table_id[index]))
                 merchant.append(merchant_code[index])
+                merchant_min_count.append(merchant_min_count[index])          
                 email.append(email_id[index])
                 qufile_date.append(qufile_dt[index])
                 batch_number.append(batch_no[index])
@@ -504,6 +514,7 @@ def extractToGCS(**kwargs):
     kwargs['ti'].xcom_push(key="merchant", value=merchant)
     kwargs['ti'].xcom_push(key="complete_file_name", value=complete_file_name) 
     kwargs['ti'].xcom_push(key="file_path", value=file_path)
+    kwargs['ti'].xcom_push(key="merchant_min_count", value=merchant_min_count)
     logging.info("Task extractToGCS :=> errorcount : {}".format(errorcount))
     return True    
     
@@ -664,7 +675,8 @@ extractToGCS = PythonOperator(
                     'errorcount': "{{ task_instance.xcom_pull(task_ids='getConfigDetails', key='errorcount') }}",
                     'email_to': "{{ task_instance.xcom_pull(task_ids='getConfigDetails', key='email_to') }}",
                     'execTimeInAest': "{{task_instance.xcom_pull(task_ids='getConfigDetails',key='execTimeInAest')}}",
-                    'merchant': "{{ task_instance.xcom_pull(task_ids='getConfigDetails', key='merchant')}}"
+                    'merchant': "{{ task_instance.xcom_pull(task_ids='getConfigDetails', key='merchant')}}",
+                    'merchant_min_count': "{{ task_instance.xcom_pull(task_ids='getConfigDetails', key='merchant_min_count')}}"                    
                    }
 )
                  

@@ -8,8 +8,11 @@
 --20230207 Use function pdh_ref_ds.get_calc_trans_type for EDW
 --20230209 replace pdh_rd_data_navigator.lv_gfs_pdh_txn_interface 
 --              by pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface
---20230220 For NRT Take pan and card_acceptor_name_location from transaction
+--20230220 For NRT Take pan and card_acceptor_ncontrol record for csv file even there is no details
 --20230516 execute only if eg/std divisio exists for current hour
+--20220605 Add control record based on tlf and settlement_cycle even if there is no details (Eg group only)
+--20230613 Use surcharge and tip from standard settlement table
+
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
 DECLARE nullstr string;
@@ -141,8 +144,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   st1.order_number,
                   cast(null as string) addtl_response_data,
                   cast(null as string) as account_type,
-                  0 as surcharge_amt,
-                  0 as tip_amt,
+                  st1.surcharge_amt,
+                  st1.tip_amt,
                   cast(null as string) as   moto_type,
                   cast(null as string) as   original_scheme,
                   cast(null as string) as   mcr_ind,
@@ -220,8 +223,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   st2.order_number,
                   tcy.decline_reason addtl_response_data,
                   cast(null as string) as   account_type,
-                  ifnull(tcy.surcharge_amount,0) surcharge_amt,
-                  ifnull(tcy.tip_amount,0) as tip_amt,
+                  st2.surcharge_amt,
+                  st2.tip_amt,
                   cast(null as string) as   moto_type,
                   tcy.scheme original_scheme,
                   cast(null as string) as    mcr_ind,
@@ -302,8 +305,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   st3.order_number,
                   cast(null as string) as addtl_response_data,
                   cast(null as string) as account_type,
-                  0 as surcharge_amt,
-                  0 as tip_amt,
+                  st3.surcharge_amt,
+                  st3.tip_amt,
                   cast(null as string) as moto_type,
                   cast(null as string) as original_scheme,
                   cast(null as string) as mcr_ind,
@@ -381,8 +384,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    st4.order_number,
                    cast(null as string) as addtl_response_data,
                    cast(null as string) as   account_type,
-                   0 as surcharge_amt,
-                   0 as tip_amt,
+                  st4.surcharge_amt,
+                  st4.tip_amt,
                    cast(null as string) as moto_type,
                    cast(null as string) as original_scheme,
                    cast(null as string) as    mcr_ind,
@@ -446,8 +449,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    st5.order_number,
                    dn.adtnl_response_data as addtl_response_data,
 				       cast(null as string) as   account_type,
-                   0 as surcharge_amt,
-                   0 as tip_amt,
+                   st5.surcharge_amt,
+                   st5.tip_amt,
                    cast(null as string) as moto_type,
                    cast(null as string) as original_scheme,
                    cast(null as string) as    mcr_ind,
@@ -531,8 +534,8 @@ tred as (
                st6.order_number,
                cast(null as string) as addtl_response_data,
                cast(null as string) as   account_type,
-               0 as surcharge_amt,
-               0 as tip_amt,
+               st6.surcharge_amt,
+               st6.tip_amt,
                cast(null as string) as moto_type,
                cast(null as string) as original_scheme,
                cast(null as string) as    mcr_ind,
@@ -597,7 +600,7 @@ tred as (
                  trn.rrn,
                  trn.original_stan,
                  trn.mti,
-                 trn.CardEntryMode,
+                 replace(trn.CardEntryMode,","," ") as CardEntryMode,
                  lpad(cast(cast(abs(trn.sale_amt) * 100 as int64) as string),18,"0")  as sale_amt,
                  lpad(cast(cast(abs(trn.cashout_amt) * 100 as int64) as string),18,"0") as cashout_amt,
                  upper(trim(trn.transactiontype)) as transaction_type_desc,
@@ -677,28 +680,30 @@ tred as (
       join `pdh_ref_ds.ref_stlm_tlf_config` tlf on upper(trim(tlf.division)) = std.division
                                                      and ifnull(tlf.stlf_prefix,"") <> "";
  --
---Always add control record based on Settlement window if details exists         
+--Always add control record based on tlf and settlement_cycle         
       insert into pdh_analytics_ds.file_gen_details 
          select  batch,
                  cast(batch_end_yyyy_mm_dd_hh_mm_ss as date), 
                  lower(concat(std.stlf_prefix,"_egsettlement")),
                  true,
                  null, 
-                 std.min_transaction,
-                 std.max_transaction,
+                 ifnull(std.min_transaction, batch_start_yyyy_mm_dd_hh_mm_ss),
+                 ifnull(std.max_transaction, batch_end_yyyy_mm_dd_hh_mm_ss),
                  batch_end_yyyy_mm_dd_hh_mm_ss_1,
                  null
         from (Select tlf.stlf_prefix,
                      min(st.transaction_timestamp) min_transaction,
                      max(st.transaction_timestamp) max_transaction
               from `pdh_ref_ds.ref_stlm_tlf_config` tlf
-              join `pdh_analytics_ds.stlm_standard_settlement_table` st 
-                        on upper(trim(tlf.division)) = st.division
+              join  `pdh_ref_ds.ref_merchant_settlement_window` msw
+                    on upper(trim(tlf.division)) = msw.division
+                   and msw.is_active = "Y"
+                   and msw.settlement_cycle = syd_hour
+                   and msw.division_type <> "PARTNER"
+              left join `pdh_analytics_ds.stlm_standard_settlement_table` st 
+                        on msw.division = st.division
               where ifnull(tlf.stlf_prefix,"") <> "" 
-                and ifnull(st.tlf_name,"") = ""
-                and ifnull(st.setlmnt_result_file,"") <> ""
-              group by tlf.stlf_prefix) std
-         where std.min_transaction is not null;
+              group by 1) std;
       --
      --Update Generic table
         Update  `pdh_analytics_ds.stlm_standard_settlement_table` std

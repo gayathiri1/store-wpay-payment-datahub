@@ -9,7 +9,7 @@
 --20230207 Use function pdh_ref_ds.get_calc_trans_type for EDW
 --20230209 replace pdh_rd_data_navigator.lv_gfs_pdh_txn_interface 
 --              by pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface
---
+--20230607 create empty file if no data
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default format_date("%Y-%m-%d",sys_date);
 declare sys_date_1 string default format_date("%Y%m%d",sys_date  - 1);
@@ -444,13 +444,7 @@ Insert into `pdh_analytics_ds.stlm_pre_settlement_csv`
           from `pdh_analytics_ds.stlm_pre_settlement_csv`
           group  by file_name,merchant;
       --
-      if (Select count(*)
-          From `pdh_analytics_ds.stlm_pre_settlement_csv`
-          where record_type = "D") = 0 then
-          return;
-      end if;
-      --
-      --Add CSV Control only if details exist
+      --Add CSV Control
       insert into pdh_analytics_ds.file_gen_details 
          select  batch,
                  cast(batch_end_yyyy_mm_dd_hh_mm_ss as date), 

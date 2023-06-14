@@ -1,5 +1,4 @@
- BEGIN 
-
+BEGIN 
 DECLARE  query_navigator STRING DEFAULT concat(
          "INSERT  into pdh_composer.recon_frmwork " 
         || "(file_date,file_name,pdh_load_time,count,table_schema,table_name,create_date)  ( ")
@@ -13,7 +12,6 @@ DECLARE  query_navigator STRING DEFAULT concat(
          "UNION ALL,","UNION ALL "))
         FROM `pdh_rd_data_navigator`.INFORMATION_SCHEMA.TABLES 
 		WHERE REGEXP_CONTAINS(ddl,'file_date'));
-
 DECLARE  query_quickcilver STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
         "SELECT  file_date,file_name,cast(pdh_load_time as DATETime) as pdh_load_time,count(0) as count, '" 
          || table_schema || "' as table_schema, '" || table_name || 
@@ -24,8 +22,7 @@ DECLARE  query_quickcilver STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
          "UNION ALL,","UNION ALL "))
         FROM `pdh_rd_quickcilver.`.INFORMATION_SCHEMA.TABLES 
 		WHERE REGEXP_CONTAINS(ddl,'file_date'));
-
-/*DECLARE  query_external STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
+DECLARE  query_external STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
         "SELECT file_date,file_name,cast(pdh_load_time as DATEtime) as pdh_load_time,count(0) as count, '" 
          || table_schema || "' as table_schema, '" || table_name || 
          "' as table_name,CURRENT_DATE(\"Australia/Sydney\") AS create_date FROM " 
@@ -34,8 +31,7 @@ DECLARE  query_quickcilver STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
          || " UNION ALL"),
          "UNION ALL,","UNION ALL "))
         FROM `pdh_rd_external.`.INFORMATION_SCHEMA.TABLES 
-		WHERE REGEXP_CONTAINS(ddl,'file_date'));*/
-
+		WHERE REGEXP_CONTAINS(ddl,'file_date'));
 DECLARE  query_wdp STRING DEFAULT (SELECT RTRIM((REPLACE(STRING_AGG(
         "SELECT date(load_dttm),' ',null,count(0) as count, '" 
          || table_schema || "' as table_schema, '" || table_name || 
@@ -46,8 +42,6 @@ DECLARE  query_wdp STRING DEFAULT (SELECT RTRIM((REPLACE(STRING_AGG(
          "UNION ALL,","UNION ALL ")),"UNION ALL")
         FROM `pdh_rd_wdp.`.INFORMATION_SCHEMA.TABLES 
 		WHERE REGEXP_CONTAINS(ddl,'load_dttm'));
-
-
 DECLARE  query_apm STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
         "SELECT file_date,file_name,cast(pdh_load_time as Datetime) as pdh_load_time,count(0) as count, '" 
          || table_schema || "' as table_schema, '" || table_name || 
@@ -58,12 +52,8 @@ DECLARE  query_apm STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
          "UNION ALL,","UNION ALL "))
         FROM `pdh_rd_apm.`.INFORMATION_SCHEMA.TABLES 
 		WHERE REGEXP_CONTAINS(ddl,'file_date'));	
-
-
-
 TRUNCATE TABLE pdh_composer.recon_frmwork_main; 
 TRUNCATE TABLE pdh_composer.recon_frmwork; 
-
 INSERT INTO pdh_composer.recon_frmwork_main (table_schema,table_name,date_loaded) 
 (
 SELECT distinct * FROM 
@@ -71,15 +61,13 @@ SELECT distinct * FROM
  UNION ALL 
  SELECT table_schema, table_name from pdh_rd_quickcilver.INFORMATION_SCHEMA.TABLES
   UNION ALL
- /*SELECT table_schema, table_name from pdh_rd_external.INFORMATION_SCHEMA.TABLES
-  UNION ALL*/
+  SELECT table_schema, table_name from pdh_rd_external.INFORMATION_SCHEMA.TABLES
+  UNION ALL
  SELECT table_schema, table_name from pdh_rd_wdp.INFORMATION_SCHEMA.TABLES
    UNION ALL
  SELECT table_schema, table_name from pdh_rd_apm.INFORMATION_SCHEMA.TABLES  ) ,
 (SELECT * FROM UNNEST(GENERATE_DATE_ARRAY((DATE_SUB(CURRENT_DATE("Australia/Sydney")-1,INTERVAL 6 DAY)),CURRENT_DATE("Australia/Sydney")-1,INTERVAL 1 DAY)))
 order by 3,2,1
 );
-
-EXECUTE IMMEDIATE format (""" %s %s %s %s  order by 5,1,4 )""" , query_navigator,query_quickcilver,query_apm,query_wdp);
-
+EXECUTE IMMEDIATE format (""" %s %s %s %s %s order by 5,1,4 )""" , query_navigator,query_quickcilver,query_external,query_apm,query_wdp);
 END;

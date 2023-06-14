@@ -168,7 +168,7 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                  npp_flag,
                  f01, f02, f03,f04, 
                  cast(null as string) as f05,f06,f07,f08,
-                 cast(sum(settlement_amount) as string) as f09,
+				 cast( (cast(round(sum(settlement_amount)) as int64))  as string)  as f09,
                  f10,
                  format_date("%Y%m%d",f11) as f11,
                  f12,
@@ -190,11 +190,12 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                              company_code) as merchant,
                  company_code as company,
                  scm2_npp,
-                 f01, f02, f03,f04, 
+                 f01, f02, f03,commission_store as f04, 
                  cast(null as string) as f05,f06,
                  commission_store as f07,
                  commission_store f08,
-                 cast(sum(commission) as string) as f09,
+                 cast( (cast(round(sum(commission)) as int64))  as string) as f09,
+				 
                  f10,
                  format_date("%Y%m%d",f11) as f11,
                  f12,
@@ -212,10 +213,10 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
            cast(null as string) as npp_flag,
            "T",
            ifnull(cast(Count(*) - 1 as string),"0"),
-           ifnull(cast(Sum(case f01
+           ifnull(cast(cast(round(Sum(case f01
                               when "H" then 0
-                              else cast(f09 as int64)
-                            end) as string),"0"),
+                              else cast(f09  as Numeric)
+                            end)) as int64) as String),"0"),
             "/"
         From `pdh_analytics_ds.stlm_settlement_result`
         Group By file_name,merchant,company_code;

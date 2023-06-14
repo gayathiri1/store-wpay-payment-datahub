@@ -56,16 +56,13 @@ def get_project_id():
     logger.debug(f"project_id ={project_id}")
     return project_id
 
-try:
-    publisher = pubsub_v1.PublisherClient()
-    project_id = get_project_id()
-    topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables
-    topic_path = publisher.topic_path(project_id, topic_id)
-    # msg = {"dag_name": dag_name}
-    # publisher.publish(topic_path, data=json.dumps(msg).encode("utf-8"))
-except Exception as e:
-    logging.info("Exception in PublisherClient:{}".format(e))
 
+publisher = pubsub_v1.PublisherClient()
+project_id = get_project_id()
+topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables
+topic_path = publisher.topic_path(project_id, topic_id)
+# msg = {"dag_name": dag_name}
+# publisher.publish(topic_path, data=json.dumps(msg).encode("utf-8"))
 
 
 def readexecuteQuery(**kwargs):

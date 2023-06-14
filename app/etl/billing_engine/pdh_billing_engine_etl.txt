@@ -1357,6 +1357,49 @@ LEFT JOIN `pdh_analytics_ds.stlm_standard_settlement_table` std
 		transaction_total
 	) = std.tran_uid;
 
+-- CARD IDENTITY MODEL UPDATE
+CREATE TEMP TABLE `temp_fee_pan_alias` AS
+SELECT d.*,
+    cid.pan_alias,
+    CASE WHEN cid.card_id IS NOT NULL THEN 'Y' ELSE 'N' END AS known,
+    CASE WHEN cid.pan_alias IS NOT NULL THEN 'Y' ELSE 'N' END AS has_alias,
+    CASE WHEN cid.par IS NOT NULL THEN 'Y' ELSE 'N' END AS has_par
+FROM `temp_fee_calc` d
+LEFT JOIN `wpay_analytics.wpay_card_identity_model` cid
+ON d.card_id = cid.card_id;
+
+-- Generate new pan aliases
+UPDATE `temp_fee_pan_alias`
+SET pan_alias = TO_BASE64(SHA256(card_id))
+WHERE has_alias = 'N';
+
+-- Update missing PAN aliases
+UPDATE `wpay_analytics.wpay_card_identity_model` cid
+SET cid.pan_alias = d.pan_alias
+FROM (SELECT DISTINCT card_id, pan_alias, known, has_alias FROM `temp_fee_pan_alias`) d
+WHERE cid.card_id = d.card_id
+AND known = 'Y'
+AND has_alias = 'N';
+
+-- Update missing PARs
+UPDATE `wpay_analytics.wpay_card_identity_model` cid
+SET cid.par = d.pymt_acct_ref
+FROM (SELECT DISTINCT card_id, pymt_acct_ref, known, has_par FROM `temp_fee_pan_alias`) d
+WHERE cid.card_id = d.card_id
+AND known = 'Y'
+AND has_par = 'N'
+AND d.pymt_acct_ref IS NULL
+AND TRIM(d.pymt_acct_ref) <> "";
+
+-- Insert missing card IDs
+INSERT INTO `wpay_analytics.wpay_card_identity_model`
+SELECT DISTINCT CAST(NULL AS STRING), d.card_id, d.pymt_acct_ref, d.scdr_token, d.calc_scheme, d.masked_pan, d.calc_card_type, d.card_subtype, CAST(NULL AS STRING),
+    CAST(NULL AS STRING), NULL, CAST(NULL AS STRING), CAST(NULL AS STRING), NULL, NULL, CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING),
+    CAST(NULL AS STRING), CAST(NULL AS STRING), d.pan_alias
+FROM `temp_fee_pan_alias` d
+WHERE known = 'N'
+AND card_id IS NOT NULL;
+
 ---------------------------------------------------------------------------------------------------------------------------------
 
 IF (SELECT MAX(switch_tran_date) FROM `temp_fee_calc`) < end_date THEN

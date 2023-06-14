@@ -13,11 +13,14 @@ declare syd_hour INT64 default (select extract(hour from current_time("Australia
 DECLARE inp_lookup STRING DEFAULT "COM Commission Listing";
 DECLARE batch string;
 if (select count(*) 
-    from `pdh_ref_ds.ref_merchant_settlement_window`
-    where is_active = "Y"
-      and settlement_cycle = syd_hour
-      and division_type <> "PARTNER"
-      and ifnull(commission_store,"") <> ""
+    from `pdh_ref_ds.ref_merchant_settlement_window` m
+    join pdh_ref_ds.ref_stlm_tlf_config tlf
+         on m.division = upper(trim(tlf.division))
+         and ifnull(tlf.stlf_prefix,"") <> ""
+    where m.is_active = "Y"
+      and m.settlement_cycle = syd_hour
+      and m.division_type <> "PARTNER"
+      and ifnull(m.commission_store,"") <> ""
       ) = 0 then
     return;
 end if;  
@@ -29,16 +32,7 @@ end if;
 --
 --truncate table `pdh_analytics_ds.stlm_commission_history`;
 truncate table `pdh_analytics_ds.stlm_commission`;
--- insert header 
-insert into  `pdh_analytics_ds.stlm_commission`
-   select tlf.stlf_prefix as merchant,
-          "H" as record_type,
-          "tran_uid" as tran_uid,
-          "commission_amt" commission_amt
- from pdh_ref_ds.ref_stlm_tlf_config tlf
- join pdh_ref_ds.ref_merchant_settlement_window m 
-             on ifnull(m.commission_store,"") <> ""
-            and m.division = upper(trim(tlf.division));
+--
 -- insert detail if exists
 insert into `pdh_analytics_ds.stlm_commission` 
    with DET as (
@@ -69,14 +63,32 @@ insert into `pdh_analytics_ds.stlm_commission`
                     or ifnull(commission_fixed_value,"") <> "")
       where ifnull(st.commission_filename,"") = ""
         and ifnull(st.setlmnt_result_file,"") <> ""
+		--and ifnull(st.setlmnt_result_file,"") <> "Excluded" 
    ) 
       select merchant,
              "D" as record_type,
              tran_uid,
-             cast(cast(round(abs(commission) * 100,0) as int64) 
+             cast(cast(round(abs(commission) * 10000,0) as int64) 
                       as string) as commission_amt
       from DET
-      where commission <> 0; --commission is non zero
+      --where ifnull(commission,0) <> 0
+; --commission is non zero
+
+
+--
+--Exit if no detail added
+if (select count(*) 
+    from `pdh_analytics_ds.stlm_commission`) = 0 then
+    return;
+end if;  
+--
+-- insert header 
+insert into  `pdh_analytics_ds.stlm_commission`
+   select distinct merchant,
+          "H" as record_type,
+          "tran_uid" as tran_uid,
+          "commission_amt" commission_amt
+ from `pdh_analytics_ds.stlm_commission`;
 --
 --Insert Traiter
 insert into `pdh_analytics_ds.stlm_commission`
@@ -110,16 +122,18 @@ insert into `pdh_analytics_ds.stlm_commission`
     join (Select st.division,
                  min(st.transaction_timestamp) min_transaction,
                  max(st.transaction_timestamp) max_transaction
-         from `pdh_analytics_ds.stlm_standard_settlement_table` st 
-         join `pdh_analytics_ds.stlm_commission` cl 
+               from `pdh_analytics_ds.stlm_standard_settlement_table` st 
+               join `pdh_analytics_ds.stlm_commission` cl 
                         on cl.tran_uid = st.tran_uid
-         Where ifnull(st.commission_filename,"") = "" 
-           and ifnull(st.setlmnt_result_file,"") <> ""                                                              
-         Group by 1
-            ) std on std.division = m.division
-     where ifnull(tlf.stlf_prefix,"") <> ""
-       and std.min_transaction is not null;
-                                                       
+               Where ifnull(st.commission_filename,"") = "" 
+                 and ifnull(st.setlmnt_result_file,"") <> ""  
+				 --and ifnull(st.setlmnt_result_file,"") <> "Excluded"				 
+
+
+               Group by 1
+              ) std on std.division = m.division
+    where ifnull(tlf.stlf_prefix,"") <> "";
+                                                          
      --Update Generic table
    Update  `pdh_analytics_ds.stlm_standard_settlement_table` std
       set std.commission_filename = t.commission_filename,
@@ -134,5 +148,6 @@ insert into `pdh_analytics_ds.stlm_commission`
                         on cl.tran_uid = std1.tran_uid
          Where ifnull(std1.commission_filename,"") = "" 
            and ifnull(std1.setlmnt_result_file,"") <> ""
+		   --and ifnull(std1.setlmnt_result_file,"") <> "Excluded"
                 ) t
      Where t.tran_uid = std.tran_uid;
