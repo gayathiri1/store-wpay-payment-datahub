@@ -5,6 +5,7 @@
 --20230411 replace function calc_commission by calc_servicefee
 --20230516 execute only if divisio exists for current hour
 --add control record for companies with data only
+--20230615 take commission store infoo from customer mapping for commission store
 declare sys_date date default CURRENT_DATE("Australia/Sydney");
 declare str_sysdate string default cast(sys_date as string);
 declare strt_settlement datetime default DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
@@ -100,17 +101,29 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
               select
                cs.company_code,
                cs.company_seq,
-               scm.npp_flag,
+                scm.npp_flag,
+               scm2.npp_flag npp_flag_c,
+--
                cast(std.record_type as string)  as f01,
-               scm.merchant_organisation_id as f02,
-               scm.merchant_store_name as f03,
-               scm.merchant_store_number as f04,
-               scm.sap_customer_number as f06,
-               std.store_id f07, 
-               scm.wpay_store_number as f08,
-               ifnull(scm2.wpay_store_number,
-                      trim(msw.commission_store)) commission_store,
-               ifnull(scm2.npp_flag,scm.npp_flag) scm2_npp,
+--
+                scm.merchant_organisation_id as f02,
+               scm2.merchant_organisation_id as f02_c,
+--
+                scm.merchant_store_name as f03,
+               scm2.merchant_store_name as f03_c,
+--
+                scm.merchant_store_number as f04,
+               scm2.merchant_store_number as f04_c,
+--
+                scm.sap_customer_number as f06,
+               scm2.sap_customer_number as f06_c,
+--
+               std.store_id as f07,
+               msw.commission_store as f07_c,
+--
+                scm.wpay_store_number as f08,
+               scm2.wpay_store_number as f08_c,
+--
                pdh_ref_ds.calc_servicefee(case ifnull(msw.commission_store,"")
                                              when "" then "N"
                                              else "Y"
@@ -121,6 +134,7 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                                           scm.commission_percent,
                                           scm.commission_fixed_value)
                                         * 100 commission,
+--
                (ifnull(std.tran_settlement_amount,0) + ifnull(std.discount_amt,0) 
                - pdh_ref_ds.calc_servicefee(case ifnull(msw.commission_store,"")
                                              when "" then "N"
@@ -131,10 +145,13 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                                           std.surcharge_amt,
                                           scm.commission_percent,
                                           scm.commission_fixed_value)
-               ) * 100
-                                           as settlement_amount,
-               scm.currency_code as f10,
+               ) * 100 as settlement_amount,
+--
+                scm.currency_code as f10,
+               scm2.currency_code as f10_c,
+--
                cast(std.transaction_timestamp as date) as f11,
+--
                case std.order_number
                   when "" then null
                   else order_number
@@ -165,10 +182,9 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                              end,
                              company_code) as merchant,
                  company_code as company,
-                 npp_flag,
-                 f01, f02, f03,f04, 
+                 npp_flag,f01,f02,f03,f04, 
                  cast(null as string) as f05,f06,f07,f08,
-				 cast( (cast(round(sum(settlement_amount)) as int64))  as string)  as f09,
+		 cast( (cast(round(sum(settlement_amount)) as int64))  as string) as f09,
                  f10,
                  format_date("%Y%m%d",f11) as f11,
                  f12,
@@ -189,20 +205,17 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                              end,
                              company_code) as merchant,
                  company_code as company,
-                 scm2_npp,
-                 f01, f02, f03,commission_store as f04, 
-                 cast(null as string) as f05,f06,
-                 commission_store as f07,
-                 commission_store f08,
+                 npp_flag_c,f01,f02_c,f03_c,f04_c, 
+                 cast(null as string) as f05,
+                 f06_c,f07_c,f08_c,
                  cast( (cast(round(sum(commission)) as int64))  as string) as f09,
-				 
-                 f10,
+		 f10_c,
                  format_date("%Y%m%d",f11) as f11,
                  f12,
                  "/" as f13
           from dtl
-          group by company_code, company_seq,scm2_npp,f01,f02,f03,f04,f06,
-          commission_store,f10,f11,f12
+          group by company_code, company_seq,npp_flag_c,f01,f02_c,f03_c,f04_c,f06_c,
+          f07_c,f08_c,f10_c,f11,f12
           having sum(commission) <> 0;
 
 --Create CSV Trailor
@@ -417,5 +430,4 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                       
         )  pf
    where pf.tran_uid = std.tran_uid;
-   --
-   
+   -- 

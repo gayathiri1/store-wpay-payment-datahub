@@ -12,6 +12,7 @@
 --20230516 execute only if eg/std divisio exists for current hour
 --20220605 Add control record based on tlf and settlement_cycle even if there is no details (Eg group only)
 --20230613 Use surcharge and tip from standard settlement table
+--20300615 Use today for settlement_date
 
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
@@ -19,6 +20,7 @@ DECLARE nullstr string;
 --
 declare trailorcount int64;
 declare sysdate date default current_date("Australia/Sydney");
+declare sysdate_str string default format_date("%Y%m%d",sysdate);
 declare batch_start_yyyy_mm_dd_hh_mm_ss datetime default datetime_trunc(current_datetime("Australia/Sydney"),second);
 declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime;
@@ -607,7 +609,7 @@ tred as (
                  trn.scheme,
                  trn.card_type,
                  trn.card_subtype,
-                 format_date("%Y%m%d", trn.settlement_date) as settlement_date,
+                 sysdate_str as settlement_date, --Force current_date
                  trn.response_code,
                  trn.approval_status,
                  trn.approval_code,

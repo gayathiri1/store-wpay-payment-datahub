@@ -1,3 +1,10 @@
+/********************************************************************************************************
+
+Version History:
+
+Date              Author             Description
+2023-06-05        Ray M           MERPAY-781
+*********************************************************************************************************/
 
 ----------------------------------------------------------------------------------------------------------
 --MMI DATA
@@ -770,6 +777,7 @@ lga_bench as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2
       ) cust_info
   on cust_info.store_id = lga_bench.store_id
@@ -1412,6 +1420,7 @@ state_bench as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9
       ) cust_info
   on cust_info.company = state_bench.company
@@ -1971,6 +1980,7 @@ country_bench as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9
       ) cust_info
   on cust_info.company = country_bench.company
@@ -2669,6 +2679,7 @@ lga_bench_filt as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5
       ) cust_info
   on cust_info.store_id = lga_bench_filt.store_id
@@ -3337,6 +3348,7 @@ state_bench_filt as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9,10,11,12
       ) cust_info
   on cust_info.company = state_bench_filt.company
@@ -3921,6 +3933,7 @@ country_bench_filt as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9,10,11,12
       ) cust_info
   on cust_info.company = country_bench_filt.company
@@ -4617,6 +4630,7 @@ lga_bench_online as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3
       ) cust_info
   on cust_info.store_id = lga_bench_online.store_id
@@ -5269,6 +5283,7 @@ state_bench_online as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9,10
       ) cust_info
   on cust_info.company = state_bench_online.company
@@ -5837,6 +5852,7 @@ country_bench_online as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9,10
       ) cust_info
   on cust_info.company = country_bench_online.company
@@ -6525,6 +6541,7 @@ lga_bench_card as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3
       ) cust_info
   on cust_info.store_id = lga_bench_card.store_id
@@ -7175,6 +7192,7 @@ state_bench_card as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9,10
       ) cust_info
   on cust_info.company = state_bench_card.company
@@ -7741,6 +7759,7 @@ country_bench_card as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9,10
       ) cust_info
   on cust_info.company = country_bench_card.company
@@ -8430,6 +8449,7 @@ lga_bench_card as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3
       ) cust_info
   on cust_info.store_id = lga_bench_card.store_id
@@ -9082,6 +9102,7 @@ state_bench_card as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9,10
       ) cust_info
   on cust_info.company = state_bench_card.company
@@ -9650,6 +9671,7 @@ country_bench_card as
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9,10
       ) cust_info
   on cust_info.company = country_bench_card.company
@@ -10557,6 +10579,7 @@ left join
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9
       ) cust_info
   on cust_info.company = base.company
@@ -11115,6 +11138,7 @@ left join
       --on trim(cim.scdr_token) = trim(fee.scdr_token)
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
       group by 1,2,3,4,5,6,7,8,9
       ) cust_info
   on cust_info.company = base.company
@@ -11648,6 +11672,7 @@ inner join
   `pdh_ref_ds.ref_store_details` m 
   on LEFT(FEE.net_term_id, 5) = M.store_id
 where fee.calc_approval_flag = 'A'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
 and card_id is not null
 group by 1,2,3
 )
@@ -11805,6 +11830,7 @@ inner join
   `pdh_ref_ds.ref_store_details` m 
   on LEFT(FEE.net_term_id, 5) = M.store_id
 where fee.calc_approval_flag = 'A'
+and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
 group by 1,2,3,4
 order by 1,2,3,4
 )
@@ -12289,3 +12315,4 @@ drop table if exists pdh_staging_ds.temp_cust_count_online;
 drop table if exists pdh_staging_ds.temp_cust_count;
 
 ----------------------------------------------------------------------------------------------------------------
+

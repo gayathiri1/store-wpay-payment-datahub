@@ -7,6 +7,8 @@ DECLARE missing_intermediate_data ARRAY<DATE>;
 DECLARE error_rows ARRAY<STRING>;
 
 DECLARE settle_array ARRAY<STRUCT<settle_date DATE, cost_factor INT64, legacy_cost_factor INT64>>;
+DECLARE forex_array ARRAY<STRUCT<txn_date DATE, local_currency STRING, exchange_rate NUMERIC>>;
+DECLARE local_currencies ARRAY<STRING>;
 
 SET missing_data = (SELECT ARRAY((
 	SELECT "gfs_pdh_txn_interface" name FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`
@@ -180,6 +182,35 @@ CALL pdh_staging_ds.CalculateCostFactor(start_date, end_date, settle_array);
 
 CREATE OR REPLACE TABLE `pdh_staging_ds.temp_early_settlement_fee` AS
 	SELECT * FROM UNNEST(settle_array);
+	
+	
+	
+	
+-- FOREX RATE ARRAY
+SET local_currencies = (
+	SELECT ARRAY_AGG(DISTINCT kv.value) from `pdh_ref_ds.ref_store_details` s
+	LEFT JOIN `pdh_ref_ds.ref_key_value` kv
+	ON kv.attribute = 'scheme-fee-forex'
+	AND s.country = kv.key
+);
+
+IF (SELECT COUNT(*) FROM UNNEST(local_currencies) lc WHERE lc IS NULL) > 0 THEN
+	SELECT ERROR("Missing key-value config for country in ref_store_details");
+END IF;
+
+CALL pdh_staging_ds.CalculateForexRates(start_date, end_date, local_currencies, forex_array);
+
+SET error_rows = (SELECT ARRAY_AGG(DISTINCT local_currency) FROM UNNEST(forex_array) WHERE exchange_rate IS NULL);
+
+IF ARRAY_LENGTH(error_rows) > 0 THEN
+	SELECT ERROR(CONCAT("Missing exchange rates for ", ARRAY_TO_STRING(error_rows, ', ')));
+END IF;
+
+INSERT INTO `pdh_staging_ds.billing_forex_hist`
+SELECT current_date('+10:00'), fx.txn_date, fx.local_currency, fx.exchange_rate
+FROM UNNEST(forex_array) fx;
+
+	
 
 -- MASTERCARD JOIN QUERY
 -- The Mastercard scheme data is received as two files (TFL6 for transactions and T1G0 for settlements),
@@ -201,7 +232,7 @@ with clr as
     mssg_reversal_indicator
      from `pdh_rd_data_navigator.mastercard_T1G0`
      where trim(card_acceptor_terminal_id)<>''
-    and file_date > "2022-07-04"
+    and file_date > "2023-04-01"
 ),
 tlf as 
 (
@@ -217,7 +248,7 @@ tlf as
         file_date tfl6_file_date,
     from `pdh_rd_data_navigator.mastercard_TFL6` where
         trim(clearing_indicator)='Y'
-          and file_date > "2022-07-04"
+          and file_date > "2023-04-01"
     GROUP BY 1,2,3,4,5,6,7,8,9
     
 ),
@@ -1067,6 +1098,7 @@ if
 	where 
 		d.approval_flag = 'Y' 
 		and TRIM(d.proc_id_iss_b) not in ('PMK','ENZ','FIS','ANZ','VER') 
+		and d.rate_group <> 'NA'
 		and (r.scheme is NULL or r.card_type is null or r.merchant is null)) > 0 
 Then
     SELECT ERROR("Rate card missing entry");
@@ -1231,18 +1263,18 @@ SELECT
 		when d.calc_approval_flag = 'A' and cc.pricing_model = 'IC++' then
 			case when calc_scheme IN ('VISA', 'MASTERCARD') then
 				case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
-					ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+					ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100  / fx.exchange_rate) , 0)
 				when calc_tran_type_abbr = 'REFUND' then
-					ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol * -1 + (sr.extern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+					ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol * -1 + (sr.extern_scheme_fee_fixed_usd * 100  / fx.exchange_rate) , 0)
 				when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
-					ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+					ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100  / fx.exchange_rate) , 0)
 				else 0
 				end
 			when calc_scheme = 'EFTPOS' then
 				case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
-					ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100), 0)
+					ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_local * 100), 0)
 				when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
-					ifnull(sr.extern_scheme_fee_fixed_usd * 100, 0)
+					ifnull(sr.extern_scheme_fee_fixed_local * 100, 0)
 				else 0
 				end
             else 0
@@ -1252,18 +1284,18 @@ SELECT
     case when d.calc_approval_flag = 'A' then
 		case when calc_scheme IN ('VISA', 'MASTERCARD') then
 			case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
-                ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+                ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate) , 0)
             when calc_tran_type_abbr = 'REFUND' then
-                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol * -1 + (sr.intern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol * -1 + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate) , 0)
             when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
-                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate) , 0)
             else 0   
             end
 		when calc_scheme = 'EFTPOS' then
 			case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
-				ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100), 0)
+				ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_local * 100), 0)
 			when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
-				ifnull(sr.intern_scheme_fee_fixed_usd * 100, 0)
+				ifnull(sr.intern_scheme_fee_fixed_local * 100, 0)
             else 0
 			end
         else 0
@@ -1273,18 +1305,18 @@ SELECT
 	case when d.calc_approval_flag = 'A' then
         case when calc_scheme IN ('VISA', 'MASTERCARD') then
             case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
-                ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate_usd + (sr.scheme_fee_fixed_rebate_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+                ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate) , 0)
             when calc_tran_type_abbr = 'REFUND' then
-                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate_usd * -1 + (sr.scheme_fee_fixed_rebate_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate * -1 + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate) , 0)
             when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
-                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate_usd + (sr.scheme_fee_fixed_rebate_usd * 100 * 1) /* TODO: Replace 1 with forex conversion factor once finalised */, 0)
+                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate) , 0)
             else 0   
             end
         when calc_scheme = 'EFTPOS' then
             case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
-                ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate_usd + (sr.scheme_fee_fixed_rebate_usd * 100), 0)
+                ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate + (sr.scheme_fee_rebate_fixed_local * 100), 0)
             when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
-                ifnull(sr.scheme_fee_fixed_rebate_usd * 100, 0)
+                ifnull(sr.scheme_fee_rebate_fixed_local * 100, 0)
             else 0
             end
         else 0
@@ -1316,6 +1348,12 @@ LEFT JOIN `pdh_ref_ds.ref_scheme_fee_rate_card` sr
     AND CASE WHEN d.dom_int_ind IN ('D', 'I') THEN d.dom_int_ind ELSE 'D' END = sr.dom_vs_int
     AND (d.calc_tran_type_abbr = sr.transaction_type OR sr.transaction_type = 'ALL')
     AND d.switch_tran_date BETWEEN sr.from_date AND IFNULL(sr.to_date, '2999-12-31')
+	LEFT JOIN `pdh_ref_ds.ref_key_value` kv
+	ON kv.attribute = 'scheme-fee-forex'
+	AND s.country = kv.key
+LEFT JOIN UNNEST(forex_array) fx
+	ON d.switch_tran_date = fx.txn_date
+	AND kv.value = fx.local_currency
 LEFT JOIN `pdh_analytics_ds.stlm_standard_settlement_table` std
 	ON pdh_ref_ds.get_tran_uid(
 		-- source
