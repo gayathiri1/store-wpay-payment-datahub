@@ -195,6 +195,7 @@ WITH result AS (
 				card_acpt_id AS card_acpt_id,
 				sap_filename AS sap_filename,
 				sap_post_timestamp AS sap_post_timestamp,
+				pricing_model AS pricing_model,
 				round(sum(vcalc_interchange_fees_invoiced_ex_gst),4) AS vcalc_interchange_fees_invoiced_ex_gst
 				FROM
 				tbl_tran_date
@@ -206,6 +207,8 @@ WITH result AS (
             ON lower(a.company) = lower(d.company) and UPPER(d.fee_code)='INTERCHANGE'
             INNER JOIN pdh_ref_ds.dim_date e
             ON a.switch_tran_date = e.clndr_date
+			INNER JOIN pdh_ref_ds.ref_key_value f
+            ON attribute = 'pricing_model' and UPPER(d.fee_code) = UPPER(f.value) and f.key = a.pricing_model
             WHERE d.sap_fees_posting_flag = 'Y'
               AND a.sap_filename is null
               AND a.sap_post_timestamp is null
@@ -250,6 +253,7 @@ WITH result AS (
 				card_acpt_id AS card_acpt_id,
 				sap_filename AS sap_filename,
 				sap_post_timestamp AS sap_post_timestamp,
+				pricing_model AS pricing_model,
 				round(sum(vcalc_processing_fees_ex_gst),4) AS vcalc_processing_fees_ex_gst
 				FROM
 				tbl_tran_date 
@@ -260,7 +264,9 @@ WITH result AS (
             INNER JOIN pdh_ref_ds.ref_merchant_fee_config d
             ON lower(a.company) = lower(d.company) and UPPER(d.fee_code)='PROCESSING'
             INNER JOIN pdh_ref_ds.dim_date e
-            ON a.switch_tran_date = e.clndr_date                     
+            ON a.switch_tran_date = e.clndr_date 
+			INNER JOIN pdh_ref_ds.ref_key_value f
+            ON attribute = 'pricing_model' and UPPER(d.fee_code) = UPPER(f.value) and f.key = a.pricing_model
             WHERE d.sap_fees_posting_flag = 'Y'
               AND a.sap_filename is null
               AND a.sap_post_timestamp is null
@@ -268,7 +274,181 @@ WITH result AS (
               and upper(trim(a.approval_flag)) <> '' 
               and upper(trim(a.tran_type_description)) <> ''   
             GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
-			UNION ALL   
+			UNION ALL
+		SELECT '1' AS H,
+            'SCHEMEFEECODB' AS fee_type_description,
+            CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS calender_date,
+            a.switch_tran_date,
+            e.fp_end_date,
+            -- a.settlement_date AS settlement_date,
+            CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS settlement_date,
+            b.merchant_organisation_id AS merchant_org_id,
+            b.merchant_store_number AS merchant_location_number,
+            a.card_acpt_id AS caic,
+            b.billing_sap_customer_number as sap_customer_number,
+            b.wpay_store_number,
+            b.wpay_store_number AS wow_loc_number,
+            d.frequency AS fee_frequency,
+            'E' AS gst_flag,
+            d.direct_debit_flag AS direct_debit_flag,
+            b.currency_code AS currency,
+            b.wpay_company_code company_code,
+            CAST(FORMAT_DATE("%Y%m%d",(pdh_ref_ds.get_due_paydate2(d.direct_debit_flag,d.frequency, a.switch_tran_date, "FRI", e.fp_end_date))) AS INT64) AS         pay_due_date,
+            '/' AS record_end_indicator,
+            count(0) as record_count,
+            sum(a.extern_scheme_fees_ex_gst) AS fee_value
+            FROM
+				( SELECT 
+				switch_tran_date AS switch_tran_date,
+				settlement_date AS settlement_date,
+				store_id AS store_id,
+				approval_flag AS approval_flag,
+				scheme AS scheme,
+				card_type AS card_type,
+				company AS company,
+				tran_type_description AS tran_type_description,
+				acquirer_institution_id AS acquirer_institution_id,
+				card_acpt_id AS card_acpt_id,
+				sap_filename AS sap_filename,
+				sap_post_timestamp AS sap_post_timestamp,
+				pricing_model AS pricing_model,
+				round(sum(extern_scheme_fees_ex_gst),4) AS extern_scheme_fees_ex_gst
+				FROM
+				tbl_tran_date
+				group by 1,2,3,4,5,6,7,8,9,10,11,12
+				) a
+            INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
+            ON  a.store_id =b.wpay_store_number 
+            INNER JOIN pdh_ref_ds.ref_merchant_fee_config d
+            ON lower(a.company) = lower(d.company) and UPPER(d.fee_code)='SCHEMEFEECODB'
+            INNER JOIN pdh_ref_ds.dim_date e
+            ON a.switch_tran_date = e.clndr_date
+			INNER JOIN pdh_ref_ds.ref_key_value f
+            ON attribute = 'pricing_model' and UPPER(d.fee_code) = UPPER(f.value) and f.key = a.pricing_model
+            WHERE d.sap_fees_posting_flag = 'Y'
+              AND a.sap_filename is null
+              AND a.sap_post_timestamp is null
+              and upper(trim(a.scheme)) <> ''
+              and upper(trim(a.approval_flag)) <> ''  
+              and upper(trim(a.tran_type_description)) <> ''                     
+            GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+            UNION ALL 		
+		SELECT '1' AS H,
+            'SCHEMEFEECOGS' AS fee_type_description,
+            CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS calender_date,
+            a.switch_tran_date,
+            e.fp_end_date,
+            -- a.settlement_date AS settlement_date,
+            CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS settlement_date,
+            b.merchant_organisation_id AS merchant_org_id,
+            b.merchant_store_number AS merchant_location_number,
+            a.card_acpt_id AS caic,
+            b.billing_sap_customer_number as sap_customer_number,
+            b.wpay_store_number,
+            b.wpay_store_number AS wow_loc_number,
+            d.frequency AS fee_frequency,
+            'E' AS gst_flag,
+            d.direct_debit_flag AS direct_debit_flag,
+            b.currency_code AS currency,
+            b.wpay_company_code company_code,
+            CAST(FORMAT_DATE("%Y%m%d",(pdh_ref_ds.get_due_paydate2(d.direct_debit_flag,d.frequency, a.switch_tran_date, "FRI", e.fp_end_date))) AS INT64) AS         pay_due_date,
+            '/' AS record_end_indicator,
+            count(0) as record_count,
+            sum(a.intern_scheme_fees_ex_gst) AS fee_value
+            FROM
+				( SELECT 
+				switch_tran_date AS switch_tran_date,
+				settlement_date AS settlement_date,
+				store_id AS store_id,
+				approval_flag AS approval_flag,
+				scheme AS scheme,
+				card_type AS card_type,
+				company AS company,
+				tran_type_description AS tran_type_description,
+				acquirer_institution_id AS acquirer_institution_id,
+				card_acpt_id AS card_acpt_id,
+				sap_filename AS sap_filename,
+				sap_post_timestamp AS sap_post_timestamp,
+				pricing_model AS pricing_model,
+				round(sum(intern_scheme_fees_ex_gst),4) AS intern_scheme_fees_ex_gst
+				FROM
+				tbl_tran_date
+				group by 1,2,3,4,5,6,7,8,9,10,11,12
+				) a
+            INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
+            ON  a.store_id =b.wpay_store_number 
+            INNER JOIN pdh_ref_ds.ref_merchant_fee_config d
+            ON lower(a.company) = lower(d.company) and UPPER(d.fee_code)='SCHEMEFEECOGS'
+            INNER JOIN pdh_ref_ds.dim_date e
+            ON a.switch_tran_date = e.clndr_date
+			INNER JOIN pdh_ref_ds.ref_key_value f
+            ON attribute = 'pricing_model' and UPPER(d.fee_code) = UPPER(f.value) and f.key = a.pricing_model
+            WHERE d.sap_fees_posting_flag = 'Y'
+              AND a.sap_filename is null
+              AND a.sap_post_timestamp is null
+              and upper(trim(a.scheme)) <> ''
+              and upper(trim(a.approval_flag)) <> ''  
+              and upper(trim(a.tran_type_description)) <> ''                     
+            GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+            UNION ALL
+		SELECT '1' AS H,
+            'SCHEMEREBATE' AS fee_type_description,
+            CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS calender_date,
+            a.switch_tran_date,
+            e.fp_end_date,
+            -- a.settlement_date AS settlement_date,
+            CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS settlement_date,
+            b.merchant_organisation_id AS merchant_org_id,
+            b.merchant_store_number AS merchant_location_number,
+            a.card_acpt_id AS caic,
+            b.billing_sap_customer_number as sap_customer_number,
+            b.wpay_store_number,
+            b.wpay_store_number AS wow_loc_number,
+            d.frequency AS fee_frequency,
+            'E' AS gst_flag,
+            d.direct_debit_flag AS direct_debit_flag,
+            b.currency_code AS currency,
+            b.wpay_company_code company_code,
+            CAST(FORMAT_DATE("%Y%m%d",(pdh_ref_ds.get_due_paydate2(d.direct_debit_flag,d.frequency, a.switch_tran_date, "FRI", e.fp_end_date))) AS INT64) AS         pay_due_date,
+            '/' AS record_end_indicator,
+            count(0) as record_count,
+            sum(a.scheme_fees_rebate_ex_gst) AS fee_value
+            FROM
+				( SELECT 
+				switch_tran_date AS switch_tran_date,
+				settlement_date AS settlement_date,
+				store_id AS store_id,
+				approval_flag AS approval_flag,
+				scheme AS scheme,
+				card_type AS card_type,
+				company AS company,
+				tran_type_description AS tran_type_description,
+				acquirer_institution_id AS acquirer_institution_id,
+				card_acpt_id AS card_acpt_id,
+				sap_filename AS sap_filename,
+				sap_post_timestamp AS sap_post_timestamp,
+				pricing_model AS pricing_model,
+				round(sum(scheme_fees_rebate_ex_gst),4) AS scheme_fees_rebate_ex_gst
+				FROM
+				tbl_tran_date
+				group by 1,2,3,4,5,6,7,8,9,10,11,12
+				) a
+            INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
+            ON  a.store_id =b.wpay_store_number 
+            INNER JOIN pdh_ref_ds.ref_merchant_fee_config d
+            ON lower(a.company) = lower(d.company) and UPPER(d.fee_code)='SCHEMEREBATE'
+            INNER JOIN pdh_ref_ds.dim_date e
+            ON a.switch_tran_date = e.clndr_date
+			INNER JOIN pdh_ref_ds.ref_key_value f
+            ON attribute = 'pricing_model' and UPPER(d.fee_code) = UPPER(f.value) and f.key = a.pricing_model
+            WHERE d.sap_fees_posting_flag = 'Y'
+              AND a.sap_filename is null
+              AND a.sap_post_timestamp is null
+              and upper(trim(a.scheme)) <> ''
+              and upper(trim(a.approval_flag)) <> ''  
+              and upper(trim(a.tran_type_description)) <> ''                     
+            GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+            UNION ALL			
         SELECT '1' AS H,
             'EARLYSTLM' AS fee_type_description,
             CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS calender_date,
@@ -305,6 +485,7 @@ WITH result AS (
 				card_acpt_id AS card_acpt_id,
 				sap_filename AS sap_filename,
 				sap_post_timestamp AS sap_post_timestamp,
+				pricing_model AS pricing_model,
 				round(sum(vcalc_early_settlement_fees_ex_gst),4) AS vcalc_early_settlement_fees_ex_gst
 				FROM
 				tbl_tran_date 
@@ -315,7 +496,9 @@ WITH result AS (
             INNER JOIN pdh_ref_ds.ref_merchant_fee_config d
             ON lower(a.company) = lower(d.company) and UPPER(d.fee_code)='EARLYSTLM'
             INNER JOIN pdh_ref_ds.dim_date e
-            ON a.switch_tran_date = e.clndr_date                     
+            ON a.switch_tran_date = e.clndr_date
+			INNER JOIN pdh_ref_ds.ref_key_value f
+            ON attribute = 'pricing_model' and UPPER(d.fee_code) = UPPER(f.value) and f.key = a.pricing_model			
             WHERE d.sap_fees_posting_flag = 'Y'
               AND a.sap_filename is null
               AND a.sap_post_timestamp is null
