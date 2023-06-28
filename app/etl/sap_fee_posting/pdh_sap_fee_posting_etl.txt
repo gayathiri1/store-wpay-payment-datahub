@@ -199,7 +199,7 @@ WITH result AS (
 				round(sum(vcalc_interchange_fees_invoiced_ex_gst),4) AS vcalc_interchange_fees_invoiced_ex_gst
 				FROM
 				tbl_tran_date
-				group by 1,2,3,4,5,6,7,8,9,10,11,12
+				group by 1,2,3,4,5,6,7,8,9,10,11,12,13
 				) a
             INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
             ON  a.store_id =b.wpay_store_number 
@@ -257,7 +257,7 @@ WITH result AS (
 				round(sum(vcalc_processing_fees_ex_gst),4) AS vcalc_processing_fees_ex_gst
 				FROM
 				tbl_tran_date 
-				group by 1,2,3,4,5,6,7,8,9,10,11,12
+				group by 1,2,3,4,5,6,7,8,9,10,11,12,13
 				) a
             INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
             ON  a.store_id =b.wpay_store_number 
@@ -265,8 +265,6 @@ WITH result AS (
             ON lower(a.company) = lower(d.company) and UPPER(d.fee_code)='PROCESSING'
             INNER JOIN pdh_ref_ds.dim_date e
             ON a.switch_tran_date = e.clndr_date 
-			INNER JOIN pdh_ref_ds.ref_key_value f
-            ON attribute = 'pricing_model' and UPPER(d.fee_code) = UPPER(f.value) and f.key = a.pricing_model
             WHERE d.sap_fees_posting_flag = 'Y'
               AND a.sap_filename is null
               AND a.sap_post_timestamp is null
@@ -315,7 +313,7 @@ WITH result AS (
 				round(sum(extern_scheme_fees_ex_gst),4) AS extern_scheme_fees_ex_gst
 				FROM
 				tbl_tran_date
-				group by 1,2,3,4,5,6,7,8,9,10,11,12
+				group by 1,2,3,4,5,6,7,8,9,10,11,12,13
 				) a
             INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
             ON  a.store_id =b.wpay_store_number 
@@ -373,7 +371,7 @@ WITH result AS (
 				round(sum(intern_scheme_fees_ex_gst),4) AS intern_scheme_fees_ex_gst
 				FROM
 				tbl_tran_date
-				group by 1,2,3,4,5,6,7,8,9,10,11,12
+				group by 1,2,3,4,5,6,7,8,9,10,11,12,13
 				) a
             INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
             ON  a.store_id =b.wpay_store_number 
@@ -431,7 +429,7 @@ WITH result AS (
 				round(sum(scheme_fees_rebate_ex_gst),4) AS scheme_fees_rebate_ex_gst
 				FROM
 				tbl_tran_date
-				group by 1,2,3,4,5,6,7,8,9,10,11,12
+				group by 1,2,3,4,5,6,7,8,9,10,11,12,13
 				) a
             INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
             ON  a.store_id =b.wpay_store_number 
@@ -489,7 +487,7 @@ WITH result AS (
 				round(sum(vcalc_early_settlement_fees_ex_gst),4) AS vcalc_early_settlement_fees_ex_gst
 				FROM
 				tbl_tran_date 
-				group by 1,2,3,4,5,6,7,8,9,10,11,12
+				group by 1,2,3,4,5,6,7,8,9,10,11,12,13
 				) a
             INNER JOIN pdh_ref_ds.ref_str_to_sap_customermapping b
             ON  a.store_id =b.wpay_store_number 
