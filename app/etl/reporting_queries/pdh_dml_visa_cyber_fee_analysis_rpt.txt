@@ -1,8 +1,9 @@
 
 truncate table pdh_analytics_ds.visa_cyber_fee_analysis_rpt ;
 insert into pdh_analytics_ds.visa_cyber_fee_analysis_rpt  
+														  
 SELECT
-  s.file_date AS file_date,
+  i.file_date AS file_date,
   PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8))	 as transaction_date,	
   LEFT(s.term_id,5)AS card_acpt_term_id,
    i.domesitic_international_ind AS domestic_or_international,
@@ -28,6 +29,7 @@ SELECT
   ref_store_details.brand AS brand,
   ref_store_details.store_id,
   ref_store_details.company,
+  ref_store_details.country,
   ref_store_details.merchant_group,
   ref_store_details.invoice_group,
   ref_store_details.is_online,
@@ -46,7 +48,7 @@ SELECT
 
   
 FROM  pdh_rd_data_navigator.isg_wpay_tran i
-   JOIN (  
+    left JOIN (  
    SELECT *, RANK() OVER (PARTITION BY arn ORDER BY pdh_load_time DESC) rank FROM pdh_rd_data_navigator.tc33_visa) s  
   ON   cast(i.tran_uid as string) = CAST(s.txn_id AS STRING)
 and ( (i.transaction_type = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.transaction_type = 'REFUND' and s.txn_code_of_fin_txn = '06') )
@@ -60,7 +62,7 @@ and i.transaction_amount = s.samt and s.rank=1 and
 LEFT JOIN
   `pdh_ref_ds.ref_store_details` ref_store_details
 ON
-  ref_store_details.store_id = LEFT(s.term_id,5)
+  ref_store_details.store_id = LEFT(i.terminal_id,5)
   
 LEFT JOIN
   `pdh_ref_ds.ref_rate_card` ref_rate_card

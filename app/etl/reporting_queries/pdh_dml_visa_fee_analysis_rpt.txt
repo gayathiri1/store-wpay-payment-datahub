@@ -1,48 +1,55 @@
 truncate table pdh_analytics_ds.visa_fee_analysis_rpt ;
 insert into pdh_analytics_ds.visa_fee_analysis_rpt  
 SELECT
-  gfs_aux_visa.file_date AS file_date,
-  gfs_aux_visa.mti AS mti,
-  gfs_aux_visa.tran_disposition AS tran_disposition,
-  gfs_aux_visa.issuer AS issuer,
-  gfs_aux_visa.pan AS pan,
-  gfs_aux_visa.domestic_or_international AS domestic_or_international,
-  gfs_aux_visa.acct_funding_source AS acct_funding_source,
-  CAST(gfs_aux_visa.tran_amt/100 AS FLOAT64) AS tran_amt,
-  CAST(gfs_aux_visa.interchange_fee/1000000 AS FLOAT64) AS interchange_fee,
-  CAST(gfs_aux_visa.interchange_fee/1000000 AS FLOAT64)/ CAST(gfs_aux_visa.tran_amt/100 AS FLOAT64) AS calc_interchange_fee,
-  gfs_aux_visa.tstamp_trans AS tstamp_trans,
-  DATE(gfs_aux_visa.tstamp_trans) AS tran_date,
-  CAST(gfs_aux_visa.stan AS FLOAT64) AS stan,
-  gfs_aux_visa.tstamp_local AS tstamp_local,
-  gfs_aux_visa.date_recon AS date_recon,
-  gfs_aux_visa.rrn AS rrn,
-  gfs_aux_visa.card_acpt_term_id AS card_acpt_term_id,
-  ref_store_details.division AS division,
-  ref_store_details.brand AS brand,
-  ref_store_details.store_id,
-  ref_store_details.company,
- ref_store_details.merchant_group,
- ref_store_details.invoice_group,
-  ref_store_details.is_online,
-  gfs_aux_visa.processing_code,
-  ref_trans_types.abbr,
-  ref_trans_types.tran_type,
-  ref_trans_types.connex,
-  ref_str_to_sap_customermapping.currency_code
+  v.file_date AS file_date,
+  v.mti AS mti,
+  v.tran_disposition AS tran_disposition,
+  v.issuer AS issuer,
+  v.pan AS pan,
+  v.domestic_or_international AS domestic_or_international,
+  v.acct_funding_source AS acct_funding_source,
+  case 
+ when upper(rtt.abbr) = 'PURCHASE'  and v.tran_disposition= '1' then  CAST(v.tran_amt/100 AS FLOAT64)*1
+ when upper(rtt.abbr) = 'PURCHASE'  and v.tran_disposition= '3' then CAST(v.tran_amt/100 AS FLOAT64)*-1
+ when upper(rtt.abbr) = 'REFUND'  and v.tran_disposition= '1' then  CAST(v.tran_amt/100 AS FLOAT64) *-1 
+ when upper(rtt.abbr) = 'REFUND'  and v.tran_disposition= '3' then  CAST(v.tran_amt/100 AS FLOAT64)*1 
+ else CAST(v.tran_amt/100 AS FLOAT64)
+ end as tran_amt,
+  CAST(v.interchange_fee/1000000 AS FLOAT64) AS interchange_fee,
+  CAST(v.interchange_fee/1000000 AS FLOAT64)/ CAST(v.tran_amt/100 AS FLOAT64) AS calc_interchange_fee,
+  v.tstamp_trans AS tstamp_trans,
+  DATE(v.tstamp_trans) AS tran_date,
+  CAST(v.stan AS FLOAT64) AS stan,
+  v.tstamp_local AS tstamp_local,
+  v.date_recon AS date_recon,
+  v.rrn AS rrn,
+  v.card_acpt_term_id AS card_acpt_term_id,
+  rsd.division AS division,
+  rsd.brand AS brand,
+  rsd.store_id,
+  rsd.company,
+   rsd.country,
+ rsd.merchant_group,
+ rsd.invoice_group,
+  rsd.is_online,
+  v.processing_code,
+  rtt.abbr,
+  rtt.tran_type,
+  rtt.connex,
+  rsc.currency_code
 FROM
-  `pdh_rd_data_navigator.gfs_aux_visa` gfs_aux_visa
+  `pdh_rd_data_navigator.gfs_aux_visa` v
   
 LEFT JOIN
-  `pdh_ref_ds.ref_store_details` ref_store_details
+  `pdh_ref_ds.ref_store_details` rsd
   ON
-  ref_store_details.store_id = LEFT(gfs_aux_visa.card_acpt_term_id,5)
+  rsd.store_id = LEFT(v.card_acpt_term_id,5)
 LEFT JOIN
-  `pdh_ref_ds.ref_transaction_types` ref_trans_types
+  `pdh_ref_ds.ref_transaction_types` rtt
   on 
-  cast (gfs_aux_visa.processing_code as Numeric) =CAST(ref_trans_types.connex as NUMERIC)
+  cast (v.processing_code as Numeric) =CAST(rtt.connex as NUMERIC)
   LEFT JOIN 
-  `pdh_ref_ds.ref_str_to_sap_customermapping` ref_str_to_sap_customermapping
+  `pdh_ref_ds.ref_str_to_sap_customermapping` rsc
  on 
- ref_str_to_sap_customermapping.wpay_store_number = LEFT(gfs_aux_visa.card_acpt_term_id,5)
- 
+ rsc.wpay_store_number = LEFT(v.card_acpt_term_id,5)
+ where  v.tran_disposition<> '2'

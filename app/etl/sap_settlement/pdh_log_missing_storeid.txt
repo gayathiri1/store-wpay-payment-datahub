@@ -17,6 +17,7 @@
 --Allow multiple run per day
 --20230516 -Limit digitalpay to GIFT_CARD 
 --          execute only if divisio exists for current hour
+--20230622  Activate SWap Cards
 declare sys_datetime datetime default
  cast(format_datetime("%Y-%m-%dT%H:%M:%S",current_datetime("Australia/Sydney")) as datetime);
  declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
@@ -109,6 +110,8 @@ with trqc as (
                           else wbs.division_type
                        end,
                        case   --20230313
+                          when upper(left(trim(qct.ProductCategory),4))
+                                 = "SWAP" then "SWAP" --20230622
                           when ifnull(scm.wpay_company_code,"") = "2025"
                            and qct.Merchant = "COUNTDOWN"
                            and qct.Issuer = "WPAY NEW ZEALAND LIMITED" then "WPAYNZ"

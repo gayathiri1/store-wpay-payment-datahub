@@ -132,6 +132,7 @@ def processQuery(query):
         if exception_text in complete_exception:
             body= "Exception raised while executing billing query :\n\n"+complete_exception.split(exception_text)[0]
             logging.info("Splitting exception text and formatting email body text: {} ".format(body))
+            Sendemail(email_to,"Exception raised while executing billing query",body,execTimeInAest.strftime("%Y-%m-%d %H:%M:%S"))
             event_message = "Exception raised while executing billing query :\n\n"+complete_exception.split(exception_text)[0]
             event = Event(
                dag_name=dag_name,
