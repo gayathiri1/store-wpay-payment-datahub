@@ -1,0 +1,62 @@
+TRUNCATE TABLE
+  pdh_analytics_ds.alipay_clearing_Report;
+INSERT INTO
+  pdh_analytics_ds.alipay_clearing_Report (
+
+WITH
+  Alipay AS (
+  SELECT
+    	
+    file_date,
+    cast(Transaction_id as string) Transaction_id,
+    DATE(Payment_time) AS Payment_date,
+    DATE(Settlement_time) AS Settlement_date,
+    CONCAT('W',Store_id) AS alipay_Store_id,
+    Trans_currency,
+    count(Transaction_id) as transaction_count,
+    SUM(cast(amount as Float64)) AS Amount,
+    sum(cast(Trans_amount as Float64)) as Transaction_amount,
+    SUM(cast(fee as float64)) AS Fee,
+    SUM(cast(Settlement as Float64)) AS Settlement
+  FROM
+    pdh_rd_apm.alipay_stlm
+  GROUP BY
+    1,
+    2,
+    3,
+    4,
+    5,
+    6),
+  ref AS (
+  SELECT
+    division,
+    brand,
+    store_id,
+    company,
+    Country,
+    is_online,
+    invoice_group,
+    merchant_group
+  FROM
+    pdh_ref_ds.ref_store_details ),
+	
+	sap AS (
+  SELECT
+    merchant_organisation_id,
+    wpay_store_number
+  FROM
+    pdh_ref_ds.ref_str_to_sap_customermapping )
+SELECT
+  Alipay.*,
+  ref.*,
+  sap.merchant_organisation_id
+FROM
+  alipay
+LEFT JOIN
+  ref
+ON
+  UPPER(TRIM(alipay.alipay_store_id)) = UPPER(TRIM(ref.store_id))
+LEFT JOIN
+  sap
+ON
+  UPPER(TRIM(alipay.alipay_store_id)) = UPPER(TRIM(sap.wpay_store_number)))

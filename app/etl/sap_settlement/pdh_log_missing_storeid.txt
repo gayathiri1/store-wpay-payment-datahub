@@ -18,6 +18,7 @@
 --20230516 -Limit digitalpay to GIFT_CARD 
 --          execute only if divisio exists for current hour
 --20230622  Activate SWap Cards
+--20230705  -Remove hard coding for division
 declare sys_datetime datetime default
  cast(format_datetime("%Y-%m-%dT%H:%M:%S",current_datetime("Australia/Sydney")) as datetime);
  declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
@@ -517,8 +518,11 @@ left join pdh_ref_ds.ref_key_value rk
                       on trim(ds.code) = trim(dn.tran_type_id)
     WHERE upper(trim(r.approval_flag)) = 'Y'
       and (ifnull(dn.transaction_total,0) <> 0 or ifnull(dn.surcharge_amount,0) <> 0)
-      and (mw.division not in ("EG GROUP","LIVE GROUP")
-           or ifnull(wbs.store_id,"") <> "")
+      and (Case
+            when mw.settle_by_store = "N" then "Y"
+            when wbs.store_id is not NULL then "Y"
+            else "N"
+          end) = "Y" --restrict EG GROUP & LIVE GROUP from minitaf by settle_by store table
       and `pdh_ref_ds.trans_in_stlm_window`(mw.settle_by_store,
                                         wbs.store_id,
              DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second), 

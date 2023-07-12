@@ -630,10 +630,7 @@ Select
 	null tstamp_local,
 	CAST(CardNumber AS STRING) masked_pan,  -- MASK PAN
     CAST(TransactionDate AS DATE) date_recon_acq,
-    CASE
-		WHEN UPPER(POSName) LIKE '%ONLINE%' THEN CONCAT(OutletCode, "000")
-		ELSE POSName
-	END	net_term_id,
+    CONCAT(pdh_ref_ds.get_qc_store(d.outletcode,d.Issuer,d.outlet,d.POSName), "000") AS net_term_id,
     Concat('01',OutletCode) rpt_lvl_id_b, -- Add conditions where POSNAME Is not Store number
     null as mti,
     null tran_type_id,
@@ -953,7 +950,8 @@ select
 	LEFT join `pdh_ref_ds.ref_merchant_settlement_window` msw
     ON UPPER(TRIM(s.division)) = msw.division
     where PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) >= start_date and PARSE_DATE("%Y%m%d", LEFT(CAST (transaction_timestamp AS STRING), 8)) <= end_date
-     AND s.is_closed = FALSE 
+     AND s.is_closed = FALSE
+	 AND Upper(trim(transaction_type)) NOT LIKE '%ICS%'
      AND (upper(trim(scheme)) not in ('AMERICAN EXPRESS','AMEX') OR upper(trim(scheme)) in ('AMERICAN EXPRESS','AMEX') AND Upper(trim(transaction_type)) IN ('PURCHASE', 'REFUND') AND 
      case 
       when transaction_approval_status is null then 'Y'
@@ -1260,7 +1258,7 @@ SELECT
 	-- ADDITIONAL PRICING MODEL FIELDS
 	cc.pricing_model,
 	case
-		when d.calc_approval_flag = 'A' and cc.pricing_model = 'IC++' then
+		when d.calc_approval_flag = 'A' and cc.pricing_model = 'IC++' and calc_tran_type_abbr NOT LIKE '%REVERSAL%' then
 			case when calc_scheme IN ('VISA', 'MASTERCARD') then
 				case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
 					ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100  / fx.exchange_rate) , 0)
@@ -1281,7 +1279,7 @@ SELECT
 			end
 		else 0
 	end as extern_scheme_fees,
-    case when d.calc_approval_flag = 'A' then
+    case when d.calc_approval_flag = 'A' and calc_tran_type_abbr NOT LIKE '%REVERSAL%' then
 		case when calc_scheme IN ('VISA', 'MASTERCARD') then
 			case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
                 ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate) , 0)
@@ -1302,7 +1300,7 @@ SELECT
         end
     else 0
     end as intern_scheme_fees,
-	case when d.calc_approval_flag = 'A' then
+	case when d.calc_approval_flag = 'A' and calc_tran_type_abbr NOT LIKE '%REVERSAL%' then
         case when calc_scheme IN ('VISA', 'MASTERCARD') then
             case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
                 ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate) , 0)
@@ -1394,49 +1392,6 @@ LEFT JOIN `pdh_analytics_ds.stlm_standard_settlement_table` std
 		-- trans_amount_in_cents
 		transaction_total
 	) = std.tran_uid;
-
--- CARD IDENTITY MODEL UPDATE
-CREATE TEMP TABLE `temp_fee_pan_alias` AS
-SELECT d.*,
-    cid.pan_alias,
-    CASE WHEN cid.card_id IS NOT NULL THEN 'Y' ELSE 'N' END AS known,
-    CASE WHEN cid.pan_alias IS NOT NULL THEN 'Y' ELSE 'N' END AS has_alias,
-    CASE WHEN cid.par IS NOT NULL THEN 'Y' ELSE 'N' END AS has_par
-FROM `temp_fee_calc` d
-LEFT JOIN `wpay_analytics.wpay_card_identity_model` cid
-ON d.card_id = cid.card_id;
-
--- Generate new pan aliases
-UPDATE `temp_fee_pan_alias`
-SET pan_alias = TO_BASE64(SHA256(card_id))
-WHERE has_alias = 'N';
-
--- Update missing PAN aliases
-UPDATE `wpay_analytics.wpay_card_identity_model` cid
-SET cid.pan_alias = d.pan_alias
-FROM (SELECT DISTINCT card_id, pan_alias, known, has_alias FROM `temp_fee_pan_alias`) d
-WHERE cid.card_id = d.card_id
-AND known = 'Y'
-AND has_alias = 'N';
-
--- Update missing PARs
-UPDATE `wpay_analytics.wpay_card_identity_model` cid
-SET cid.par = d.pymt_acct_ref
-FROM (SELECT DISTINCT card_id, pymt_acct_ref, known, has_par FROM `temp_fee_pan_alias`) d
-WHERE cid.card_id = d.card_id
-AND known = 'Y'
-AND has_par = 'N'
-AND d.pymt_acct_ref IS NULL
-AND TRIM(d.pymt_acct_ref) <> "";
-
--- Insert missing card IDs
-INSERT INTO `wpay_analytics.wpay_card_identity_model`
-SELECT DISTINCT CAST(NULL AS STRING), d.card_id, d.pymt_acct_ref, d.scdr_token, d.calc_scheme, d.masked_pan, d.calc_card_type, d.card_subtype, CAST(NULL AS STRING),
-    CAST(NULL AS STRING), NULL, CAST(NULL AS STRING), CAST(NULL AS STRING), NULL, NULL, CAST(NULL AS STRING), CAST(NULL AS STRING), CAST(NULL AS STRING),
-    CAST(NULL AS STRING), CAST(NULL AS STRING), d.pan_alias
-FROM `temp_fee_pan_alias` d
-WHERE known = 'N'
-AND card_id IS NOT NULL;
 
 ---------------------------------------------------------------------------------------------------------------------------------
 

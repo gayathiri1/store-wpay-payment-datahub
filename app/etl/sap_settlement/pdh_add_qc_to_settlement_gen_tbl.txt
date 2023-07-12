@@ -22,6 +22,7 @@
 --20230516 -Digital pay to GIFT_CARD
 --          execute only if divisio exists for current hour
 --20230622  -Activate Swap Card
+--20230705  -Remove hard coding for division
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default format_date("%Y-%m-%d",sys_date);
 declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
@@ -154,8 +155,8 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
                           when upper(left(trim(qct.ProductCategory),4))
                                  = "SWAP" then "SWAP" --20230622
                           when ifnull(scm.wpay_company_code,"") = "2025"
-                           and qct.Merchant = "COUNTDOWN"
-                           and qct.Issuer = "WPAY NEW ZEALAND LIMITED" then "WPAYNZ"
+                           and upper(qct.Merchant) = "COUNTDOWN"
+                           and upper(qct.Issuer) = "WPAY NEW ZEALAND LIMITED" then "WPAYNZ"
                           else ""
                        end)
          where upper(trim(qct.transactionstatus)) =  "SUCCESS"
@@ -610,14 +611,17 @@ join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
 join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
         on upper(trim(tlf.division)) = msw.division
         and ifnull(tlf.minitaf_flag,"N") = "Y"
-left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs 
+left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs
         on wbs.store_id = upper(trim(rsd.store_id))
        and wbs.is_active = "Y"
 WHERE upper(trim(r.approval_flag)) = 'Y'
   and ifnull(dn.transaction_total,0) <> 0 
   and SAFE_CAST(dn.tstamp_trans AS DATETIME) is not NULL
-  and (msw.division not in ("EG GROUP","LIVE GROUP") or
-       wbs.store_id is not NULL) --restrict EG GROUP & LIVE GROUP from minitaf by settle_by store table
+  and (Case
+          when msw.settle_by_store = "N" then "Y"
+          when wbs.store_id is not NULL then "Y"
+          else "N"
+       end) = "Y" --restrict EG GROUP & LIVE GROUP from minitaf by settle_by store table
   and `pdh_ref_ds.trans_in_stlm_window`(msw.settle_by_store,
                                         wbs.store_id,
              DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second), 

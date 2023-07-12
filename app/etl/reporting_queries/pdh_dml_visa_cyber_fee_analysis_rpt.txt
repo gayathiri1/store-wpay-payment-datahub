@@ -5,7 +5,7 @@ insert into pdh_analytics_ds.visa_cyber_fee_analysis_rpt
 SELECT
   i.file_date AS file_date,
   PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8))	 as transaction_date,	
-  LEFT(s.term_id,5)AS card_acpt_term_id,
+  LEFT(i.terminal_id,5)AS card_acpt_term_id,
    i.domesitic_international_ind AS domestic_or_international,
   i.card_type,
     i.transaction_type,

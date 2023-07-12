@@ -9,10 +9,10 @@ SELECT
   v.domestic_or_international AS domestic_or_international,
   v.acct_funding_source AS acct_funding_source,
   case 
- when upper(rtt.abbr) = 'PURCHASE'  and v.tran_disposition= '1' then  CAST(v.tran_amt/100 AS FLOAT64)*1
- when upper(rtt.abbr) = 'PURCHASE'  and v.tran_disposition= '3' then CAST(v.tran_amt/100 AS FLOAT64)*-1
- when upper(rtt.abbr) = 'REFUND'  and v.tran_disposition= '1' then  CAST(v.tran_amt/100 AS FLOAT64) *-1 
- when upper(rtt.abbr) = 'REFUND'  and v.tran_disposition= '3' then  CAST(v.tran_amt/100 AS FLOAT64)*1 
+ when  left(v.processing_code,2) = '00'  and v.tran_disposition= '1' then  CAST(v.tran_amt/100 AS FLOAT64)*1
+ when left(v.processing_code,2) = '00'  and v.tran_disposition= '3' then CAST(v.tran_amt/100 AS FLOAT64)*-1
+ when  left(v.processing_code,2) = '20'  and v.tran_disposition= '1' then  CAST(v.tran_amt/100 AS FLOAT64) *-1 
+ when  left(v.processing_code,2) = '20'  and v.tran_disposition= '3' then  CAST(v.tran_amt/100 AS FLOAT64)*1 
  else CAST(v.tran_amt/100 AS FLOAT64)
  end as tran_amt,
   CAST(v.interchange_fee/1000000 AS FLOAT64) AS interchange_fee,
@@ -34,7 +34,16 @@ SELECT
   rsd.is_online,
   v.processing_code,
   rtt.abbr,
-  rtt.tran_type,
+  case trim(left(v.processing_code,2))
+ when '00' then "Purchase"
+ when '01' then "Cashout"
+ when '02' then  "Debit adjustment"
+ when '09' then  "Purchase with Cashout"
+ when '11' then  "Cash"
+ when '20' then "Refund"
+ when '21' then "Deposit"
+ when '22' then "Credit Adjustment"
+ end   tran_type,
   rtt.connex,
   rsc.currency_code
 FROM

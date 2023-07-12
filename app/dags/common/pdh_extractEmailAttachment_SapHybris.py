@@ -17,6 +17,10 @@ from dateutil import parser
 offsetDays = Variable.get("sapHybris", deserialize_json=True)['offsetDays']
 today_aest = datetime.now().astimezone(timezone('Australia/Sydney'))
 hybris_file_date = today_aest.date() - timedelta(int(offsetDays))
+# set the GCS bucket name
+AIRFLOW_GCS_BUCKET= None
+if  os.environ.get("GCS_BUCKET", "no bucket name"):
+    AIRFLOW_GCS_BUCKET = os.environ.get("GCS_BUCKET", "no bucket name")
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
@@ -119,7 +123,7 @@ def download_attachment(id, service):
 
 cleanup_dags_folder = BashOperator(
     task_id='task_cleanup_dags_folder',
-    bash_command='gsutil rm gs://us-central1-pdh-composer-pr-e2c7bc55-bucket/data/QCItem* 2> /dev/null || true',
+    bash_command='gsutil rm gs://{AIRFLOW_GCS_BUCKET}/data/QCItem* 2> /dev/null || true',
     dag=dag,
     )
 
@@ -133,7 +137,7 @@ task_copy_email_attachment = PythonOperator(
 
 move_sapHybris_file = GoogleCloudStorageToGoogleCloudStorageOperator(
     task_id='copy_sapHybris_file',
-    source_bucket='us-central1-pdh-composer-pr-e2c7bc55-bucket',
+    source_bucket={AIRFLOW_GCS_BUCKET},
     source_object='data/*.csv',
     destination_bucket='pdh_prod_incoming',
     destination_object='others/landing/saphybris/',

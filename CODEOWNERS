@@ -4,12 +4,12 @@
 # Unless a later match takes precedence,
 # Order is important; the last matching pattern takes the most precedence.
 
-* @ematimbe @vtumatiwpay @vkb2022
+* @ematimbe-wpay @vtumatiwpay @vkb2022
 
 # Only app owners would be requested when the any files in app floders are modified/added 
 # not the global owners.
 
-app/* @ematimbe @vtumatiwpay @vkb2022
+app/* @ematimbe-wpay @vtumatiwpay @vkb2022
 
 
-infra/* @ematimbe @vtumatiwpay @vkb2022
+infra/* @ematimbe-wpay @vtumatiwpay @vkb2022

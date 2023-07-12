@@ -1,0 +1,222 @@
+DECLARE start_datetime DATETIME DEFAULT DATETIME_SUB(CURRENT_DATETIME('+10:00'), INTERVAL 2 DAY);
+
+-- BILLING ACTUAL
+CREATE TEMP TABLE `temp_txn_all` AS
+SELECT
+dn.masked_pan,
+dn.card_type,
+dn.card_subtype,
+dn.scheme,
+dn.pymt_acct_ref,
+dn.scdr_token,
+-- WPAY ANALYTICS FIELDS
+'DataNav' source_application,
+CAST(null AS STRING) customerRef,
+CAST(null AS STRING) userId,
+CAST(null AS STRING) containerId,
+CAST(null AS STRING) itemId,
+CAST(null AS STRING) qc_CardNumber
+from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn
+WHERE CAST(pdh_load_time AS DATETIME) >= start_datetime;
+
+-- DATA NAVIGATOR (SUPERMARKETS)
+insert into `temp_txn_all`
+select
+dn.masked_pan,
+dn.card_type,
+dn.card_subtype,
+dn.scheme,
+dn.pymt_acct_ref,
+dn.scdr_token,
+-- WPAY ANALYTICS FIELDS
+'DataNavSuper' source_application,
+null customerRef,
+null userId,
+null containerId,
+null itemId,
+null qc_CardNumber
+from `pdh_rd_data_navigator.gfs_pdh_txn_interface_super` dn
+WHERE CAST(pdh_load_time AS DATETIME) >= start_datetime;
+
+-------------------------------------------------------------------------------------------
+-- DIGITAL PAY
+
+insert into `temp_txn_all`
+	Select
+	CAST(bin AS STRING) masked_pan,
+    'D' as card_type,
+    null card_subtype,
+    schemeName scheme,
+	NULL pymt_acct_ref,
+	NULL scdr_token,
+	-- WPAY ANALYTICS FIELDS
+	'DigitalPay' source_application,
+	d.customerRef as customerRef,
+	CAST(d.userId AS STRING) as userId,
+	CAST(containerId AS STRING) containerId,
+	CAST(d.itemId AS STRING) itemId,
+	null qc_CardNumber
+    FROM `pdh_rd_data_navigator.digitalpay_gc_txns` d
+    where (schemeName = 'PAYPAL' OR schemeName = 'GIFT_CARD' AND MerchantName = 'Everyday Pay')
+	and CAST(pdh_load_time AS DATETIME) >= start_datetime
+    AND trim(transactionType) <> "TOKENISE"
+	AND (LENGTH(txnRef)-LENGTH(REPLACE(txnRef,".",""))) <> 2;
+
+-------------------------------------------------------------------------------------------
+-- QUIKCILVER
+
+insert into `temp_txn_all`
+Select
+	CAST(CardNumber AS STRING) masked_pan,
+    'D' as card_type,
+    null card_subtype,
+    'GIFT_CARD' scheme,
+	NULL pymt_acct_ref,
+	NULL scdr_token,
+	-- WPAY ANALYTICS FIELDS
+	'QuikCilver' source_application,
+	null customerRef,
+	null userId,
+	null containerId,
+	null itemId,
+	CAST(CardNumber AS STRING) as qc_CardNumber
+    FROM `pdh_rd_quickcilver.qc_detail_transactions` d
+    where CAST(pdh_load_time AS DATETIME) >= start_datetime
+    AND trim(transactionType) <> "RESET CARD PIN"
+	AND OutletCode IS NOT NULL AND TRIM(OutletCode) <> "";
+
+-------------------------------------------------------------------------------------------
+-- LINKLY
+
+insert into `temp_txn_all`
+Select
+	CAST(ReqPAN AS STRING) masked_pan,
+    'APM' as card_type,
+    null card_subtype,
+    OrigData scheme,
+	NULL pymt_acct_ref,
+	NULL scdr_token,
+	-- WPAY ANALYTICS FIELDS
+	'Linkly' source_application,
+	null customerRef,
+	null userId,
+	null containerId,
+	null itemId,
+	null qc_CardNumber
+    FROM `pdh_rd_apm.alipay_linkly` d
+    where TRIM(d.OrigData) = 'Alipay'
+	and CAST(pdh_load_time AS DATETIME) >= start_datetime;
+
+-------------------------------------------------------------------------------------------
+-- ISG
+
+insert into `temp_txn_all`
+select 
+	pan masked_pan,
+    case card_type
+      when 'CREDIT' then 'C'
+      when 'DEBIT' then 'D'
+      when 'PREPAID' then 'P'
+      when 'credit card' then 'C'
+	  else ''
+	end as card_type,
+    null card_subtype,
+    case upper(trim(scheme))
+        WHEN 'VISA' THEN 'VISA' 
+        WHEN 'MASTERCARD' THEN 'MASTERCARD' 
+        WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
+        WHEN 'AMEX' THEN 'AMEX'
+        ELSE null
+    end scheme,
+	NULL pymt_acct_ref,
+	NULL scdr_token,
+	-- WPAY ANALYTICS FIELDS
+	'ISG' source_application,
+	null customerRef,
+	null userId,
+	null containerId,
+	null itemId,
+	null qc_CardNumber
+    FROM `pdh_rd_data_navigator.isg_wpay_tran` d
+    where CAST(pdh_load_time AS DATETIME) >= start_datetime;
+
+-------------------------------------------------------------------------------------------
+
+CREATE TEMP TABLE `temp_card_id` AS
+SELECT
+	d.masked_pan,
+	d.card_type,
+	d.card_subtype,
+	d.scheme,
+	d.pymt_acct_ref,
+	d.scdr_token,
+	d.source_application,
+	d.customerRef,
+	d.userId,
+	d.containerId,
+	d.itemId,
+	d.qc_CardNumber,
+	`pdh_ref_ds.get_card_id`(source_application, pymt_acct_ref, scdr_token, customerRef, userId, containerId, itemId, qc_CardNumber, masked_pan) card_id
+from `temp_txn_all` d;
+
+-- CARD IDENTITY MODEL UPDATE
+CREATE TEMP TABLE `temp_pan_alias` AS
+SELECT d.*,
+    cid.pan_alias,
+    CASE WHEN cid.card_id IS NOT NULL THEN 'Y' ELSE 'N' END AS known,
+    CASE WHEN cid.pan_alias IS NOT NULL THEN 'Y' ELSE 'N' END AS has_alias,
+    CASE WHEN cid.par IS NOT NULL THEN 'Y' ELSE 'N' END AS has_par
+FROM `temp_card_id` d
+LEFT JOIN `wpay_analytics.wpay_card_identity_model` cid
+ON d.card_id = cid.card_id;
+
+-- Generate new pan aliases
+UPDATE `temp_pan_alias`
+SET pan_alias = TO_BASE64(SHA256(card_id))
+WHERE has_alias = 'N';
+
+-- Update missing PAN aliases
+UPDATE `wpay_analytics.wpay_card_identity_model` cid
+SET cid.pan_alias = d.pan_alias
+FROM (SELECT DISTINCT card_id, pan_alias, known, has_alias FROM `temp_pan_alias`) d
+WHERE cid.card_id = d.card_id
+AND known = 'Y'
+AND has_alias = 'N';
+
+-- Update missing PARs
+UPDATE `wpay_analytics.wpay_card_identity_model` cid
+SET cid.par = d.pymt_acct_ref
+FROM (SELECT DISTINCT card_id, pymt_acct_ref, known, has_par FROM `temp_pan_alias`) d
+WHERE cid.card_id = d.card_id
+AND known = 'Y'
+AND has_par = 'N'
+AND d.pymt_acct_ref IS NULL
+AND TRIM(d.pymt_acct_ref) <> "";
+
+-- Insert missing card IDs
+INSERT INTO `wpay_analytics.wpay_card_identity_model`
+SELECT
+	DISTINCT CAST(NULL AS STRING) as customer_id,
+	d.card_id,
+	d.pymt_acct_ref,
+	d.scdr_token,
+	d.scheme,
+	d.masked_pan,
+	d.card_type,
+	d.card_subtype,
+	CAST(NULL AS STRING) AS bin_product_code,
+    CAST(NULL AS STRING) AS dp_customerRef,
+	NULL AS dp_userId,
+	CAST(NULL AS STRING) AS dp_username,
+	CAST(NULL AS STRING) AS dp_userStatus,
+	NULL AS dp_containerId,
+	NULL AS dp_itemId,
+	CAST(NULL AS STRING) AS dp_itemtype,
+	CAST(NULL AS STRING) AS dp_item_token,
+	CAST(NULL AS STRING) AS Issuer,
+    CAST(NULL AS STRING) AS ProgramGroup,
+	CAST(NULL AS STRING) AS CardProgramGroupType,
+	d.pan_alias
+FROM `temp_pan_alias` d
+WHERE known = 'N'
+AND card_id IS NOT NULL;

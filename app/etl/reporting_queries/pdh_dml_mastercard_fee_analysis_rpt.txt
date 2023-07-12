@@ -1,6 +1,6 @@
-
 truncate table pdh_analytics_ds.mastercard_fee_analysis_rpt ;
 insert into pdh_analytics_ds.mastercard_fee_analysis_rpt  
+
 
 WITH
   d AS (
@@ -8,6 +8,7 @@ WITH
     s.file_date,
     r.division,
     r.company,
+    r.country,
     r.merchant_group,
     r.invoice_group,
     r.store_id,
@@ -40,11 +41,11 @@ WITH
 
   FROM
     `pdh_rd_data_navigator.mastercard_T1G0` s
-  INNER JOIN
+  Left JOIN
     `pdh_reporting_ds.view_ref_store_details` r
   ON
     r.store_id=SUBSTR(s.card_acceptor_terminal_id,1,5)
-  INNER JOIN
+  Left JOIN
     `pdh_ref_ds.ref_mc_prod_code` p
   ON
     s.GCMS_product_identifier=p.type
@@ -56,6 +57,7 @@ WITH
     s.file_date,
     r.division,
     r.company,
+    r.country,
     r.merchant_group,
     r.invoice_group,
     r.store_id,
@@ -83,11 +85,11 @@ WITH
     1 AS tran_cnt
   FROM
     `pdh_rd_data_navigator.mastercard_T1G0` s
-  INNER JOIN
+  Left JOIN
     `pdh_reporting_ds.view_ref_store_details` r
   ON
     r.store_id=SUBSTR(s.card_acceptor_terminal_id,1,5)
-  INNER JOIN
+  Left JOIN
     `pdh_ref_ds.ref_mc_prod_code` p
   ON
     s.GCMS_product_identifier=p.type
@@ -98,6 +100,7 @@ SELECT
   file_date,
   division,
   company,
+  country,
   merchant_group,
   invoice_group,
   store_id,
@@ -125,12 +128,14 @@ GROUP BY
   9,
   10,
   11,
-  12
+  12,
+  13
 UNION ALL
 SELECT
   file_date,
-   division,
+  division,
   company,
+  country,
   merchant_group,
   invoice_group,
   store_id,
@@ -158,4 +163,5 @@ GROUP BY
   9,
   10,
   11,
-  12
+  12,
+  13

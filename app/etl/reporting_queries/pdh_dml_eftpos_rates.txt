@@ -28,6 +28,7 @@ INSERT INTO
     SELECT
       division,
       company,
+      Country, 
       Merchant_group,
       brand,
       store_id,
