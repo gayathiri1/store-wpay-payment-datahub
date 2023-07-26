@@ -388,7 +388,8 @@ CAST(null AS STRING) AS dp_txnRef,
 CAST(null AS STRING) AS qc_ReferenceNumber,
 CAST(null AS NUMERIC) AS qc_BatchNumber,
 CAST(null AS STRING) AS lk_ResRef,
-CAST(null AS STRING) AS cy_tran_uid
+CAST(null AS STRING) AS cy_tran_uid,
+wallet_id
 from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn  
 Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
 left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
@@ -492,7 +493,8 @@ null AS dp_txnRef,
 null AS qc_ReferenceNumber,
 null AS qc_BatchNumber,
 null AS lk_ResRef,
-null AS cy_tran_uid
+null AS cy_tran_uid,
+wallet_id
 from `pdh_rd_data_navigator.gfs_pdh_txn_interface_super` dn  
 Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
 left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
@@ -598,7 +600,8 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
 	null AS qc_ReferenceNumber,
 	null AS qc_BatchNumber,
 	null AS lk_ResRef,
-	null AS cy_tran_uid
+	null AS cy_tran_uid,
+    null AS wallet_id
     FROM `pdh_rd_data_navigator.digitalpay_gc_txns` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     (CASE WHEN MerchantName = 'WowOnline' then 'W8843'
@@ -710,7 +713,8 @@ Select
 	ReferenceNumber AS qc_ReferenceNumber,
 	BatchNumber AS qc_BatchNumber,
 	null AS lk_ResRef,
-	null AS cy_tran_uid
+	null AS cy_tran_uid,
+    null AS wallet_id
     FROM `pdh_rd_quickcilver.qc_detail_transactions` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     (
@@ -810,7 +814,8 @@ Select
 	null AS qc_ReferenceNumber,
 	null AS qc_BatchNumber,
 	ResRef AS lk_ResRef,
-	null AS cy_tran_uid
+	null AS cy_tran_uid,
+    null AS wallet_id
     FROM `pdh_rd_apm.alipay_linkly` d
 	LEFT JOIN `pdh_ref_ds.ref_store_details` s ON 
     d.ReqStore = s.store_id
@@ -936,7 +941,8 @@ select
 	null AS qc_ReferenceNumber,
 	null AS qc_BatchNumber,
 	null AS lk_ResRef,
-	CAST(tran_uid AS STRING) AS cy_tran_uid
+	CAST(tran_uid AS STRING) AS cy_tran_uid,
+    null AS wallet_id
     FROM `pdh_rd_data_navigator.isg_wpay_tran` d
     left join pdh_ref_ds.ref_key_value rk 
         on rk.attribute = "merchant-terminalid mapping"
@@ -1215,7 +1221,7 @@ SELECT
 	0.0 interchange_fees_invoiced, -- should be null
 	0.0 interchange_fees_rebate,
 	'' fee_indicator,
-	ifnull(if(proc_fee_code ='ALL', ((d.transaction_total * proc_fee_percent/100) + proc_fee_fixed*100),
+    ifnull(if(proc_fee_code ='ALL', ((d.transaction_total * proc_fee_percent/100) + proc_fee_fixed*100),
 		if(proc_fee_code ='FIXED', proc_fee_fixed*100,
 		if(proc_fee_code ='PERCENT',(d.transaction_total * proc_fee_percent/100),0))) 
 	, 0) as processing_fees,
@@ -1247,67 +1253,70 @@ SELECT
 	d.item_token,
 	d.schemeName,
 	d.qc_CardNumber,
-	case 
-		when source_application = 'DataNav'         then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'SCDR'||scdr_token)
-		when source_application = 'DataNavSuper'     then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'SCDR'||scdr_token)
-		when source_application = 'DigitalPay'         then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'customerRef'||customerRef||'userId'||userId||'containerId'||containerId||'itemId'||itemId)
-		when source_application = 'QuikCilver'         then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'qc_CardNumber'||qc_CardNumber)
-		when source_application = 'Linkly'             then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'masked_pan'||masked_pan)
-		when source_application = 'ISG'             then coalesce('PAR'||nullif(trim(pymt_acct_ref),''),'masked_pan'||masked_pan)
-	end card_id,
+    pdh_ref_ds.get_card_id(
+        source_application,
+        d.pymt_acct_ref,
+        d.scdr_token,
+        d.customerRef,
+        d.userId,
+        d.containerId,
+        d.itemId,
+        d.qc_CardNumber,
+        d.masked_pan
+    ) card_id,
 	-- ADDITIONAL PRICING MODEL FIELDS
 	cc.pricing_model,
 	case
-		when d.calc_approval_flag = 'A' and cc.pricing_model = 'IC++' and calc_tran_type_abbr NOT LIKE '%REVERSAL%' then
-			case when calc_scheme IN ('VISA', 'MASTERCARD') then
-				case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
-					ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100  / fx.exchange_rate) , 0)
-				when calc_tran_type_abbr = 'REFUND' then
-					ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol * -1 + (sr.extern_scheme_fee_fixed_usd * 100  / fx.exchange_rate) , 0)
-				when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
-					ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100  / fx.exchange_rate) , 0)
-				else 0
-				end
-			when calc_scheme = 'EFTPOS' then
-				case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
-					ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_local * 100), 0)
-				when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
-					ifnull(sr.extern_scheme_fee_fixed_local * 100, 0)
-				else 0
-				end
+		when d.calc_approval_flag = 'A' and cc.pricing_model = 'IC++' and (act_code <> '400' or mti <> '1440') then
+            case when calc_scheme IN ('VISA', 'MASTERCARD', 'UPI') then
+                case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
+                    ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100 / fx.exchange_rate), 0)
+                when calc_tran_type_abbr = 'REFUND' then
+                    ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol * -1 + (sr.extern_scheme_fee_fixed_usd * 100 / fx.exchange_rate), 0)
+                when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
+                    ifnull(d.transaction_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100 / fx.exchange_rate), 0)
+                else 0
+                end
+            when calc_scheme = 'EFTPOS' then
+                case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
+                    ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_local * 100), 0)
+                when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
+                    ifnull(sr.extern_scheme_fee_fixed_local * 100, 0)
+                else 0
+                end
             else 0
-			end
+            end
 		else 0
 	end as extern_scheme_fees,
-    case when d.calc_approval_flag = 'A' and calc_tran_type_abbr NOT LIKE '%REVERSAL%' then
-		case when calc_scheme IN ('VISA', 'MASTERCARD') then
-			case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
-                ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate) , 0)
+    case when d.calc_approval_flag = 'A' and (act_code <> '400' or mti <> '1440') then
+        case when calc_scheme IN ('VISA', 'MASTERCARD', 'UPI') then
+            case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
+                ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate), 0)
             when calc_tran_type_abbr = 'REFUND' then
-                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol * -1 + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate) , 0)
+                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol * -1 + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate), 0)
             when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
-                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate) , 0)
+                ifnull(d.transaction_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate), 0)
             else 0   
             end
-		when calc_scheme = 'EFTPOS' then
-			case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
-				ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_local * 100), 0)
-			when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
-				ifnull(sr.intern_scheme_fee_fixed_local * 100, 0)
+        when calc_scheme = 'EFTPOS' then
+            case when calc_tran_type_abbr IN ('PURCHASE', 'PURCHASE WITH CASHOUT') then
+                ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_local * 100), 0)
+            when calc_tran_type_abbr IN ('CASHOUT', 'REFUND') then
+                ifnull(sr.intern_scheme_fee_fixed_local * 100, 0)
             else 0
-			end
+            end
         else 0
         end
     else 0
     end as intern_scheme_fees,
-	case when d.calc_approval_flag = 'A' and calc_tran_type_abbr NOT LIKE '%REVERSAL%' then
-        case when calc_scheme IN ('VISA', 'MASTERCARD') then
+	case when d.calc_approval_flag = 'A' and (act_code <> '400' or mti <> '1440') then
+        case when calc_scheme IN ('VISA', 'MASTERCARD', 'UPI') then
             case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
-                ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate) , 0)
+                ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate), 0)
             when calc_tran_type_abbr = 'REFUND' then
-                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate * -1 + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate) , 0)
+                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate * -1 + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate), 0)
             when calc_tran_type_abbr NOT IN ('PRE-AUTH', 'CASHOUT') then
-                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate) , 0)
+                ifnull(d.transaction_total * sr.scheme_fee_ad_vol_rebate + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate), 0)
             else 0   
             end
         when calc_scheme = 'EFTPOS' then
@@ -1323,7 +1332,8 @@ SELECT
     end as scheme_fees_rebate,
 	CAST(null AS STRING) fraud_fee_indicator,
 	CAST(null AS STRING) c3ds_fee_indicator,
-	0 c3ds_fees
+	0 c3ds_fees,
+    d.wallet_id
 from `temp_billing_all` d
 LEFT JOIN `pdh_ref_ds.ref_rate_card` r
 	ON trim(upper(d.calc_scheme)) = trim(upper(r.scheme)) 
@@ -1346,7 +1356,7 @@ LEFT JOIN `pdh_ref_ds.ref_scheme_fee_rate_card` sr
     AND CASE WHEN d.dom_int_ind IN ('D', 'I') THEN d.dom_int_ind ELSE 'D' END = sr.dom_vs_int
     AND (d.calc_tran_type_abbr = sr.transaction_type OR sr.transaction_type = 'ALL')
     AND d.switch_tran_date BETWEEN sr.from_date AND IFNULL(sr.to_date, '2999-12-31')
-	LEFT JOIN `pdh_ref_ds.ref_key_value` kv
+LEFT JOIN `pdh_ref_ds.ref_key_value` kv
 	ON kv.attribute = 'scheme-fee-forex'
 	AND s.country = kv.key
 LEFT JOIN UNNEST(forex_array) fx
@@ -1723,7 +1733,8 @@ d.intern_scheme_fees,
 d.scheme_fees_rebate,
 d.fraud_fee_indicator,
 d.c3ds_fee_indicator,
-d.c3ds_fees
+d.c3ds_fees,
+d.wallet_id
 FROM `temp_fee_calc` d;
 
 ------------------------------------------------------------------------------------------------------------------------------------------

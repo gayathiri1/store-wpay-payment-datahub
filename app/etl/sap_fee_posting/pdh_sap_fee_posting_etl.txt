@@ -332,7 +332,14 @@ WITH result AS (
             GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
             UNION ALL 		
 		SELECT '1' AS H,
-            'SCHEMEFEECOGS' AS fee_type_description,
+            (CASE 
+				WHEN upper(a.scheme) = 'VISA' 		then 'VISASCHEMEFEECOGS'
+				WHEN upper(a.scheme) = 'MASTERCARD' then 'MCSCHEMEFEECOGS'
+				WHEN upper(a.scheme) = 'EFTPOS' 	then 'EFTPOSSCHEMEFEECOGS'
+				WHEN upper(a.scheme) = 'UPI' 		then 'UPISCHEMEFEECOGS'
+            ELSE 'SCHEMEFEECOGS'
+            END)  
+			AS fee_type_description,
             CAST(FORMAT_DATE("%Y%m%d",a.switch_tran_date) AS INT64) AS calender_date,
             a.switch_tran_date,
             e.fp_end_date,

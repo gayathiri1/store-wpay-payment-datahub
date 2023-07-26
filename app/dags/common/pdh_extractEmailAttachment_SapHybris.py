@@ -21,12 +21,17 @@ hybris_file_date = today_aest.date() - timedelta(int(offsetDays))
 AIRFLOW_GCS_BUCKET= None
 if  os.environ.get("GCS_BUCKET", "no bucket name"):
     AIRFLOW_GCS_BUCKET = os.environ.get("GCS_BUCKET", "no bucket name")
+# set the project name
+ENV=None
+if  os.environ.get("GCP_PROJECT", "no bucket name"):
+    PROJECT_ID = os.environ.get("GCP_PROJECT", "no bucket name")
+    ENV = PROJECT_ID.split('-')[-1] 
 
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
 
 
 default_dag_args={
-    'start_date' : datetime(2021, 8, 12)
+    'start_date' : datetime(2023, 7, 12)
 }
 
 
@@ -121,9 +126,15 @@ def download_attachment(id, service):
     except Exception as e:
         logging.info("Exception Raised:{}".format(e))
 
+
+check_bucket_name= BashOperator(
+    task_id='check_airflow_bucket_name',
+    bash_command=f'echo {AIRFLOW_GCS_BUCKET} in environment {ENV}',
+    dag=dag,
+    )
 cleanup_dags_folder = BashOperator(
     task_id='task_cleanup_dags_folder',
-    bash_command='gsutil rm gs://{AIRFLOW_GCS_BUCKET}/data/QCItem* 2> /dev/null || true',
+    bash_command=f'gsutil rm gs://{AIRFLOW_GCS_BUCKET}/data/QCItem* 2> /dev/null || true',
     dag=dag,
     )
 
@@ -137,13 +148,13 @@ task_copy_email_attachment = PythonOperator(
 
 move_sapHybris_file = GoogleCloudStorageToGoogleCloudStorageOperator(
     task_id='copy_sapHybris_file',
-    source_bucket={AIRFLOW_GCS_BUCKET},
+    source_bucket=f'{AIRFLOW_GCS_BUCKET}',
     source_object='data/*.csv',
-    destination_bucket='pdh_prod_incoming',
+    destination_bucket=f'pdh_{ENV}_incoming',
     destination_object='others/landing/saphybris/',
     move_object=False,
     dag=dag,
 )
 
 
-cleanup_dags_folder >> task_copy_email_attachment >> move_sapHybris_file
+check_bucket_name >> cleanup_dags_folder >> task_copy_email_attachment >> move_sapHybris_file
