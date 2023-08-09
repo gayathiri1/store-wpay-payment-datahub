@@ -189,7 +189,7 @@ ELSE
                         WHERE merchant_name like '%feelist'
                           AND batch_number  = (SELECT distinct max(batch_number) 
                                                FROM pdh_analytics_ds.gen_ctrl_data
-                                               WHERE merchant_name like '%feelist'));                                   
+                                               WHERE merchant_name like '%feelist'));
 END IF;
 
 -- Get transaction date based on run date
@@ -202,7 +202,7 @@ ELSE
 END IF;
 
 --Fetch extract start and end date
-SET date_array_cnt = (SELECT ARRAY_LENGTH(trans_date_range));								
+SET date_array_cnt = (SELECT ARRAY_LENGTH(trans_date_range));
 --SET ext_start_date = trans_date_range[offset(0)];
 --SET ext_end_date = trans_date_range[ordinal(ARRAY_LENGTH(trans_date_range))];  
 
@@ -248,7 +248,7 @@ WITH result AS (
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
 	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
 	ftlf_prefix file_prefix,
-	PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) tran_date													  
+	PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) tran_date
     FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a,
 		 `pdh_ref_ds.ref_stlm_tlf_config` b
     WHERE lower(a.division) = lower(b.division)
@@ -256,7 +256,7 @@ WITH result AS (
     AND TRIM(issuer) <> ''
 	AND EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8))))
     --AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
-	AND action_code <> '902'
+	AND (action_code <> '902' OR action_code IS NULL)
 UNION ALL
 SELECT 'D' H, 
 	CASE WHEN UPPER(tran_uid_val) = UPPER(a.division) THEN a.tran_uid
@@ -305,7 +305,7 @@ SELECT 'D' H,
     AND TRIM(issuer) <> ''
 	AND EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8))))
     --AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
-	AND action_code <> '902'
+	AND (action_code <> '902' OR action_code IS NULL)
 UNION ALL
 SELECT 'D' H, 
 	CASE WHEN UPPER(tran_uid_val) = UPPER(a.division) THEN a.tran_uid
@@ -354,7 +354,7 @@ SELECT 'D' H,
     AND TRIM(issuer) <> ''
     --AND PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) = tran_date
 	AND EXISTS ((SELECT 1 FROM UNNEST(trans_date_range)transdate where transdate = PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8))))
-	AND action_code <> '902'
+	AND (action_code <> '902' OR action_code IS NULL)
 )
 SELECT * FROM result;
 

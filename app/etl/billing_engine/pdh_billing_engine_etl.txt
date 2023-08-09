@@ -38,7 +38,7 @@ SET missing_data = (SELECT ARRAY((
 	SELECT "gfs_aux_visa" name FROM `pdh_rd_data_navigator.gfs_aux_visa`
 	GROUP BY 1 HAVING MAX(file_date) < data_req_date
 	UNION ALL
-	SELECT "gfs_aux_eftpos" name FROM `pdh_rd_data_navigator.gfs_aux_eftpos`
+	SELECT "eftpos_tx_100_01" name FROM `pdh_rd_data_navigator.eftpos_tx_100_01`
 	GROUP BY 1 HAVING MAX(file_date) < data_req_date
 	UNION ALL
 	-- NOTE: alipay_stlm has been left out due to inconsistent delivery of files
@@ -138,7 +138,7 @@ SET missing_intermediate_data = (SELECT ARRAY((
 	select  distinct clndr_date from (
 	SELECT d.clndr_date,count(s.file_date) name FROM 
 	`pdh_ref_ds.dim_date` d 
-	left join `pdh_rd_data_navigator.gfs_aux_eftpos` s on d.clndr_date=s.file_date
+	left join `pdh_rd_data_navigator.eftpos_tx_100_01` s on d.clndr_date=s.file_date
 	where  d.clndr_date between DATE_SUB(data_req_date, INTERVAL 7 DAY) and data_req_date
 	GROUP BY 1 HAVING count(s.file_date) = 0 ) a 
 	
@@ -362,7 +362,7 @@ when 'ANZ' then
 when 'FIS' then 'CRD'
 when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','VISA'))
 when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','MASTERCARD'))
-when 'VER' then CASE TRIM(dn.scheme) WHEN 'Visa' THEN 'VISA' WHEN 'MasterCard' THEN 'MASTERCARD' ELSE 'VERIFONE' END
+when 'VER' then  'VERIFONE'
 else proc_id_iss_b
 end link_route,
 msw.reporting_group merchant_group,
@@ -467,7 +467,7 @@ when 'ANZ' then
 when 'FIS' then 'CRD'
 when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','VISA'))
 when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','MASTERCARD'))
-when 'VER' then CASE TRIM(dn.scheme) WHEN 'Visa' THEN 'VISA' WHEN 'MasterCard' THEN 'MASTERCARD' ELSE 'VERIFONE' END
+when 'VER' then 'VERIFONE'
 else proc_id_iss_b
 end link_route,
 msw.reporting_group merchant_group,
@@ -1350,7 +1350,7 @@ LEFT JOIN `pdh_ref_ds.ref_company_config` cc
 	ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company))
 	AND d.switch_tran_date BETWEEN cc.from_date AND IFNULL(cc.to_date, '2999-12-31')
 LEFT JOIN `pdh_ref_ds.ref_scheme_fee_rate_card` sr
-	ON trim(upper(s.scheme_ratecard_group)) = trim(upper(sr.scheme_fee_group))
+	ON IF(trim(ifnull(s.scheme_ratecard_group, '')) = '', concat('WPAY', s.country, IF(s.is_online = 'Online', 'CNP', 'CP')), trim(upper(s.scheme_ratecard_group))) = trim(upper(sr.scheme_fee_group))
 	AND trim(upper(d.calc_scheme)) = trim(upper(sr.scheme)) 
     AND CASE WHEN d.calc_card_type IN ('MULTI-NETWORK', 'DIGITAL', 'PROPRIETARY') THEN 'DEBIT' ELSE trim(Upper(d.calc_card_type)) END = trim(upper(sr.card_type))
     AND CASE WHEN d.dom_int_ind IN ('D', 'I') THEN d.dom_int_ind ELSE 'D' END = sr.dom_vs_int
@@ -1476,8 +1476,8 @@ and trim(i.proc_id_iss_b) = 'VDCS'
 Update `temp_fee_calc` i
 set interchange_fees_actual= v.issuer_interchange_amt + v.acquirer_interchange_amt,
 i.fee_indicator='A'
-from (Select distinct tstamp_local,card_acpt_term_id,rrn,stan,
-tran_amt,pan,mti, acquirer_interchange_amt, issuer_interchange_amt from `pdh_rd_data_navigator.gfs_aux_eftpos`) v
+from (Select distinct tstamp_local,trim(card_acpt_term_id) card_acpt_term_id,rrn,stan,
+tran_amt,trim(if(trim(payment_token)='',pan,payment_token)) pan ,mti, acquirer_interchange_amt, issuer_interchange_amt from `pdh_rd_data_navigator.eftpos_tx_100_01`) v
 where i.tstamp_local = v.tstamp_local
 and  i.net_term_id = v.card_acpt_term_id
 and i.retrieval_ref_no = v.rrn
@@ -1526,8 +1526,8 @@ Update `temp_fee_calc` i
 set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
 i.fee_indicator = 'A'
 from (
-    SELECT DISTINCT trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt, extd_interchg_amt_fee, amt_tran_fee,
-    RANK() OVER (PARTITION BY trace_id, card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank
+    SELECT DISTINCT trace_id, extd_interchg_amt_fee, amt_tran_fee,
+    RANK() OVER (PARTITION BY trace_id ORDER BY pdh_load_time DESC) rank
     FROM `pdh_rd_data_navigator.tn70_mc`
 ) s
 where i.tran_uid = concat(right(s.trace_id,4), left(s.trace_id, length(s.trace_id)-4))

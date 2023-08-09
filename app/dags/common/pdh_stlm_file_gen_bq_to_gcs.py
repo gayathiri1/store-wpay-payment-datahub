@@ -1,3 +1,4 @@
+import os
 from airflow import DAG,models,AirflowException
 from datetime import datetime, date, time, timedelta, tzinfo
 import logging
@@ -41,6 +42,8 @@ dag = DAG(
 #log_prefix = f"[pdh_batch_pipeline][{dag_name}]"
 log_prefix = "[pdh_batch_pipeline]"+"["+dag_name+"]"
 exec_time_aest = get_current_time_str_aest()
+
+gcs_bucket = os.environ.get("GCS_BUCKET")
 
 
 class CustomAdapter(logging.LoggerAdapter):
@@ -547,6 +550,8 @@ def updatecontrolTable(**kwargs):
     file_path=ast.literal_eval(file_path)
     
     environment= Variable.get('stlm_file_gen_bq_to_gcs',deserialize_json=True)['environment']
+    email_destination_bucket_name = gcs_bucket
+    logging.info("email_destination_bucket_name {}".format(email_destination_bucket_name))   
 
     for index in range(0,len(merchant)):
         logging.info("len(merchant){}".format(len(merchant)))
@@ -570,8 +575,7 @@ def updatecontrolTable(**kwargs):
            logging.info("complete_file_name[index] {}".format(complete_file_name[index]))  
            bucket_name = file_path[index].split('/')[2]
            logging.info("bucket_name {}".format(bucket_name))             
-           email_destination_bucket_name =Variable.get('stlm_file_gen_bq_to_gcs',deserialize_json=True)['base_bucket']
-           logging.info("email_destination_bucket_name {}".format(email_destination_bucket_name))   
+           # email_destination_bucket_name =Variable.get('stlm_file_gen_bq_to_gcs',deserialize_json=True)['base_bucket']
            send_email_attach = su.EmailAttachments('', email[index], "["+environment+"] File generation for "+merchant[index]+" "+execTimeInAest,"File generation for "+merchant[index]+" completed successfully. Please check the attachment",complete_file_name[index],bucket_name,email_destination_bucket_name)           
 		   
            logging.info("email {}".format(email))

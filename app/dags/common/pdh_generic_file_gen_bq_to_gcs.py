@@ -1,3 +1,4 @@
+import os
 from airflow import DAG,models,AirflowException
 from datetime import datetime, date, time, timedelta, tzinfo
 import logging
@@ -7,7 +8,7 @@ from airflow.contrib.operators.bigquery_get_data import BigQueryGetDataOperator
 from airflow.operators.dagrun_operator import TriggerDagRunOperator
 from google.cloud import storage
 from google.cloud import bigquery
-from airflow.models import Variable
+# from airflow.models import Variable
 from datetime import datetime, timedelta
 import datetime as dttime
 import pytz
@@ -17,10 +18,6 @@ from zlibpdh import pdh_utilities as pu
 from zlibpdh import sub_utilities as su
 import time
 
-
-
-
-
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
@@ -29,8 +26,9 @@ default_args = {
 
 logging.info("constructing dag - using airflow as owner")
 
-
 dag = DAG('pdh_generic_file_gen_bq_to_gcs', catchup=False, default_args=default_args,schedule_interval= None)
+
+gcs_bucket = os.environ.get("GCS_BUCKET")
 
 def getConfigDetails(**kwargs):
 
@@ -87,10 +85,14 @@ def getConfigDetails(**kwargs):
         split_merchant=dag_var[29:30]
         email_attachment=dag_var[30:]
         errorcount = 0
-        base_bucke = dag_var[8:9]
+        base_bucket = dag_var[8:9]
         qu_ctrltab = dag_var[3:4]
         qu_ctrltab_false = dag_var[4:5]
         environment = dag_var[9:10]
+
+        # https://woolworthsdigital.atlassian.net/browse/DATPAY-3739
+        # Assign base_bucket from env var
+        base_bucket = gcs_bucket
             
         execTimeInAest = convertTimeZone(datetime.now(),"UTC","Australia/NSW")
         

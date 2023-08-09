@@ -1,3 +1,4 @@
+import os
 import ast
 import json
 import logging
@@ -26,6 +27,7 @@ dag = DAG(
     default_args=default_args,
     schedule_interval=None,
 )
+gcs_bucket = os.environ.get("GCS_BUCKET")
 
 # https://stackoverflow.com/a/70397050/482899
 log_prefix = f"[pdh_batch_pipeline][{dag_name}]"
@@ -523,6 +525,8 @@ def updateControlTable(**kwargs):
     file_path = ast.literal_eval(file_path)
 
     environment = Variable.get("file_gen_bq_to_gcs", deserialize_json=True)["environment"]
+    email_destination_bucket_name = gcs_bucket
+    logger.debug(f"email_destination_bucket_name = {email_destination_bucket_name}")
 
     for index in range(0, len(merchant)):
         # logger.debug(f"{len(merchant)=}")
@@ -598,10 +602,9 @@ def updateControlTable(**kwargs):
             # send email with attachment
             # logger.debug(f"{email=}")
             # logger.debug(f"{email_subject=}")
-            email_destination_bucket_name = Variable.get(
-                "file_gen_bq_to_gcs", deserialize_json=True
-            )["base_bucket"]
-            # logger.debug(f"{email_destination_bucket_name=}")
+            # email_destination_bucket_name = Variable.get(
+            #     "file_gen_bq_to_gcs", deserialize_json=True
+            # )["base_bucket"]
             su.EmailAttachments(
                 sender="",
                 to=email[index],

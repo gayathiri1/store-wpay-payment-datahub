@@ -71,6 +71,7 @@ def readexecuteQuery(**kwargs):
         query_file = Variable.get('stlm_file_gen_etl', deserialize_json=True)['files']
         qc_select = Variable.get('stlm_file_gen_etl', deserialize_json=True)['qc_select']
         emailTo = Variable.get("stlm_file_gen_etl", deserialize_json=True)['emailTo']
+        emailException = Variable.get("stlm_file_gen_etl", deserialize_json=True)['emailException']
     except Exception as e:
         logging.info("Exception raised in readexecuteQuery while reading variables:{}".format(e))
 
@@ -106,7 +107,7 @@ def readexecuteQuery(**kwargs):
                 blob = bucket.blob(i['query_file'])
                 text = blob.download_as_string()
                 query_text = text.decode('utf-8')
-                result, rows = processQuery(query_text, emailTo)
+                result, rows = processQuery(query_text, emailException)
                 # if result==False:
                 # unupdated_files.append(i['merchant'])
                 # unupdated_query.append(i['query_file'])
@@ -147,7 +148,7 @@ def readexecuteQuery(**kwargs):
                 subject = "Exception raised while executing file extraction etl, in task readexecuteQuery" + execTimeInAest.strftime(
                     "%Y-%m-%d %H:%M:%S")
                 body = "Exception raised while executing file extraction etl, in task readexecuteQuery: \n" + str(e)
-                pu.PDHUtils.send_email(emailTo, subject, body)
+                pu.PDHUtils.send_email(emailException, subject, body)
                 error_count += 1
                 unupdated_files.append(i['merchant'])
                 unupdated_query.append(i['query_file'])
@@ -175,7 +176,7 @@ def readexecuteQuery(**kwargs):
     return True
 
 
-def processQuery(query, emailTo):
+def processQuery(query, emailException):
     try:
         client = bigquery.Client()
         query_job = client.query(query)
@@ -188,7 +189,7 @@ def processQuery(query, emailTo):
         subject = "Exception raised while executing file extraction etl in processQuery" + execTimeInAest.strftime(
             "%Y-%m-%d %H:%M:%S")
         body = "Exception raised while executing file extraction etl in processQuery: \n" + str(e)
-        pu.PDHUtils.send_email(emailTo, subject, body)
+        pu.PDHUtils.send_email(emailException, subject, body)
         event_message = f"Exception raised while executing file extraction etl in processQuery {str(e)}"
         event = Event(
             dag_name=dag_name,
@@ -219,6 +220,7 @@ def sendEmail(**kwargs):
     try:
         subject = "File generation ETL " + loadDateTime
         emailTo = Variable.get("stlm_file_gen_etl", deserialize_json=True)['emailTo']
+        emailException = Variable.get("stlm_file_gen_etl", deserialize_json=True)['emailException']
         #Check for Settlment Cycle
         is_settlement_cycle = settlement_cycle_check()
         if error_count == 0:
@@ -257,10 +259,12 @@ def sendEmail(**kwargs):
         event_message = f"Exception raised while executing file extraction etl in sendEmail:{e}"
         event = Event(
             dag_name=dag_name,
-            event_status="success",
+            event_status="failure",
             event_message=event_message,
             start_time=exec_time_aest,)
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
+        bodytext = f"Exception raised while executing file extraction etl in sendEmail:{str(e)}"
+        pu.PDHUtils.send_email(emailException, subject, bodytext)
     return True
 
 
@@ -293,7 +297,7 @@ def settlement_cycle_check():
         
     except Exception as e:
         logging.info("Exception:{}".format(e))                
-        event_message = f"Exception raised while executing file extraction etl in processQuery {str(e)}"
+        event_message = f"Exception raised while executing file extraction etl in settlement_cycle_check {str(e)}"
         event = Event(
             dag_name=dag_name,
             event_status="failure",

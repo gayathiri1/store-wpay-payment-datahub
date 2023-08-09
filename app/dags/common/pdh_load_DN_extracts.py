@@ -1,3 +1,4 @@
+import os
 import datetime
 from zlibpdh import spark_init as si
 from airflow import DAG, macros
@@ -260,8 +261,26 @@ def spark_submit(**kwargs):
     config = Variable.get("v_gfs_datasets", deserialize_json=True)
     print(f'object name : {object_name}')
     print(f'Pypath : {config[object_name]}')
+    # Dynamic setup pypath
+    # https://woolworthsdigital.atlassian.net/browse/DATPAY-3735
+    gcs_bucket = os.environ.get("GCS_BUCKET")
+    pypath = config[object_name]["pyPath"]
+    print(f"load pypath from variable: {pypath}")
+    if gcs_bucket:
+        path_list = pypath.split("/")
+        # get rid of fixed bucket name
+        # us-central1-pdh-composer-de-9fdde59d-bucket/dags/zSparkSubmit/load_wpay.py
+        if path_list[0].startswith("us-central1-pdh-composer") and path_list[0].endswith("-bucket"):
+            path_list[0] = gcs_bucket
+        else:
+            path_list.insert(0, gcs_bucket)
+        pypath = "/".join(path_list)
+        print(f"dynamic setup pypath: {pypath}")
+    pypath = "gs://" + pypath
+        
+
     spark_sub= si.SparkInit(dag, 'spark-submit', config['project_name'], config['project_name'],
-                            config['project_name'], 'gs://' + config[object_name]['pyPath'],config[object_name]['args'])
+                            config['project_name'], pypath, config[object_name]['args'])
     t2 = spark_sub.submit_cluster()
     try:
         t2.execute(dict())

@@ -1,0 +1,2789 @@
+
+
+
+
+
+
+create or replace table wpay_analytics.daily_risk_transaction_monitoring as(
+
+--- Rule 1 ---
+-- `pdh_ref_ds.ref_aml_analytics`
+
+-- additional features to add --
+
+
+        -- act_code = RespCode
+        -- upper(brand) = TermName
+        -- upper(site_name) = TermCity
+--         ??? = ExcpNum
+--         ??? = IssuerLink
+
+
+--------------------------------
+
+
+with threshold1 as(
+
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "1"
+
+
+)
+,minute1 as(
+
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "1"  
+
+
+)
+
+
+,occurence1 as(
+
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "1"
+
+
+)
+
+
+
+
+,velocity_tbl_rule1 as
+
+
+(
+select left(string(tstamp_local), 19) tstamp
+
+, brand
+, site_name
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, calc_tran_type_description
+, tstamp_trans as start_time
+,act_code as RespCode
+,upper(site_name) as TermCity
+-- , case when 1=1 then 1 end as rule_number
+
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute1) minute) end_time
+-- , tstamp_trans end_time
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+ left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold1
+, occurence1
+, minute1
+
+
+-- join vars as t2 on t1.rule_number = t2.rule_number
+-- string(CURRENT_DATE('Australia/Sydney'))
+
+where 1=1
+
+
+and left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10) 
+and transaction_total/100 >= (select transaction_threshold from threshold1)
+-- and net_term_id = "W0117052"
+and left(masked_pan, 6) <> "628000"
+and calc_approval_flag  = "A"
+and proc_id_acq_b not like "%WPY%"
+and proc_id_acq_b not like "%EDWP%"
+
+
+and (calc_tran_type_description = "CASHOUT" or calc_tran_type_description = "PURCHASE WITH CASHOUT")
+
+
+order by tstamp
+
+
+)
+
+
+-- select * from velocity_tbl_rule1
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+,final1 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule1 table1
+left join
+  velocity_tbl_rule1 table2
+on (table1.net_term_id = table2.net_term_id) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc, counter asc
+)
+, rejections as(
+select * from final1
+-- group by  1,2,3,4,5,6,7,8,9,10,11
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence1)
+)
+
+
+-- select * from rejections
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_1 as(
+select
+  table2.*
+  -- count(table2.tstamp_trans) as counter
+from
+  rejections table1
+left join
+  velocity_tbl_rule1 table2
+on (table1.net_term_id = table2.net_term_id) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc
+)
+-- select * from final_rule_1
+
+
+, final_format_rule_1 as(
+
+
+select
+
+ site_name
+, brand as Merchant
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule1-HighCashout-TermID" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as TermName
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+
+
+, current_timestamp as Report_Timestamp
+
+
+from final_rule_1
+
+
+)
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+--- Rule 2 ---
+
+, threshold2 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "2"
+
+
+)
+, threshold3 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "3"
+
+
+)
+, threshold4 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "4"
+
+
+)
+, threshold5 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "5"
+
+
+)
+, threshold20 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "21"
+
+
+)
+
+
+, rule_2_tbl as(
+
+select 
+ left(string(tstamp_local), 19) tstamp
+, brand
+, site_name
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+, datetime_diff(datetime (tstamp_trans),datetime(LAG(tstamp_trans, 1) OVER (PARTITION BY net_term_id ORDER BY tstamp_trans)),SECOND) as seconds_difference
+,act_code as RespCode
+,upper(site_name) as TermCity
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+ left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+where 1=1
+
+
+and left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+
+
+and(
+
+
+
+
+  (proc_id_acq_b like "%EGF%" and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold2))  --Rule2
+  or(proc_id_acq_b like "%SLP%" and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold3)) --Rule3
+  or(proc_id_acq_b like "%ALH%" and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold4)) --Rule4
+  or(proc_id_acq_b like "%ALV%" and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold4)) --Rule4
+  or(proc_id_acq_b like "%EGH%" and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold4)) --Rule4
+  or(proc_id_acq_b like "%BIG%W%" and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold20)) -- Find out BIGW threshold
+  or(proc_id_acq_b like "%PEL%" and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold5)) --Rule5
+
+
+)
+
+
+and calc_approval_flag  = "A"
+
+
+order by tstamp_trans
+)
+
+
+, final_format_rule_2 as(
+
+
+select
+
+site_name
+, brand as Merchant
+
+,  tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when proc_id_acq_b like "%EGF%" then "Rule2-MerchLimit-EGF"
+  when proc_id_acq_b like "%SLP%" then "Rule2-MerchLimit-SLP"
+  -- when proc_id_acq_b like "%EGH%" then "Rule2-MerchLimit-EGH"
+  when proc_id_acq_b like "%ALH%" then "Rule2-MerchLimit-EDG"
+  when proc_id_acq_b like "%ALV%" then "Rule2-MerchLimit-EDG"
+  when proc_id_acq_b like "%EGH%" then "Rule2-MerchLimit-EDG"
+  when proc_id_acq_b like "%BIG%W%" then "Rule2-MerchLimit-BIGW"
+  when proc_id_acq_b like "%PEL%" then "Rule2-MerchLimit-PEL"
+  else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+
+
+from rule_2_tbl
+
+
+)
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Rule 4 ---
+
+
+, threshold6 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "6"
+
+
+)
+,minute6 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "6"  
+
+
+)
+
+
+,occurence6 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "6"
+
+
+)
+
+
+, velocity_tbl_rule_3 as
+(
+select left(string(tstamp_local), 19) tstamp
+, brand
+, site_name
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+,act_code as RespCode
+,upper(site_name) as TermCity
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute6) minute) end_time
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold6
+, occurence6
+, minute6
+
+
+where left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 < (select cast(transaction_threshold as int64) transaction_threshold from threshold6)
+-- and net_term_id = "W0117052"
+-- and left(masked_pan, 6) <> "628000"
+and calc_approval_flag  = "A"
+and proc_id_acq_b not like "%WPY%"
+-- and proc_id_acq_b not like "%EDWP%"
+-- and (calc_tran_type_description = "CASHOUT" or calc_tran_type_description = "PURCHASE WITH CASHOUT")
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final3 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule_3 table1
+left join
+  velocity_tbl_rule_3 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc, counter asc
+)
+, rejections3 as(
+select * from final3
+-- group by  1,2,3,4,5,6,7,8,9,10,11
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence6)
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_3 as(
+select * from(
+
+
+select
+  table2.*
+  -- count(table2.tstamp_trans) as counter
+from
+  rejections3 table1
+left join
+  velocity_tbl_rule_3 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc
+)
+)
+
+
+, final_format_rule_3 as(
+
+
+select
+
+site_name,
+brand as Merchant,
+  tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule4-SmallAmts-PAN" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+-- , scheme
+
+
+-- , merchant_group
+
+
+from final_rule_3
+
+
+)
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Rule 6 ---
+
+
+, threshold7 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "7"
+
+
+)
+,minute7 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "7"
+
+
+)
+
+
+,occurence7 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "7"
+
+
+)
+
+
+, velocity_tbl_rule_6 as
+(
+select left(string(tstamp_local), 19) tstamp
+, brand
+, site_name
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+,act_code as RespCode
+,upper(site_name) as TermCity
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute7) minute) end_time
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold7
+, occurence7
+, minute7
+
+
+where left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold7)
+-- and net_term_id = "W0117052"
+and left(masked_pan, 6) <> "628000"
+and calc_approval_flag  = "A"
+and proc_id_acq_b not like "%WPY%"
+and proc_id_acq_b not like "%EDWP%"
+and calc_tran_type_description = "REFUND"
+-- and (calc_tran_type_description = "CASHOUT" or calc_tran_type_description = "PURCHASE WITH CASHOUT")
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final6 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule_6 table1
+left join
+  velocity_tbl_rule_6 table2
+on (table2.net_term_id = table1.net_term_id) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc, counter asc
+)
+, rejections6 as(
+select * from final6
+-- group by  1,2,3,4,5,6,7,8,9,10,11
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence7)
+)
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_6 as(
+select * from(
+
+
+select
+  table2.*
+  -- count(table2.tstamp_trans) as counter
+from
+  rejections6 table1
+left join
+  velocity_tbl_rule_6 table2
+on (table2.net_term_id = table1.net_term_id) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23  
+order by tstamp_trans desc
+  )
+)
+
+
+, final_format_rule_6 as(
+
+
+select
+site_name
+, brand as Merchant 
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule6-Refunds-TermID" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+
+from final_rule_6
+
+
+)
+
+
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+--- Rule 7 ---
+
+, rule_7_tbl as(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+-- , merchant_group as MearchantGroup
+, brand
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+,act_code as RespCode
+,upper(site_name) as TermCity
+, datetime_diff(datetime (tstamp_trans),datetime(LAG(tstamp_trans, 1) OVER (PARTITION BY net_term_id ORDER BY tstamp_trans)),SECOND) as seconds_difference
+, concat(extract(hour from tstamp_local), extract(minute from tstamp_local), extract(second from tstamp_local)) as tss
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+`pdh_ref_ds.ref_store_details` s
+
+
+on LEFT(be.net_term_id, 5) = s.store_id
+
+
+order by tstamp_trans
+)
+
+
+ , final_format as(
+
+
+select
+
+site_name 
+, brand  
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule7-OUTSIDE-BUSINESS-HOURS" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as Term
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+, tss
+
+
+
+-- , scheme
+
+
+-- , merchant_group
+
+
+from rule_7_tbl
+
+
+)
+
+
+, final_format_rule_7 as(
+
+
+select 
+  site_name
+, brand as Merchant
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule7-OUTSIDE-BUSINESS-HOURS" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp from rule_7_tbl
+-- , brand
+where
+1=1
+and left(tstamp, 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and tss > "23000" and
+tss < "5000"
+
+
+
+
+-- and extract(hour from tstamp_local) between 23 and 5
+and(upper(trim(brand)) = "BWS"
+
+
+or(upper(trim(brand)) = "Dan Murphy's")
+--or(upper(trim(brand)) = "BWS Online")
+or(upper(trim(brand)) = "BWS Liquor")
+-- or(upper(trim(brand)) = "DM Online")
+))
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Rule 8 ---
+
+
+, threshold9 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "9"
+
+
+)
+,minute9 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "9"
+
+
+)
+
+
+,occurence9 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "9"
+
+
+)
+
+
+, velocity_tbl_rule_8 as
+(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, brand
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+,act_code as RespCode
+,upper(site_name) as TermCity
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute9) minute) end_time
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold9
+, occurence9
+, minute9
+
+
+where left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold9)
+-- and net_term_id = "W0117052"
+-- and left(masked_pan, 6) <> "628000"
+-- and calc_approval_flag  = "D"
+and proc_id_acq_b not like "%WPY%"
+and proc_id_acq_b not like "%EDWP%"
+and calc_approval_flag  = "D"    -- change to =
+and pos_crd_dat_in_mod = "6"
+-- and (calc_tran_type_description = "CASHOUT" or calc_tran_type_description = "PURCHASE WITH CASHOUT")
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final8 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule_8 table1
+left join
+  velocity_tbl_rule_8 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc, counter asc
+)
+, rejections8 as(
+select * from final8
+-- group by  1,2,3,4,5,6,7,8,9,10,11
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence9)
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_8 as(
+select * from(
+
+
+select
+  table2.*
+  -- count(table2.tstamp_trans) as counter
+from
+  rejections8 table1
+left join
+  velocity_tbl_rule_8 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc
+)
+)
+
+
+, final_format_rule_8 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+,  tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule8-KeyedTxn-Declined-TERMID" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+-- , scheme
+
+
+-- , merchant_group
+
+
+from final_rule_8
+
+
+)
+
+
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Rule 9 ---
+
+
+, threshold10 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "10"
+
+
+)
+,minute10 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "10"
+
+
+)
+
+
+,occurence10 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "10"
+
+
+)
+
+
+, velocity_tbl_rule_9 as
+(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, brand
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+,act_code as RespCode
+,upper(site_name) as TermCity
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute10) minute) end_time
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold10
+, occurence10
+, minute10
+
+
+where left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold10)
+-- and net_term_id = "W0117052"
+-- and left(masked_pan, 6) <> "628000"
+-- and calc_approval_flag  = "D"
+and proc_id_acq_b not like "%WPY%"
+and proc_id_acq_b not like "%EDWP%"
+and calc_approval_flag  = "D"     -- change to =
+and pos_crd_dat_in_mod = "6"
+-- and (calc_tran_type_description = "CASHOUT" or calc_tran_type_description = "PURCHASE WITH CASHOUT")
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final9 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule_9 table1
+left join
+  velocity_tbl_rule_9 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc, counter asc
+)
+, rejections9 as(
+select * from final9
+-- group by  1,2,3,4,5,6,7,8,9,10,11
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence10)
+)
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_9 as(
+select * from(
+
+
+select
+  table2.*
+  -- count(table2.tstamp_trans) as counter
+from
+  rejections9 table1
+left join
+  velocity_tbl_rule_9 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc
+)
+)
+
+
+, final_format_rule_9 as(
+
+
+select
+
+    site_name
+  , brand as Merchant
+  , tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule9-KeyedTxn-Declined-PAN" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+-- , scheme
+
+
+-- , merchant_group
+
+
+from final_rule_9
+
+
+)
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Rule 10 ---
+
+
+, threshold11 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "11"
+
+
+)
+,minute11 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "11"
+
+
+)
+
+
+,occurence11 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "11"
+
+
+)
+
+
+
+
+, velocity_tbl_rule10 as
+
+
+(
+select left(string(tstamp_local), 19) tstamp
+
+, site_name
+, brand
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, calc_tran_type_description
+, tstamp_trans as start_time
+,act_code as RespCode
+,upper(site_name) as TermCity
+-- , case when 1=1 then 1 end as rule_number
+
+
+
+
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute11) minute) end_time
+
+
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+ left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold11
+, occurence11
+, minute11
+
+
+where 1=1
+
+
+and left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 >= (select cast(transaction_threshold as int64) transaction_threshold from threshold11)
+and left(masked_pan, 6) <> "628000"
+and calc_approval_flag  = "A"
+and proc_id_acq_b not like "%WPY%"
+and proc_id_acq_b not like "%EDWP%"
+
+
+and (calc_tran_type_description = "CASHOUT" or calc_tran_type_description = "PURCHASE WITH CASHOUT")
+
+
+order by tstamp
+
+
+)
+
+
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+,final10 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule10 table1
+left join
+  velocity_tbl_rule10 table2
+on (table1.net_term_id = table2.net_term_id) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc, counter asc
+)
+, rejections10 as(
+select * from final10
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence11)
+)
+
+
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_10 as(
+select
+  table2.*
+ 
+from
+  rejections10 table1
+left join
+  velocity_tbl_rule10 table2
+on (table1.net_term_id = table2.net_term_id) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc
+)
+
+
+
+
+, final_format_rule_10 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+  
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule10-CashOut-Velocity" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as TermName
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+
+
+, current_timestamp as Report_Timestamp
+
+
+from final_rule_10
+
+
+)
+
+
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Rule 11 ---
+
+
+, threshold12 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "12"
+
+
+)
+,minute12 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "12"
+
+
+)
+
+
+,occurence12 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "12"
+
+
+)
+
+
+, velocity_tbl_rule_11 as
+(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, brand
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+, act_code as RespCode
+, upper(site_name) as TermCity
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute12) minute) end_time
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold12
+, occurence12
+, minute12
+
+
+where left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold12)
+and proc_id_acq_b not like "%WPY%"
+and proc_id_acq_b not like "%EDWP%"
+and calc_approval_flag = "A"    
+and pos_crd_dat_in_mod = "6"
+
+
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final11 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule_11 table1
+left join
+  velocity_tbl_rule_11 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc, counter asc
+)
+, rejections11 as(
+select * from final11
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence12)
+)
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_11 as(
+select * from(
+
+
+select
+  table2.*
+ 
+from
+  rejections11 table1
+left join
+  velocity_tbl_rule_11 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc
+)
+)
+
+
+, final_format_rule_11 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule11-KeyedTxn-Approved" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+from final_rule_11
+
+
+)
+
+
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+--- Rule 12 ---
+
+
+, threshold13 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "13"
+
+
+)
+,minute13 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "13"
+
+
+)
+
+
+,occurence13 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "13"
+
+
+)
+
+
+
+
+, rule_12_tbl as(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, brand
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+,act_code as RespCode
+,upper(site_name) as TermCity
+
+
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+  ,threshold13
+  ,minute13
+  ,occurence13
+
+
+where 1=1
+
+
+and left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 >= (select cast(transaction_threshold as int64) transaction_threshold from threshold13)
+
+
+and calc_approval_flag  = "A"
+and proc_id_acq_b not like "%WPY%"
+and (calc_tran_type_description = "REFUND")
+
+
+
+
+order by tstamp_trans
+)
+
+
+
+
+, final_format_rule_12 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule12-Large-Credit-Refund" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+from rule_12_tbl
+)
+
+
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Rule 13 ---
+
+
+, threshold14 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "14"
+
+
+)
+,minute14 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "14"
+
+
+)
+
+
+,occurence14 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "14"
+
+
+)
+
+
+, velocity_tbl_rule_13 as
+(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, brand
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+,act_code as RespCode
+,upper(site_name) as TermCity
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute14) minute) end_time
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold14
+, occurence14
+, minute14
+
+
+where left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold14)
+and left(masked_pan, 6) <> "628000"
+and proc_id_acq_b not like "%WPY%"
+and proc_id_acq_b not like "%EDWP%"
+
+
+and (calc_tran_type_description = "PRE AUTH")
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final13 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule_13 table1
+left join
+  velocity_tbl_rule_13 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc, counter asc
+)
+, rejections13 as(
+select * from final13
+
+
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence14)
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_13 as(
+select * from(
+
+
+select
+  table2.*
+ 
+from
+  rejections13 table1
+left join
+  velocity_tbl_rule_13 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc
+)
+)
+
+
+, final_format_rule_13 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule13-Repeat-Pre-Auth" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+from final_rule_13
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+--- Rule 14 ---
+
+
+, threshold15 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "15"
+
+
+)
+,minute15 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "15"
+
+
+)
+
+
+,occurence15 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "15"
+
+
+)
+
+
+
+
+, rule_14_tbl as(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, brand
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+,act_code as RespCode
+,upper(site_name) as TermCity
+
+
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+  ,threshold15
+  ,minute15
+  ,occurence15
+
+
+where 1=1
+
+
+and left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold15)
+
+
+and calc_approval_flag  = "A"
+and proc_id_acq_b not like "%WPY%"
+
+
+and pos_crd_dat_in_mod = "6"
+
+
+
+
+order by tstamp_trans
+)
+
+
+
+
+, final_format_rule_14 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule12-Large-Credit-Refund" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+from rule_14_tbl
+)
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Rule 15 ---
+
+
+, threshold16 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "16"
+
+
+)
+,minute16 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "16"
+
+
+)
+
+
+,occurence16 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "16"
+
+
+)
+
+
+, velocity_tbl_rule_15 as
+(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, brand
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+,act_code as RespCode
+,upper(site_name) as TermCity
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute16) minute) end_time
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold16
+, occurence16
+, minute16
+
+
+where left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+and transaction_total/100 > (select cast(transaction_threshold as int64) transaction_threshold from threshold16)
+-- and net_term_id = "W0117052"
+-- and left(masked_pan, 6) <> "628000"
+-- and calc_approval_flag  = "D"
+and left(masked_pan, 6) <> "628000"
+-- and calc_approval_flag  = "A"
+and proc_id_acq_b not like "%WPY%"
+and proc_id_acq_b not like "%EDWP%"
+
+
+and (calc_tran_type_description = "PRE AUTH")
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final15 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule_15 table1
+left join
+  velocity_tbl_rule_15 table2
+on (table2.net_term_id = table1.net_term_id) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc, counter asc
+)
+, rejections15 as(
+select * from final15
+-- group by  1,2,3,4,5,6,7,8,9,10,11
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence16)
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_15 as(
+select * from(
+
+
+select
+  table2.*
+  -- count(table2.tstamp_trans) as counter
+from
+  rejections15 table1
+left join
+  velocity_tbl_rule_15 table2
+on (table2.net_term_id = table1.net_term_id) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23
+order by tstamp_trans desc
+)
+)
+
+
+, final_format_rule_15 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule15-Repeat-Pre-Auth" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+
+
+from final_rule_15
+
+
+)
+
+
+--- Rule 20 ---
+
+
+,threshold17 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "17"
+
+
+)
+,minute17 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "17"
+
+
+)
+
+
+,occurence17 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "17"
+
+
+)
+
+
+, velocity_tbl_rule_20 as
+(
+select string(TransactionDate) tstamp
+, site_name
+, brand
+-- , calc_tran_type_description
+, POSName
+, RequestAmount_Transacting_Merchants_Currency_Or_Points as PurchaseTotal
+-- , masked_pan
+-- , card_acpt_name_loc
+-- , scheme
+, CardNumber as scdr_token
+, timestamp(concat(TransactionDate, " ",TransactionTime)) TransactionTime
+, TransactionTime ttime
+, Merchant
+, case when 1=1 then "A" end as calc_approval_flag
+, BaseCurrency
+, case when 1=1 then "N/A" end as proc_id_acq_b
+, case when 1=1 then "N/A" end as response_code
+, RequestAmount_Transacting_Merchants_Currency_Or_Points
+ as purchase_total
+, RequestAmount_Transacting_Merchants_Currency_Or_Points
+ as cashout_total
+, timestamp(concat(TransactionDate, " ",TransactionTime)) as start_time
+,case when 1=1 then "N/A" end as RespCode
+,upper(site_name) as TermCity
+, DATE_ADD(timestamp(concat(TransactionDate, " ",TransactionTime)), INTERVAL (select cast(minute_interval as int64) minute_interval from minute17) minute) end_time,
+-- site_name
+
+
+from `pdh_rd_quickcilver.qc_detail_transactions` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.POSName, 5) = s.store_id
+
+
+, threshold17
+, occurence17
+, minute17
+
+
+where string(TransactionDate) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10) 
+-- and RequestAmount_Transacting_Merchants_Currency_Or_Points
+--  > (select cast(transaction_threshold as int64) transaction_threshold from threshold17)
+-- and net_term_id = "W0117052"
+-- and left(masked_pan, 6) <> "628000"
+-- and calc_approval_flag  = "D"
+-- and left(masked_pan, 6) <> "628000"
+-- and calc_approval_flag  = "A"
+-- and proc_id_acq_b not like "%WPY%"
+and upper(trim(Merchant)) = "COUNTDOWN"
+-- and proc_id_acq_b not like "%EDWP%"
+
+
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final20 as(
+select
+  table1.*,
+  count(table2.TransactionTime) as counter
+from
+  velocity_tbl_rule_20 table1
+left join
+  velocity_tbl_rule_20 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.TransactionTime <= table1.end_time) and (table2.TransactionTime >= table1.start_time)
+
+
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+order by TransactionTime desc, counter asc
+)
+, rejections20 as(
+select * from final20
+-- group by  1,2,3,4,5,6,7,8,9,10,11
+where counter >= 0 --(select cast(occurence_count as int64) occurence_count from occurence17)
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_20 as(
+select * from(
+
+
+select
+  table2.*
+  -- count(table2.tstamp_trans) as counter
+from
+  rejections20 table1
+left join
+  velocity_tbl_rule_20 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.TransactionTime <= table1.end_time) and (table2.TransactionTime >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19
+order by TransactionTime desc
+)
+)
+
+
+,rule_20_flags as(
+
+
+select *, sum(PurchaseTotal) over(partition by scdr_token) as cumltv_sum
+from final_rule_20
+
+
+)
+
+
+, final_format_rule_20 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+, TransactionTime as TimeAtSwitch
+, TransactionTime as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule20-Countdown-Velocity-GC" else "OTHER" end as Rule
+, case when 1=1 then "N/A" end as PAN
+, scdr_token as From_Acct
+, POSName as TermID
+, TermCity
+, upper(site_name) as Location
+-- , site_name as Location
+, BaseCurrency as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, PurchaseTotal as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when 1 = 1 then "N/A"
+  end as Type
+, current_timestamp as Report_Timestamp
+-- , sum(PurchaseTotal) over(partition by scdr_token) as test
+-- , end_time
+
+
+from rule_20_flags
+where cumltv_sum > (select cast(transaction_threshold as int64) transaction_threshold from threshold17)
+
+
+)
+
+
+
+
+--- Rule 22 ---
+
+
+,threshold19 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "19"
+
+
+)
+,minute19 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "19"
+
+
+)
+
+
+,occurence19 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "19"
+
+
+)
+
+
+, velocity_tbl_rule_22 as
+(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, brand
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+, act_code as RespCode
+, upper(site_name) as TermCity
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute19) minute) end_time
+, pos_crdhldr_presnt
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold19
+, occurence19
+, minute19
+
+
+where left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+
+
+
+
+
+
+and transaction_total/100 >= (select cast(transaction_threshold as int64) transaction_threshold from threshold19)
+
+
+and calc_approval_flag  = "A"
+and upper(trim(proc_id_acq_b)) <> "WPY"
+and (calc_tran_type_description = "REFUND")
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final22 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule_22 table1
+left join
+  velocity_tbl_rule_22 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+
+
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24
+order by tstamp_trans desc, counter asc
+)
+, rejections22 as(
+select * from final22
+-- group by  1,2,3,4,5,6,7,8,9,10,11
+where counter >=  (select cast(occurence_count as int64) occurence_count from occurence19)
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_22 as(
+select * from(
+
+
+select
+  table2.*
+  -- count(table2.tstamp_trans) as counter
+from
+  rejections22 table1
+left join
+  velocity_tbl_rule_22 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24
+order by tstamp_trans desc
+
+
+ )
+)
+
+
+
+
+, final_format_rule_22 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+, tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule22-Large-Credit-Refund-PAN" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+from final_rule_22
+-- where cumltv_sum > (select cast(transaction_threshold as int64) transaction_threshold from threshold19)
+
+
+)
+
+
+
+
+--------------------------------------------------------------------------------
+--------------------------------------------------------------------------------
+
+
+--- Rule 24 ---
+
+
+, threshold18 as(
+  select cast(transaction_threshold as int64) transaction_threshold from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "20"
+
+
+)
+,minute18 as(
+  select cast(minute_interval as int64) minute_interval from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "20"
+
+
+)
+
+
+,occurence18 as(
+  select cast(occurence_count as int64) occurence_count from `pdh_ref_ds.ref_aml_analytics`
+where rule_number = "20"
+
+
+)
+
+
+, velocity_tbl_rule_24 as
+(
+select left(string(tstamp_local), 19) tstamp
+, site_name
+, brand
+, calc_tran_type_description
+, net_term_id
+, transaction_total
+, masked_pan
+, card_acpt_name_loc
+, scheme
+, scdr_token
+, tstamp_trans
+, tstamp_local
+, be.merchant_group
+, calc_approval_flag
+, currency_code
+, proc_id_acq_b
+, response_code
+, purchase_total
+, cashout_total
+, tstamp_trans as start_time
+, act_code as RespCode
+, upper(site_name) as TermCity
+, DATE_ADD(tstamp_trans, INTERVAL (select cast(minute_interval as int64) minute_interval from minute18) minute) end_time
+, pos_crdhldr_presnt
+
+
+
+-- gcp-wow-wpay-paydathub-uat.`pdh_ref_ds.ref_store_details`
+
+
+from `wpay_analytics.wpay_billing_engine_tran_dtl` be
+
+
+left join
+
+
+  `pdh_ref_ds.ref_store_details` s
+
+
+  on LEFT(be.net_term_id, 5) = s.store_id
+
+
+, threshold18
+, occurence18
+, minute18
+
+
+where left(string(tstamp_local), 10) = left(string((select max(tstamp_trans) from `wpay_analytics.wpay_billing_engine_tran_dtl` )), 10)
+
+
+
+
+and proc_id_acq_b not like "%WPY%"
+and pos_crdhldr_presnt <> "0"
+-- and (calc_tran_type_description = "CASHOUT" or calc_tran_type_description = "PURCHASE WITH CASHOUT")
+
+
+order by tstamp
+
+
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+
+
+,final24 as(
+select
+  table1.*,
+  count(table2.tstamp_trans) as counter
+from
+  velocity_tbl_rule_24 table1
+left join
+  velocity_tbl_rule_24 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24
+order by tstamp_trans desc, counter asc
+)
+, rejections24 as(
+select * from final24
+-- group by  1,2,3,4,5,6,7,8,9,10,11
+where counter >= (select cast(occurence_count as int64) occurence_count from occurence18)
+)
+
+
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+
+
+, final_rule_24 as(
+select * from(
+
+
+select
+  table2.*
+  -- count(table2.tstamp_trans) as counter
+from
+  rejections24 table1
+left join
+  velocity_tbl_rule_24 table2
+on (table2.scdr_token = table1.scdr_token) and (table2.tstamp_trans <= table1.end_time) and (table2.tstamp_trans >= table1.start_time)
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24
+order by tstamp_trans desc
+)
+)
+
+
+, final_format_rule_24 as(
+
+
+select
+
+  site_name
+, brand as Merchant
+,  tstamp_trans as TimeAtSwitch
+, tstamp_local as LocalTime
+, case when 1=1 then "RISK_POS" else "OTHER" end as Grp
+, case when 1=1 then "Rule24-HighVelocity-CNP-PAN" else "OTHER" end as Rule
+, masked_pan as PAN
+, scdr_token as From_Acct
+, net_term_id as TermID
+, TermCity
+, card_acpt_name_loc as Location
+, currency_code as Curr
+, proc_id_acq_b as AcqProc
+, calc_approval_flag as Msg
+, transaction_total/100 as TotalAmount
+, response_code as RespCode
+, purchase_total as Non
+, cashout_total as Cash
+, calc_approval_flag as RespFlag
+, case when calc_tran_type_description = "CASHOUT" then "20"
+ when calc_tran_type_description = "PURCHASE WITH CASHOUT" then "01"
+ when calc_tran_type_description = "PURCHASE" then "00"
+ when calc_tran_type_description = "REFUND" then "20" end as Type
+, current_timestamp as Report_Timestamp
+
+
+
+
+from final_rule_24
+
+
+)
+
+
+select * from final_format_rule_1
+union all
+select * from final_format_rule_2
+union all
+select * from final_format_rule_3
+union all
+select * from final_format_rule_6
+union all
+select * from final_format_rule_7
+union all
+select * from final_format_rule_8
+union all
+select * from final_format_rule_9
+union all
+select * from final_format_rule_10
+union all
+select * from final_format_rule_11
+union all
+select * from final_format_rule_12
+union all
+select * from final_format_rule_13
+union all
+select * from final_format_rule_14
+union all
+select * from final_format_rule_15
+union all
+select * from final_format_rule_20
+union all
+select * from final_format_rule_22
+union all
+select * from final_format_rule_24
+
+
+order by TimeAtSwitch desc, Rule
+
+
+
+ )
+
+
