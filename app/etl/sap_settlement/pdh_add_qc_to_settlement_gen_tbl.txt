@@ -23,6 +23,11 @@
 --          execute only if divisio exists for current hour
 --20230622  -Activate Swap Card
 --20230705  -Remove hard coding for division
+
+
+--20230810  Restrict Marley Spoon, add transaction_type
+
+
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default format_date("%Y-%m-%d",sys_date);
 declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
@@ -67,7 +72,8 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
     tlf_name,
     discount_amt,
     surcharge_amt,
-    tip_amt)  
+    tip_amt,
+    transaction_type)  
  With  QCTran as (
            Select pdh_ref_ds.get_tran_uid(
                                     "QC",
@@ -161,6 +167,7 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
                        end)
          where upper(trim(qct.transactionstatus)) =  "SUCCESS"
            and qct.amount_transacting_merchants_currency_or_points <> 0
+           and upper(replace(qct.issuer," ",""))  not like  "%MARLEYSPOON%" --Exclude Marley Spoon
            and `pdh_ref_ds.trans_in_stlm_window`(
                    msw.settle_by_store,
                    wbs.store_id,
@@ -560,7 +567,7 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
         dn.dn_insert_tstamp as pdh_load_time, --2 
         concat("NRT-",str_sysdate) file_name, --3
         DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second)  as transaction_timestamp, --4
-        upper(trim(ifnull(ds.description,t.abbr))) as transactiontype, --5.
+        Upper(trim(tt.tran_type_desc)) as transactiontype, --5.
         case 
           when strpos(upper(trim(ifnull(scm.exclude__issuers,""))),
                        case
@@ -668,7 +675,8 @@ select datetime_trunc(current_datetime("Australia/Sydney"),SECOND)
        cast(null as string) as tlf_name,
        trn.discount_amt,
        trn.surcharge_amt,
-	    trn.tip_amt
+	    trn.tip_amt,
+       trn.transactiontype
 from  trn 
 left join `pdh_analytics_ds.stlm_standard_settlement_table` std
          on std.tran_uid = trn.tran_uid

@@ -6,6 +6,12 @@
 --20230516 execute only if divisio exists for current hour
 --add control record for companies with data only
 --20230615 take commission store infoo from customer mapping for commission store
+--20230810 Calculate commission for Reversals, Blank out order_number if merchant is not INTERNAL
+
+
+--20230814 set commission to 0 for REFUND except REVERSAL
+
+
 declare sys_date date default CURRENT_DATE("Australia/Sydney");
 declare str_sysdate string default cast(sys_date as string);
 declare strt_settlement datetime default DATETIME_TRUNC(current_datetime("Australia/Sydney"),SECOND);
@@ -124,37 +130,52 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                 scm.wpay_store_number as f08,
                scm2.wpay_store_number as f08_c,
 --
-               pdh_ref_ds.calc_servicefee(case ifnull(msw.commission_store,"")
-                                             when "" then "N"
-                                             else "Y"
-                                          end,
-                                          std.tran_settlement_amount
-                                          + std.discount_amt,
-                                          std.surcharge_amt,
-                                          scm.commission_percent,
-                                          scm.commission_fixed_value)
-                                        * 100 commission,
+
+
+
+               pdh_ref_ds.calc_servicefee(
+                             case 
+                                when ifnull(msw.commission_store,"") = "" then "N"
+                                when upper(trim(std.transaction_type)) like "%REVERSAL%" then "Y"
+                                when upper(trim(std.transaction_type)) like "%REFUND%" then "N"
+                                else "Y"
+                              end,
+                              std.tran_settlement_amount + std.discount_amt,
+                              std.surcharge_amt,
+                              scm.commission_percent,
+                              scm.commission_fixed_value) as commission,
 --
                (ifnull(std.tran_settlement_amount,0) + ifnull(std.discount_amt,0) 
-               - pdh_ref_ds.calc_servicefee(case ifnull(msw.commission_store,"")
-                                             when "" then "N"
-                                             else "Y"
-                                          end,
-                                          std.tran_settlement_amount
-                                          + std.discount_amt,
-                                          std.surcharge_amt,
-                                          scm.commission_percent,
-                                          scm.commission_fixed_value)
-               ) * 100 as settlement_amount,
+               - pdh_ref_ds.calc_servicefee(
+                      case 
+                          when ifnull(msw.commission_store,"") = "" then "N"
+                          when upper(trim(std.transaction_type)) like "%REVERSAL%" then "Y"
+                          when upper(trim(std.transaction_type)) like "%REFUND%" then "N"
+                          else "Y"
+                      end,
+                      std.tran_settlement_amount + std.discount_amt,
+                      std.surcharge_amt,
+                      scm.commission_percent,
+                      scm.commission_fixed_value)
+
+
+
+               ) as settlement_amount,
 --
                 scm.currency_code as f10,
                scm2.currency_code as f10_c,
 --
                cast(std.transaction_timestamp as date) as f11,
 --
-               case std.order_number
-                  when "" then null
-                  else order_number
+               case --2023-08-10
+
+
+                  when (ifnull(std.order_number,"") = ""
+
+
+                        or msw.division_type <> "INTERNAL")
+                       then null
+                  else std.order_number
                end as f12
          from `pdh_analytics_ds.stlm_standard_settlement_table` std
          join `pdh_ref_ds.ref_merchant_settlement_window` msw on msw.division = std.division
@@ -184,7 +205,7 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                  company_code as company,
                  npp_flag,f01,f02,f03,f04, 
                  cast(null as string) as f05,f06,f07,f08,
-		 cast( (cast(round(sum(settlement_amount)) as int64))  as string) as f09,
+		 cast( (cast(round(sum(settlement_amount) * 100,0) as int64))  as string) as f09,
                  f10,
                  format_date("%Y%m%d",f11) as f11,
                  f12,
@@ -208,8 +229,8 @@ insert into `pdh_analytics_ds.stlm_settlement_result`
                  npp_flag_c,f01,f02_c,f03_c,f04_c, 
                  cast(null as string) as f05,
                  f06_c,f07_c,f08_c,
-                 cast( (cast(round(sum(commission)) as int64))  as string) as f09,
-		 f10_c,
+                 cast( (cast(round(sum(commission) * 100,0) as int64))  as string) as f09,
+		             f10_c,
                  format_date("%Y%m%d",f11) as f11,
                  f12,
                  "/" as f13

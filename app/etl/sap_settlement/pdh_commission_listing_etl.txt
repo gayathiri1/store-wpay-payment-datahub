@@ -5,6 +5,12 @@
 --20230403 create header and trailor all times
 --20230516 execute only if commission divisio exists for current hour
 --20230517 add control record only if commission is generated
+--20230810 compute commission for reversal and output 0 commissions
+
+
+--20230814 Stop Refund except Reversal
+
+
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime default
           datetime_trunc(current_datetime("Australia/Sydney"),second);
 declare batch_end_yyyy_mm_dd_hh_mm_ss_1 datetime default
@@ -40,8 +46,10 @@ insert into `pdh_analytics_ds.stlm_commission`
            tlf.stlf_prefix as merchant,
            st.tran_uid as tran_uid,
            pdh_ref_ds.calc_servicefee(
-                     case ifnull(m.commission_store,"")
-                        when "" then "N"
+                     case 
+                        when ifnull(m.commission_store,"") = "" then "N"
+                        when upper(trim(st.transaction_type)) like "%REVERSAL%" then "Y"
+                        when upper(trim(st.transaction_type)) like "%REFUND%" then "N"
                         else "Y"
                       end,
                       st.tran_settlement_amount
@@ -68,12 +76,11 @@ insert into `pdh_analytics_ds.stlm_commission`
       select merchant,
              "D" as record_type,
              tran_uid,
-             cast(cast(round(abs(commission) * 10000,0) as int64) 
+             cast(cast(round(commission * 100,0) as int64) 
                       as string) as commission_amt
       from DET
-      --where ifnull(commission,0) <> 0
-; --commission is non zero
-
+      --where ifnull(commission,0) <> 0 --allow 0 commission
+;
 
 --
 --Exit if no detail added

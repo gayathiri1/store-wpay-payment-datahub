@@ -232,7 +232,7 @@ with clr as
     mssg_reversal_indicator
      from `pdh_rd_data_navigator.mastercard_T1G0`
      where trim(card_acceptor_terminal_id)<>''
-    and file_date > "2023-04-01"
+    and file_date > DATE_SUB(start_date, INTERVAL 30 DAY)
 ),
 tlf as 
 (
@@ -248,7 +248,7 @@ tlf as
         file_date tfl6_file_date,
     from `pdh_rd_data_navigator.mastercard_TFL6` where
         trim(clearing_indicator)='Y'
-          and file_date > "2023-04-01"
+          and file_date > DATE_SUB(start_date, INTERVAL 30 DAY)
     GROUP BY 1,2,3,4,5,6,7,8,9
     
 ),

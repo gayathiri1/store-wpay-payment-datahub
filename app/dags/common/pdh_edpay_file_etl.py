@@ -10,6 +10,12 @@ from zlibpdh import pdh_utilities as pu
 import pytz
 import ast
 import pendulum
+from pdh_logging.event import Event
+from pdh_logging.utils import get_current_time_str_aest
+from dataclasses import asdict
+import json
+import os.path
+from google.cloud import pubsub_v1
 
 
 #DATPAY-3521 UTC to Sydney timezone change
@@ -20,15 +26,39 @@ default_args = {
 
 
 logging.info("constructing dag - using airflow as owner")
-
+dag_name = "pdh_edpay_file_etl"
 
 dag = DAG('pdh_edpay_file_etl', catchup=False, default_args=default_args,schedule_interval= "00 15 * * Fri")
+
+
+# https://stackoverflow.com/a/70397050/482899
+#log_prefix = f"[pdh_batch_pipeline][{dag_name}]"
+log_prefix = "[pdh_batch_pipeline]"+"["+dag_name+"]"
+exec_time_aest = get_current_time_str_aest()
+
+class CustomAdapter(logging.LoggerAdapter):
+    def process(self, msg, kwargs):
+        #return f"{log_prefix} {msg}", kwargs
+        return log_prefix+" "+msg, kwargs
+    
+logger = CustomAdapter(logging.getLogger(__name__), {})
+logger.info(f"constructing dag {dag_name} - using airflow as owner")   
+
+
+publisher = pubsub_v1.PublisherClient()
+#get the project_id
+project_id=None
+if  os.environ.get("GCP_PROJECT", "no project name"):
+    project_id = os.environ.get("GCP_PROJECT", "no project name")
+topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables
+topic_path = publisher.topic_path(project_id, topic_id)
+# msg = {"dag_name": dag_name}
+# publisher.publish(topic_path, data=json.dumps(msg).encode("utf-8"))
 
 
 def readexecuteQuery(**kwargs):
 
     bucket= Variable.get('edpay_file_gen_etl',deserialize_json=True)['bucket']
-    
     query_file=Variable.get('edpay_file_gen_etl',deserialize_json=True)['query_file']
     qc_select = Variable.get('edpay_file_gen_etl',deserialize_json=True)['qc_select']
     emailTo = Variable.get("edpay_file_gen_etl", deserialize_json=True)['emailTo']
@@ -63,8 +93,9 @@ def readexecuteQuery(**kwargs):
             updated_codes_ctrl_tab.append(row[2])
             logging.info("updated_codes_ctrl_tab {}".format(updated_codes_ctrl_tab))
             logging.info("row inside for loop {}".format(row))  
-            
-        logging.info("row after for loop {}".format(row))  
+            execTimeInAest = convertTimeZone(datetime.now(),"UTC","Australia/NSW")
+            logging.info("execTimeInAest: {}".format(execTimeInAest))    
+            logging.info("row after for loop {}".format(row))  
         if row is None or row == '':
             logging.info("row inside if with None  {}".format(row))
             error_count += 1
@@ -78,6 +109,13 @@ def readexecuteQuery(**kwargs):
             updated_query.append(query_file)
             logging.info("updated_query {}".format(updated_query))
             logging.info("updated_files {}".format(updated_files))  
+        event_message = "readexecuteQuery step executed successfully" + execTimeInAest.strftime("%Y-%m-%d %H:%M:%S")
+        event = Event(
+            dag_name=dag_name,
+            event_status="success",
+            event_message=event_message,
+            start_time=exec_time_aest,)
+        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
             
     except Exception as e:  
         logging.info("Exception:{}".format(e))
@@ -87,9 +125,15 @@ def readexecuteQuery(**kwargs):
         error_count += 1
         unupdated_files.append(merchant)
         unupdated_query.append(query_file)
-            
-                            
-               
+        event_message = "Exception raised while executing edpay_file_gen_etl, in task readexecuteQuery: \n"+str(e)
+        event = Event(
+               dag_name=dag_name,
+               event_status="failure",
+               event_message=event_message,
+               start_time=exec_time_aest,
+               )
+        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
+        return False
 
             
     kwargs['ti'].xcom_push(key="updated_codes_ctrl_tab", value=updated_codes_ctrl_tab)
@@ -114,6 +158,13 @@ def processQuery(query,emailTo):
         subject = "Exception raised while executing edpay_file_gen_etl in processQuery"+execTimeInAest.strftime("%Y-%m-%d %H:%M:%S")
         body= "Exception raised while executing edpay_file_gen_etl in processQuery: \n"+str(e)
         pu.PDHUtils.send_email(emailTo, subject,body)
+        event_message = "Exception raised while executing edpay_file_gen_etl in processQuery: \n"+str(e)
+        event = Event(
+                dag_name=dag_name,
+                event_status="failure",
+                event_message=event_message,
+                start_time=exec_time_aest,)
+        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
         return False,rows
         
 def sendEmail(**kwargs):  
@@ -134,8 +185,23 @@ def sendEmail(**kwargs):
     emailTo = Variable.get("edpay_file_gen_etl", deserialize_json=True)['emailTo']
     if  error_count ==0:
         bodytext = "Control table is updated for merchant codes: "+updated_codes_ctrl_tab+"\n\nQuery files executed successfully: "+updated_query+"\n\nMerchant codes in query file: "+updated_files
+        event_message = "Control table is updated for merchant codes: " + updated_codes_ctrl_tab + "\n\nQuery files executed successfully: " + updated_query + "\n\nMerchant codes in query file: " + updated_files
+        event = Event(
+                dag_name=dag_name,
+                event_status="success",
+                event_message=event_message,
+                start_time=exec_time_aest,
+                )
+        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8")) 
     else:
         bodytext = "Control table is updated for merchant codes: "+updated_codes_ctrl_tab+"\n\nQuery files executed successfully: "+updated_query+"\n\nMerchant codes in query file: "+updated_files+"\n\nControl table is not updated for merchant codes: "+unupdated_files+"\n\nUnsuccessful query files: "+unupdated_query
+        event_message = "Control table is updated for merchant codes: "+updated_codes_ctrl_tab+"\n\nQuery files executed successfully: "+updated_query+"\n\nMerchant codes in query file: "+updated_files+"\n\nControl table is not updated for merchant codes: "+unupdated_files+"\n\nUnsuccessful query files: "+unupdated_query
+        event = Event(
+                dag_name=dag_name,
+                event_status="success",
+                event_message=event_message,
+                start_time=exec_time_aest,)
+        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))    
     logging.info("subject: {} emailto: {} bodytext: {}".format(subject,emailTo,bodytext))
     pu.PDHUtils.send_email(emailTo, subject,bodytext)
     return True   
