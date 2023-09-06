@@ -1,0 +1,163 @@
+--Refund AND Purchase by Merchant by Month 
+--Remove project reference and point store_details and response_code to ref_ds
+Declare backMonth INT64 Default -10;
+DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL backMonth MONTH);
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 11 MONTH);
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -8 MONTH);
+DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");
+DECLARE SysDateTime datetime DEFAULT current_datetime("Australia/Sydney");
+if Exists(Select File_Date 
+          From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          Where File_Date  = Current_Date("Australia/Sydney") - 1
+          Limit 1) Then
+--
+Truncate Table `pdh_analytics_ds.Rule15_16_output`;
+Insert into    `pdh_analytics_ds.Rule15_16_output` 
+--
+With DET as (
+        Select Upper(trim(Case 
+                             When ifNULL(rc0.Merchant_to_report,"") <> "" then rc0.Merchant_to_report
+                             Else mh.division
+                          End)) as Merchant,
+                          upper(trim(case(mh.division)  when "LIVE GROUP" then mh.store_id else "" end)) as store_id,
+                        upper(trim(case(mh.division)    when "LIVE GROUP" then mh.site_name else "" end)) as site_name, 
+       
+                DATE_TRUNC(Date(tstamp_local),month) as FirstOfMonth,
+                (Case Upper(left(trim(tt.abbr),6))
+                   When "PURCHA" then IfNull(trn.purchase_total,0)
+                       Else 0
+                End) * 0.01 as Purchase_Value,
+                (Case 
+                    When Upper(left(trim(tt.abbr),6)) = "REFUND" then IfNull(trn.transaction_total,0)
+                    Else 0
+                 End) * 0.01 as Refund_Value,
+                 Case 
+                    When Upper(left(trim(tt.abbr),6)) = "PURCHA" and 
+                         IfNull(trn.purchase_total,0) <> 0 then 1
+                    Else 0
+                 End as Purchase_Count,
+                 Case 
+                    When Upper(left(trim(tt.abbr),6)) = "REFUND" and
+                         IfNull(trn.transaction_total,0) <> 0 then 1
+                    Else 0
+                  End Refund_Count
+           FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` trn
+           Join `pdh_ref_ds.ref_transaction_types` tt 
+                on safe_cast(trn.tran_type_id as int64) = cast(tt.dn_tran_code as int64)
+               and  Upper(left(trim(tt.abbr),6)) in ("REFUND","PURCHA")
+           Join `pdh_ref_ds.ref_store_details` mh 
+                on left(trn.Net_Term_ID,5) = mh.store_id 
+               and ifNull(mh.division,"") <> "" 
+           left join `pdh_ref_ds.ref_response_code` rrc
+                on rrc.action_code = trn.act_code
+           left join `pdh_ref_ds.ref_Compliance_Control_Table` rc0
+                   on rc0.Rule_ID = 0
+                  and rc0.Attribute ="Merge" 
+                  and upper(trim(rc0.Merchant)) = upper(trim(mh.division))
+           Where trn.Net_Term_ID is not NULL 
+             and trn.Net_Term_ID <> ""
+             and Upper(left(trim(tt.abbr),6)) in ("PURCHA","REFUND")
+             and Date(trn.tstamp_local) >= StartDate 
+             and Date(trn.tstamp_local) < EndDate
+),
+Monthly AS (
+   Select Merchant,store_id,site_name, FirstOfMonth, sum(Purchase_Value) as Purchase_Value,
+                                  sum(Refund_Value) as Refund_Value,
+                                  sum(Purchase_Count) as Purchase_Count,
+                                  sum(Refund_Count) as Refund_Count
+   From DET
+   Group By Merchant,store_id,site_name, FirstOfMonth)
+    Select m.Merchant,
+           m.store_id,
+           m.site_name,
+           m.FirstOfMonth,
+           m.Purchase_Value,
+           m.Refund_Value,
+           m.Purchase_Count,
+           m.Refund_Count,
+           Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Purchase_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Purchase_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Purchase_Value,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Purchase_Value,0) + 
+                 IFNULL(p2.Purchase_Value,0) + 
+                 IFNULL(p3.Purchase_Value,0)) * 1.0 /
+                   ((Case When IFNULL(p1.Purchase_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Purchase_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Purchase_Value,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon_PV,
+          Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Refund_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Refund_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Refund_Value,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Refund_Value,0) + 
+                 IFNULL(p2.Refund_Value,0) + 
+                 IFNULL(p3.Refund_Value,0)) * 1.0 /
+                   ((Case When IFNULL(p1.Refund_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Refund_Value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Refund_Value,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon_RV,
+          Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Purchase_Count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Purchase_Count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Purchase_Count,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Purchase_Count,0) + 
+                 IFNULL(p2.Purchase_Count,0) + 
+                 IFNULL(p3.Purchase_Count,0)) * 1.0 /
+                   ((Case When IFNULL(p1.Purchase_Count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Purchase_Count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Purchase_Count,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon_PC,
+          Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Refund_Count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Refund_Count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Refund_Count,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Refund_Count,0) + 
+                 IFNULL(p2.Refund_Count,0) + 
+                 IFNULL(p3.Refund_Count,0)) * 1.0 /
+                   ((Case When IFNULL(p1.Refund_Count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Refund_Count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Refund_Count,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon_RC,
+          rcvd1.value as ValueDiff_Low,
+          rcvd2.value as ValueDiff_High,
+          rcavp1.value * 0.01 as AvgPurPc_Low,
+          rcavp2.value * 0.01 as AvgPurPc_High,
+          rcavr1.value * 0.01 as AvgRefPc_Low,
+          rcavr2.value * 0.01 as AvgRefPc_High,
+          SysDateTime
+   From Monthly m
+   Left Join Monthly p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
+                             and p1.store_id = m.store_id and p1.site_name= m.site_name
+   Left Join Monthly p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
+                              and p2.Store_id = m.Store_id and p2.site_name= m.site_name	
+   Left Join Monthly p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
+                          and p3.Store_id = m.Store_id and p3.site_name= m.site_name	
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rcvd1
+            on rcvd1.Rule_ID = 15
+           and Trim(rcvd1.Attribute) ="Value Difference_Low"
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rcvd2
+            on rcvd2.Rule_ID = 15
+           and Trim(rcvd2.Attribute) ="Value Difference_High"
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rcavp1
+            on rcavp1.Rule_ID = 16
+           and Trim(rcavp1.Attribute) ="Ratio_Purchase per month to Average transactionslast 3 months_Low"
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rcavp2
+            on rcavp2.Rule_ID = 16
+           and Trim(rcavp2.Attribute) ="Ratio_Purchase per month to Average transactionslast 3 months_High"
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rcavr1
+            on rcavr1.Rule_ID = 16
+           and Trim(rcavr1.Attribute) ="Ratio_Refund per month to Average transactionslast 3 months_Low"
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rcavr2
+            on rcavr2.Rule_ID = 16
+           and Trim(rcavr2.Attribute) ="Ratio_Refund per month to Average transactionslast 3 months_High"
+  Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate;
+End if

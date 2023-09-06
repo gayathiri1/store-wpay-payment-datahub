@@ -1,0 +1,148 @@
+DECLARE   backMonth INT64 DEFAULT -10;
+DECLARE   StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(CURRENT_DATE("Australia/Sydney"), month), INTERVAL backMonth MONTH);
+DECLARE   EndDate Date DEFAULT DATE_ADD(StartDate, INTERVAL 11 MONTH);
+DECLARE  RptStartDate Date DEFAULT DATE_ADD(EndDate, INTERVAL -8 MONTH);
+DECLARE   MonAvgStartDate Date DEFAULT DATE("2020-10-01");
+DECLARE   SysDateTime datetime DEFAULT CURRENT_DATETIME("Australia/Sydney");
+IF EXISTS( 
+  SELECT File_Date  FROM
+    `pdh_rd_data_navigator.chargebacks`
+  WHERE     File_Date = CURRENT_DATE("Australia/Sydney") - 1
+  LIMIT     1) THEN
+Truncate Table `pdh_analytics_ds.Rule24_output`;
+Insert into    `pdh_analytics_ds.Rule24_output`
+
+
+WITH 
+  DET AS (
+  SELECT
+    UPPER(TRIM(CASE
+          WHEN IFNULL(rc0.Merchant_to_report,"") <> "" THEN rc0.Merchant_to_report
+        ELSE
+        mh.division
+      END   )) AS Merchant,
+    UPPER(TRIM(CASE(mh.division)  
+          WHEN "LIVE GROUP" THEN mh.store_id
+        ELSE
+        ""
+      END
+        )) AS store_id,
+    UPPER(TRIM(CASE(mh.division)
+          WHEN "LIVE GROUP" THEN mh.site_name
+        ELSE
+        ""
+      END
+        )) AS site_name,
+    DATE_TRUNC(DATE(txn_dttm_local),month) AS FirstOfMonth,
+    IFNULL(trn.amount,0) AS transaction_value,
+    CASE
+      WHEN trn.amount<>0 THEN 1
+    ELSE
+    0
+  END
+    AS trans_count
+  FROM (
+    SELECT
+      *,
+      row_number () OVER (PARTITION BY bank_ref_no ORDER BY txn_dttm_local) AS rank
+    FROM
+      `pdh_rd_data_navigator.chargebacks`) trn
+  JOIN
+    `pdh_ref_ds.ref_store_details` mh
+  ON
+    trn.store_id = mh.store_id
+    AND IFNULL(mh.division,"") <> "" 
+ /* LEFT JOIN
+    `pdh_ref_ds.ref_response_code` rrc
+  ON
+    rrc.action_code = trn.act_code */
+  LEFT JOIN
+    `pdh_ref_ds.ref_Compliance_Control_Table` rc0
+  ON
+    rc0.Rule_ID = 0
+    AND rc0.Attribute ="Merge"
+    AND UPPER(TRIM(rc0.Merchant)) = UPPER(TRIM(mh.division))
+  WHERE
+    trn.store_id IS NOT NULL
+    AND trn.store_id <> ""
+    AND rank = 1 
+   -- AND UPPER(TRIM(rrc.approval_flag)) = 'Y'
+    AND trn.amount <> 0
+    AND DATE(trn.txn_dttm_local) >= StartDate
+    AND DATE(trn.txn_dttm_local) < EndDate ),
+
+    Monthly AS (
+   Select Merchant,store_id,site_name, FirstOfMonth, sum(transaction_value) as Trans_value,sum(trans_count) as Trans_count
+    From DET
+   Group By Merchant,store_id,site_name, FirstOfMonth)
+    Select m.Merchant,
+           m.store_id,
+           m.site_name,
+           m.FirstOfMonth,
+           m.Trans_value,
+           m.Trans_count,
+
+
+           Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Trans_value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Trans_value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Trans_value,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Trans_value,0) + 
+                 IFNULL(p2.Trans_value,0) + 
+                 IFNULL(p3.Trans_value,0)) * 1.0 /
+                   (IFNULL(p1.Trans_count,0) + 
+                 IFNULL(p2.Trans_count,0) + 
+                 IFNULL(p3.Trans_count,0)) * 1.0 
+          End As RollingAvg_last_3mon_trans,
+
+   Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Trans_value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Trans_value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Trans_value,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Trans_value,0) + 
+                 IFNULL(p2.Trans_value,0) + 
+                 IFNULL(p3.Trans_value,0)) * 1.0 /
+                   ((Case When IFNULL(p1.Trans_value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Trans_value,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Trans_value,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon_TV,
+          Case
+              When m.FirstOfMonth < MonAvgStartDate then Null
+              When ((Case When IFNULL(p1.Trans_count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Trans_count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Trans_count,0) = 0 then 0 Else 1 End)) = 0 then NULL
+              Else
+                (IFNULL(p1.Trans_count,0) + 
+                 IFNULL(p2.Trans_count,0) + 
+                 IFNULL(p3.Trans_count,0)) * 1.0 /
+                   ((Case When IFNULL(p1.Trans_count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p2.Trans_count,0) = 0 then 0 Else 1 End) +
+                    (Case When IFNULL(p3.Trans_count,0) = 0 then 0 Else 1 End))
+          End As Rollin_Avg_last_3mon_TC,
+
+ 
+         rcvd1.value * 0.01 as Avgtrns_Low,
+         rcvd2.value * 0.01 as Avgtrns_High,
+         
+          SysDateTime
+   From Monthly m
+   Left Join Monthly p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH)
+                             and p1.store_id = m.store_id and p1.site_name= m.site_name
+   Left Join Monthly p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)
+                              and p2.Store_id = m.Store_id and p2.site_name= m.site_name	
+   Left Join Monthly p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)
+                          and p3.Store_id = m.Store_id and p3.site_name= m.site_name	
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rcvd1
+            on rcvd1.Rule_ID = 24
+           and Trim(rcvd1.Attribute) ="Ratio_Avg chargeback value per month to Average chargeback value last 3 months_Low"
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rcvd2
+            on rcvd2.Rule_ID = 24
+           and Trim(rcvd2.Attribute) ="Ratio_Avg chargeback value per month to Average chargeback value last 3 months_High"
+  
+  Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate;
+End if
+

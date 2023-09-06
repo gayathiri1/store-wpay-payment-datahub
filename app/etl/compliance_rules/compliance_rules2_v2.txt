@@ -1,0 +1,77 @@
+--SQL Rule2 Remove project reference, point store_details to ref_ds
+If Exists(Select File_Date 
+          From `pdh_rd_data_navigator.gfs_pdh_txn_interface`
+          Where File_date = Current_Date("Australia/Sydney") - 1
+          Limit 1) Then
+          
+--
+Truncate table `pdh_analytics_ds.Rule2_Output`;
+--
+Insert into `pdh_analytics_ds.Rule2_Output`
+With d as ( 
+       Select left(net_term_id,5) as store_id,
+              Date(tstamp_local) As Transaction_Date,
+              pos_crd_dat_in_mod,
+              pos_crdhldr_presnt
+        FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`
+         Where net_term_id is not NULL 
+           and net_term_id <> ""
+           and pos_crdhldr_presnt = "0"),     
+StoreSummary as (
+       SELECT store_id,
+               Transaction_Date,
+                Count(*) SS_CardPresent,
+                Sum(Case
+                       when pos_crd_dat_in_mod in ("6") then 1
+                       Else 0
+                    End) As SS_ManualCount
+         FROM d
+         Group By store_id, Transaction_Date
+        ) 
+   SELECT Case
+             When rc1.Merchant_to_report is Not Null and
+                  rc1.Merchant_to_report <> "" then rc1.Merchant_to_report
+             When rc2.Merchant_to_report is Not Null and
+                  rc2.Merchant_to_report <> "" then rc2.Merchant_to_report
+             Else mh.division
+          End as Merchant,
+
+          SS.store_id,
+          mh.site_name,
+          SS.Transaction_Date,
+          Case
+             When rc1.value is not Null then rc1.value * 0.01 
+             When df1.value is not Null then df1.value * 0.01
+             Else .01
+          End as Threshold1,
+          Case
+             When rc2.value is not Null then rc2.value * 0.01
+             When df2.value is not Null then df2.value * 0.01
+             Else .015
+          End as Threshold2,
+          SS_CardPresent As CardPresent,
+          SS_ManualCount  AS ManualCount,
+          Current_Datetime() As Datetime_Created
+   FROM StoreSummary SS
+   Join `pdh_ref_ds.ref_store_details` mh
+         ON SS.store_id = mh.store_id
+         and mh.division is not Null
+         and mh.division <> ""
+  left join `pdh_ref_ds.ref_Compliance_Control_Table` rc1
+         on trim(rc1.Merchant) =  trim(mh.division)
+        and rc1.Rule_ID = 2
+        and rc1.Attribute = "Ratio_ManualToCardPresent_Low" 
+  left join  `pdh_ref_ds.ref_Compliance_Control_Table` rc2
+         on trim(rc2.Merchant) =  trim(mh.division) 
+        and rc2.Rule_ID = 2
+        and rc2.Attribute = "Ratio_ManualToCardPresent_High"
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` df1
+         on df1.Merchant =  "*"
+        and rc1.Rule_ID = 2
+        and rc1.Attribute = "Default_Low" 
+    left join `pdh_ref_ds.ref_Compliance_Control_Table` df2
+         on df1.Merchant =  "*"
+        and rc1.Rule_ID = 2
+        and rc1.Attribute = "Default_High" 
+order By  1,2,3,4;
+End If

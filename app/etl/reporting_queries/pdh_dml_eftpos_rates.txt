@@ -23,7 +23,7 @@ INSERT INTO
       (CAST(acquirer_interchange_amt AS FLOAT64) + CAST(issuer_interchange_amt AS FLOAT64))/100 AS net_interchange_amount,
       CAST(scheme_fee AS FLOAT64)/100 AS scheme_fee
     FROM
-      `pdh_rd_data_navigator.gfs_aux_eftpos` ),
+      `pdh_rd_data_navigator.eftpos_tx_100_01` ),
     ref_store_details AS (
     SELECT
       division,

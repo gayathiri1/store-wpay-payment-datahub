@@ -1,0 +1,49 @@
+--Declare standard variables here.
+DECLARE SYS_DATE DATE DEFAULT CURRENT_DATE("Australia/Sydney");
+DECLARE start_date default (select SYS_DATE);
+DECLARE dayofweek numeric;
+DECLARE day string;
+DECLARE tran_date DATE DEFAULT DATE_SUB(SYS_DATE, INTERVAL 0 DAY);
+DECLARE batch string;
+DECLARE inp_lookup STRING DEFAULT "ALH SETTLEMENT WEEKLY";
+
+--Set the day of the week.
+SET dayofweek = (SELECT EXTRACT(DAYOFWEEK FROM SYS_DATE));
+
+--Only generate report on weekly basis (on Monday only)
+SET day = (
+  SELECT
+    CASE
+      WHEN dayofweek = 1 THEN 'Sunday'
+      WHEN dayofweek = 2 THEN 'Monday'
+      WHEN dayofweek = 3 THEN 'Tuesday'
+      WHEN dayofweek = 4 THEN 'Wednesday'
+      WHEN dayofweek = 5 THEN 'Thursday'
+      WHEN dayofweek = 6 THEN 'Friday'
+      WHEN dayofweek = 7 THEN 'Saturday'
+  END
+    Weekday);
+IF
+  day = 'Monday' THEN  
+  --Call lookup method.
+  CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);  
+  -- Create entry in control table
+  INSERT 
+  INTO 
+  pdh_analytics_ds.file_gen_details 
+  VALUES 
+  (
+  batch, 
+  SYS_DATE, 
+  "alh_settlement_weekly", 
+  true, 
+  null, cast(tran_date as datetime), 
+  cast(tran_date as datetime), 
+  cast(tran_date as datetime), 
+  null
+  );
+  ELSE
+  return; --do nothing just return on other days of the week.
+END IF;
+
+

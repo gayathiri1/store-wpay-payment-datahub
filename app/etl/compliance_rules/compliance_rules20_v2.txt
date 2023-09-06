@@ -1,0 +1,71 @@
+--Rule 20 Deposit(Settlement amount) by Merchant by Month
+--Remove project reference and point store_details to ref_ds
+--Depends on Rule22_p1_Monthly
+DECLARE StartDate Date DEFAULT DATE_ADD(DATE_TRUNC(Current_Date("Australia/Sydney"), month),  INTERVAL -10 month);					
+DECLARE EndDate Date DEFAULT DATE_ADD(StartDate,  INTERVAL 11 MONTH);					
+DECLARE RptStartDate Date DEFAULT DATE_ADD(EndDate,  INTERVAL -8 MONTH);					
+DECLARE MonAvgStartDate Date DEFAULT DATE("2020-10-01");					
+Declare Sys_Datetime Datetime DEFAULT Current_Date("Australia/Sydney");					
+--select StartDate, EndDate, RptStartDate;					
+if Exists(Select File_Date 					
+          From `pdh_rd_data_navigator.gfs_pdh_txn_interface`					
+          Where File_Date  = Current_Date("Australia/Sydney") - 1					
+          Limit 1) Then					
+
+					
+					
+Truncate Table `pdh_analytics_ds.Rule20_Output`;					
+Insert into    `pdh_analytics_ds.Rule20_Output`  					
+					
+With Monthly As ( 					
+   SELECT Merchant,					
+          store_id,					
+          site_name,					
+          FirstOfMonth,					
+          Sum(Settlement_amount) as Deposit_Value 					
+   FROM `pdh_analytics_ds.BillingTrnByMerchantScheme` 					
+   Where FirstOfMonth >= StartDate and FirstOfMonth < EndDate					
+   Group By Merchant,store_id, site_name,					
+            FirstOfMonth					
+            )					
+            					
+            Select m.Merchant,					
+           m.store_id,					
+           m.site_name,					
+  					
+           m.FirstOfMonth,					
+           m.Deposit_Value,					
+           Case					
+              When m.FirstOfMonth < MonAvgStartDate then Null					
+              When ((Case When IFNULL(p1.Deposit_Value,0) = 0 then 0 Else 1 End) +					
+                    (Case When IFNULL(p2.Deposit_Value,0) = 0 then 0 Else 1 End) +					
+                    (Case When IFNULL(p3.Deposit_Value,0) = 0 then 0 Else 1 End)) = 0 then NULL					
+              Else					
+                (IFNULL(p1.Deposit_Value,0) + 					
+                 IFNULL(p2.Deposit_Value,0) + 					
+                 IFNULL(p3.Deposit_Value,0)) * 1.0 /					
+                    ((Case When IFNULL(p1.Deposit_Value,0) = 0 then 0 Else 1 End) +					
+                    (Case When IFNULL(p2.Deposit_Value,0) = 0 then 0 Else 1 End) +					
+                    (Case When IFNULL(p3.Deposit_Value,0) = 0 then 0 Else 1 End))					
+          End As Rollin_Avg_last_3mon,
+				 rc1.value * 0.01 as Threshold1,					
+          rc2.value * 0.01 as Threshold2,					
+          Sys_Datetime as Datetime_Created					
+   From Monthly m					
+   Left Join Monthly p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH) 					
+             and p1.store_id = m.store_id and p1.site_name= m.site_name					
+   Left Join Monthly p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)					
+             and p2.Store_id = m.Store_id and p2.site_name= m.site_name					
+   Left Join Monthly p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)					
+             and p3.Store_id = m.Store_id and p3.site_name= m.site_name					
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rc1					
+            on rc1.Rule_ID = 20				
+            and rc1.Merchant = "Default"					
+          and Trim(rc1.Attribute) ="Ratio_Deposit per month to Average transactionslast 3 months_Low"					
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rc2					
+            on rc2.Rule_ID = 20					
+           and rc2.Merchant = "Default"					
+           and Trim(rc2.Attribute) ="Ratio_Deposit per month to Average transactionslast 3 months_High"					
+   Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate;					
+					
+End if					

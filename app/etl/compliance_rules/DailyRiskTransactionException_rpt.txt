@@ -1,9 +1,4 @@
-
-
-
-
-
-
+/* updated on 31-08-2023*/
 create or replace table wpay_analytics.daily_risk_transaction_monitoring as(
 
 --- Rule 1 ---
