@@ -1115,7 +1115,7 @@ if
 	(select count(*) from temp_billing_all d 
     left join pdh_ref_ds.ref_store_details s
         ON LEFT(d.net_term_id, 5) = s.store_id
-	left join pdh_ref_ds.ref_scheme_fee_rate_card sr
+	left join pdh_ref_ds_s.ref_scheme_fee_rate_card sr
 		ON trim(upper(s.scheme_ratecard_group)) = trim(upper(sr.scheme_fee_group))
 		AND trim(upper(d.calc_scheme)) = trim(upper(sr.scheme)) 
 		AND CASE WHEN d.calc_card_type IN ('MULTI-NETWORK', 'DIGITAL', 'PROPRIETARY') THEN 'DEBIT' ELSE trim(Upper(d.calc_card_type)) END = trim(upper(sr.card_type))
@@ -1225,7 +1225,7 @@ SELECT
 		if(proc_fee_code ='FIXED', proc_fee_fixed*100,
 		if(proc_fee_code ='PERCENT',(d.transaction_total * proc_fee_percent/100),0))) 
 	, 0) as processing_fees,
-	IF(LEFT(d.net_term_id, 5) IN ('W0800', 'W8305', 'W6802', 'W8843', 'Q0001'), IFNULL(fraud_fee_fixed * 100, 0), 0) fraud_fees,
+	CAST(0.0 AS NUMERIC) fraud_fees,
 	000000 as settled_datetime,
 	000000 as fncl_posted_datetime,
 	case
@@ -1268,7 +1268,7 @@ SELECT
 	cc.pricing_model,
 	case
 		when d.calc_approval_flag = 'A' and cc.pricing_model = 'IC++' and (act_code <> '400' or mti <> '1440') then
-            case when calc_scheme IN ('VISA', 'MASTERCARD', 'UPI') then
+            case when calc_scheme IN ('VISA', 'MASTERCARD', 'UPI', 'AMEX') then
                 case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
                     ifnull(d.purchase_total * sr.extern_scheme_fee_ad_vol + (sr.extern_scheme_fee_fixed_usd * 100 / fx.exchange_rate), 0)
                 when calc_tran_type_abbr = 'REFUND' then
@@ -1289,7 +1289,7 @@ SELECT
 		else 0
 	end as extern_scheme_fees,
     case when d.calc_approval_flag = 'A' and (act_code <> '400' or mti <> '1440') then
-        case when calc_scheme IN ('VISA', 'MASTERCARD', 'UPI') then
+        case when calc_scheme IN ('VISA', 'MASTERCARD', 'UPI', 'AMEX') then
             case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
                 ifnull(d.purchase_total * sr.intern_scheme_fee_ad_vol + (sr.intern_scheme_fee_fixed_usd * 100 / fx.exchange_rate), 0)
             when calc_tran_type_abbr = 'REFUND' then
@@ -1310,7 +1310,7 @@ SELECT
     else 0
     end as intern_scheme_fees,
 	case when d.calc_approval_flag = 'A' and (act_code <> '400' or mti <> '1440') then
-        case when calc_scheme IN ('VISA', 'MASTERCARD', 'UPI') then
+        case when calc_scheme IN ('VISA', 'MASTERCARD', 'UPI', 'AMEX') then
             case when calc_tran_type_abbr = 'PURCHASE WITH CASHOUT' then
                 ifnull(d.purchase_total * sr.scheme_fee_ad_vol_rebate + (sr.scheme_fee_rebate_fixed_usd * 100 / fx.exchange_rate), 0)
             when calc_tran_type_abbr = 'REFUND' then
@@ -1349,7 +1349,7 @@ LEFT JOIN `pdh_ref_ds.ref_store_details` s
 LEFT JOIN `pdh_ref_ds.ref_company_config` cc
 	ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company))
 	AND d.switch_tran_date BETWEEN cc.from_date AND IFNULL(cc.to_date, '2999-12-31')
-LEFT JOIN `pdh_ref_ds.ref_scheme_fee_rate_card` sr
+LEFT JOIN `pdh_ref_ds_s.ref_scheme_fee_rate_card` sr
 	ON IF(trim(ifnull(s.scheme_ratecard_group, '')) = '', concat('WPAY', s.country, IF(s.is_online = 'Online', 'CNP', 'CP')), trim(upper(s.scheme_ratecard_group))) = trim(upper(sr.scheme_fee_group))
 	AND trim(upper(d.calc_scheme)) = trim(upper(sr.scheme)) 
     AND CASE WHEN d.calc_card_type IN ('MULTI-NETWORK', 'DIGITAL', 'PROPRIETARY') THEN 'DEBIT' ELSE trim(Upper(d.calc_card_type)) END = trim(upper(sr.card_type))
@@ -1447,7 +1447,33 @@ and i.stan = v.system_trace_audit_num
 and i.transaction_total = CAST(v.amount_txn*100 AS int64)
 and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
 AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
-and TRIM(proc_id_iss_b)='MC';
+and TRIM(proc_id_iss_b)='MC'; 
+
+
+Update temp_fee_calc i	
+set i.interchange_fees_actual = int_fees*100,
+i.fee_indicator='A'
+ from (
+   
+    Select concat(substr(pan,1,6),"~~~~~~~",substr(pan,14,3)) pan,
+    cast(amount_txn as int64) amount_txn,
+    LEFT(trim(card_acceptor_terminal_id), 5) store_id,
+    date(parse_timestamp('%y%m%d%H%M%S',datetime_local_txn)) txn_lcl_date,
+    MIN(if(extended_interchange_amount_fee > 0, cast(extended_interchange_amount_fee as int64)/1000000/1.1,cast(amount_txn_fee as int64)/100)) int_fees
+    
+     from `pdh_rd_data_navigator.mastercard_T1G0`
+     where trim(card_acceptor_terminal_id)<>'' 
+    and file_date > DATE_SUB(start_date, INTERVAL 10 DAY)
+
+     GROUP BY 1,2,3,4 
+     ) v 
+where date(i.tstamp_local) = v.txn_lcl_date
+and LEFT(trim(i.net_term_id), 5) = v.store_id
+and i.transaction_total = v.amount_txn
+and concat(substr(i.masked_pan,1,6),'~~~~~~~',substr(i.masked_pan,14,3)) = trim(v.pan)
+AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
+and TRIM(proc_id_iss_b)='MC'
+and fee_indicator <> 'A';				
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 --VISA UPDATE
@@ -1456,7 +1482,7 @@ Update `temp_fee_calc` i
 set interchange_fees_actual= v.interchange_fee/10000/1.1,
 i.fee_indicator='A'
 from (Select mti,tstamp_local,card_acpt_term_id,rrn,stan,tran_amt,pan,
-SUM(ABS(interchange_fee)) interchange_fee from  `pdh_rd_data_navigator.gfs_aux_visa`
+MIN(ABS(interchange_fee)) interchange_fee from  `pdh_rd_data_navigator.gfs_aux_visa`
 GROUP BY 1,2,3,4,5,6,7) v
 --from invoice_gfs_taf.aux_visa_apr2021 v
 where i.tstamp_local = v.tstamp_local
@@ -1558,11 +1584,11 @@ and i.approval_flag = 'Y';
 
 update `temp_fee_calc` i
 set interchange_fees_invoiced=interchange_fees_actual
-where i.fee_indicator='A'
+where i.fee_indicator in ('A')
 and pricing_model IN ('IC+', 'IC++');
 
 update `temp_fee_calc` set interchange_fees_invoiced=interchange_fees_calc,fee_indicator='C'
-where fee_indicator<>'A';
+where fee_indicator not in ('A');
 
 INSERT INTO `pdh_analytics_ds.tbl_fees_all`
 SELECT 
@@ -2343,7 +2369,6 @@ SELECT
 	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.early_settlement_fees / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.early_settlement_fees / 100 END AS vcalc_early_settlement_fees_ex_gst,
 	i.early_settlement_fees / 100 AS early_settlement_fees_ex_gst,
 	CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.cost_of_credit / 100 ELSE IFNULL(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * i.cost_of_credit / 100 END AS vcalc_cost_of_credit,
-
 	i.cost_of_credit / 100 AS cost_of_credit,
 	i.pymt_acct_ref,
 	i.scdr_token,
