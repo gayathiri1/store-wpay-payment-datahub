@@ -295,7 +295,9 @@ def check_tasks():
     tasks = du.ListDataProcClusters.list_task_in_queue()
     dataproc = du.ListDataProcClusters(config['project_name'], 'us-central1')
     dataproc_jobs = dataproc.list_jobs()
-    if tasks is None and dataproc_jobs == 0:
+    print(f'Current number of airflow tasks :=> {tasks} and dataproc_jobs:=> {dataproc_jobs}')
+    # stop_clusterip if either conditions are true
+    if tasks is None or dataproc_jobs == 0:
         return 'stop_cluster'
     else:
         return 'skip_dataproc'
