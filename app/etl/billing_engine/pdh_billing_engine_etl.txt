@@ -967,6 +967,128 @@ select
 	end = 'Y');
 
 -------------------------------------------------------------------------------------------
+-- Gr4vy
+
+insert into `pdh_staging_ds.tbl_temp_billing_all`
+select 
+CAST(dn.transaction_timestamp AS DATE) switch_tran_date,
+dn.tran_uid,
+CAST(dn.transaction_timestamp AS TIMESTAMP) AS tstamp_trans,
+CAST(dn.transaction_timestamp AS TIMESTAMP) AS tstamp_local,
+dn.pan AS masked_pan,
+null AS date_recon_acq,
+CONCAT(kv1.value, '001') AS net_term_id,
+CONCAT('01', kv1.value) rpt_lvl_id_b,
+null as mti,
+null as tran_type_id,
+null as amt_recon_net,
+null as act_code,
+null as response_code,
+null as account_type,
+CAST(dn.transaction_amt AS NUMERIC) AS transaction_total,
+CAST(dn.transaction_amt AS NUMERIC) AS purchase_total,
+0 AS cashout_total,
+cr.retrieval_reference_number AS retrieval_ref_no,
+null as stan,
+null as original_stan,
+null as proc_id_acq_b,
+null as inst_id_recn_acq_b,
+merchant_name as card_acpt_name_loc,
+null as proc_id_iss_b,
+null as issuer_institution_id,
+null as inst_id_recon_iss_name,
+null as card_owner,
+null as pos_crd_dat_in_mod,
+null as pos_crdhldr_presnt,
+dn.external_identifier as order_number,
+cr.auth_code as approval_code,
+null as adtnl_response_data,
+null as card_acpt_id,
+null as merchant_store_id,
+null AS dom_int_ind,
+CASE WHEN LOWER(TRIM(dn.card_type)) = 'debit' THEN 'D'
+    WHEN LOWER(TRIM(dn.card_type)) = 'credit' THEN 'C'
+    ELSE null
+END card_type,
+null as card_subtype,
+null as bin_product_code,
+dn.scheme,
+CASE
+  WHEN transaction_status IN ('Authenticating', 'Declined', 'Voided', 'Authorised', 'Failed') THEN 'PRE-AUTH'
+  WHEN transaction_status IN ('Capturing', 'Captured') THEN 'PURCHASE'
+  WHEN transaction_status IN ('PartialRefund', 'Refunded') THEN 'REFUND'
+  ELSE null
+END as tran_type_desc,
+CASE
+  WHEN transaction_status IN ('Authenticating', 'Declined', 'Voided', 'Authorised', 'Failed') THEN 'PRE-AUTH'
+  WHEN transaction_status IN ('Capturing', 'Captured') THEN 'PURCHASE'
+  WHEN transaction_status IN ('PartialRefund', 'Refunded') THEN 'REFUND'
+  ELSE null
+END as tran_type_abbr,
+CASE
+    WHEN transaction_status IN ('Authorised', 'Captured', 'PartialRefund', 'Refunded') THEN 'Y'
+    WHEN transaction_status IN ('Declined', 'Failed', 'Voided') THEN 'N'
+    ELSE NULL
+END approval_flag,
+case lower(trim(scheme)) 
+when 'amex' then 'AMEX'
+when 'eftpos' then 'EFTPOS'
+when 'discover' then 'DISCOVER'
+when 'jcb' then 'JCB'
+when 'visa' then 'VISA'
+when 'mastercard' then 'MASTERCARD'
+when 'diners-club' then 'DINERS'
+else scheme
+end link_route,
+msw.reporting_group merchant_group,
+s.ratecard_group rate_group,
+cr.currency currency_code,
+dn.PAR pymt_acct_ref,
+null scdr_token,
+-- WPAY ANALYTICS FIELDS
+'Gr4vy' source_application,
+null customerRef,
+null userId,
+null username,
+null userStatus,
+null containerId,
+null containerRef,
+null itemId,
+null itemtype,
+null item_token,
+null schemeName,
+null qc_CardNumber,
+-- SETTLEMENT DATE FIELDS
+null AS dp_txnRef,
+null AS qc_ReferenceNumber,
+null AS qc_BatchNumber,
+null AS lk_ResRef,
+null AS cy_tran_uid,
+CASE WHEN payment_method NOT IN ('CardDebit', 'CardCredit') THEN payment_method
+    ELSE NULL
+END AS wallet_id
+from `pdh_rd_gr4vy_views.vw_rd_tran_gr4vy` dn
+LEFT JOIN `pdh_rd_external.cyb_online_txns_rpt` cr
+ON dn.connector_transaction_id = cr.request_id
+LEFT JOIN `pdh_ref_ds.ref_key_value` kv1
+ON dn.merchant_name = kv1.key
+AND kv1.attribute = 'gr4vy-merchant-store-id'
+JOIN `pdh_ref_ds.ref_key_value` kv2
+ON dn.merchant_name = kv2.key
+AND dn.scheme = kv2.value
+AND kv2.attribute = 'gr4vy-merchant-scheme-config'
+LEFT JOIN `pdh_ref_ds.ref_store_details` s ON kv1.value = s.store_id
+LEFT JOIN `pdh_ref_ds.ref_merchant_settlement_window` msw ON upper(s.division) = upper(msw.division)
+WHERE cast(dn.transaction_timestamp as date) BETWEEN start_date AND end_date
+;
+
+SET error_rows = ARRAY((SELECT DISTINCT card_acpt_name_loc FROM `pdh_staging_ds.tbl_temp_billing_all` WHERE net_term_id IS NULL AND source_application = 'Gr4vy'));
+
+IF ARRAY_LENGTH(error_rows) > 0 THEN
+  SELECT ERROR(CONCAT(ARRAY_LENGTH(error_rows), " store ID(s) missing from key-value table for the following merchant(s) (", ARRAY_TO_STRING(error_rows, ", "), ")"));
+END IF;
+
+-------------------------------------------------------------------------------------------
 
 SET error_rows = ARRAY((SELECT DISTINCT LEFT(net_term_id, 5) FROM `pdh_staging_ds.tbl_temp_billing_all` WHERE rate_group IS NULL));
 
@@ -1094,7 +1216,7 @@ AND switch_tran_date BETWEEN start_date AND end_date;
 
 if 
 	(select count(*) from temp_billing_all d 
-	left join pdh_ref_ds.ref_rate_card r
+	left join pdh_ref_ds_s.ref_rate_card r
 		on trim(upper(d.calc_scheme))=trim(upper(r.scheme)) 
 		and trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
 		and trim(upper(d.rate_group)) = trim(upper(r.merchant))
@@ -1335,7 +1457,7 @@ SELECT
 	0 c3ds_fees,
     d.wallet_id
 from `temp_billing_all` d
-LEFT JOIN `pdh_ref_ds.ref_rate_card` r
+LEFT JOIN `pdh_ref_ds_s.ref_rate_card` r
 	ON trim(upper(d.calc_scheme)) = trim(upper(r.scheme)) 
 	AND trim(Upper(d.calc_card_type))=trim(upper(r.card_type))
 	AND trim(upper(d.rate_group)) = trim(upper(r.merchant))

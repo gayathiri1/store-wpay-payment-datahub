@@ -14,6 +14,7 @@
 --20230613 Use surcharge and tip from standard settlement table
 --20300615 Use today for settlement_date
 --20230703 add columns par and pan_alias (stlf_versionv 3) process only version 2
+--20231006 Get Order_number from Gravy if available
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
 DECLARE nullstr string;
@@ -23,6 +24,7 @@ declare sysdate date default current_date("Australia/Sydney");
 declare sysdate_str string default format_date("%Y%m%d",sysdate);
 declare batch_start_yyyy_mm_dd_hh_mm_ss datetime default datetime_trunc(current_datetime("Australia/Sydney"),second);
 declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
+--select syd_hour;
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime;
 declare batch_end_yyyy_mm_dd_hh_mm_ss_1 datetime;
 declare batch_end_yyyymmdd string;
@@ -49,7 +51,7 @@ declare max_settlementdate date default (Select max(cast(datetime_created as dat
     return;
 end if;  
 --select current_version;
-
+--
 CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
 if (ifnull(batch,"") in ("","NOContRec","UpdFailed"))  then
     return;
@@ -105,12 +107,24 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                     "par",   --20230703
                     "pan_alias"  --20230703
          from `pdh_ref_ds.ref_stlm_tlf_config` tlf
+         join `pdh_ref_ds.ref_merchant_settlement_window` msw
+               on msw.division = tlf.division
+               and msw.settlement_cycle = syd_hour
          where ifnull(tlf.stlf_prefix,"") <> ""
            and tlf.stlf_version = current_version;
 --
 --Add details if settled not reported exists exists
  insert into `pdh_analytics_ds.stlm_std_transaction_listing`
-   With trqc as ( --1
+  --
+   With Gravy as (Select distinct connector_transaction_id isg_order_number,
+                        external_identifier gravy_order_number
+               from pdh_rd_gr4vy_views.vw_rd_tran_gr4vy
+               where ifnull(connector_transaction_id,"") <> ""), --2023-10-06 Gravy
+        Gravy_seq as (
+                     select isg_order_number,gravy_order_number, 
+                     row_number() over(partition by isg_order_number) seq
+              from Gravy ),  --2023-10-06 Gravy
+   trqc as ( --1
           Select pdh_ref_ds.get_tran_uid(
                                     "QC",
                                      tqc.approvalcode, 
@@ -248,7 +262,11 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                      else "0"
                   end approval_status,                  
                   tcy.approval_code approval_code,
-                  st2.order_number,
+                  case
+                     when ifnull(Gravy_chk.gravy_order_number,"") <> "" 
+                             then Gravy_chk.gravy_order_number
+                     else st2.order_number
+                  end order_number,
                   tcy.decline_reason addtl_response_data,
                   cast(null as string) as   account_type,
                   st2.surcharge_amt,
@@ -291,6 +309,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
       left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
           and upper(trim(rk.key)) = upper(trim(cast(tcy.merchant_id as string)))
+      left join (select * from Gravy_seq where seq = 1) Gravy_chk
+           on Gravy_chk.isg_order_number = st2.order_number
       where ifnull(st2.tlf_name,"") = "" 
         and ifnull(st2.setlmnt_result_file,"") <> ""
                ),
@@ -621,7 +641,7 @@ tred as (
                 on upper(trim(tlf.division)) = st6.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version
-      join `pdh_rd_data_navigator.edwp_txnact`  ted
+       join `pdh_rd_data_navigator.edwp_txnact`  ted
             on st6.tran_uid = pdh_ref_ds.get_tran_uid(
                                 "ED",
                                 nullstr, 
@@ -638,13 +658,13 @@ tred as (
       where ifnull(st6.tlf_name,"") = "" 
         and ifnull(st6.setlmnt_result_file,"") <> ""
                ),
-   trn_combined_b as (      select * from trqc where ifnull(store_id,"") <> ""
+   trn_combined_b as (    select * from trqc where ifnull(store_id,"") <> ""
                 union all select * from trcy where ifnull(store_id,"") <> ""
                 union all select * from trlk where ifnull(store_id,"") <> ""
                 union all select * from trdp where ifnull(store_id,"") <> ""
                 union all select * from trtc where ifnull(store_id,"") <> ""
                 union all select * from tred where ifnull(store_id,"") <> ""
-                   ),
+                  ),
    card_identi as (
       select card_id, max(par) as par, max(pan_alias) as pan_alias
        from wpay_analytics.wpay_card_identity_model
@@ -827,5 +847,5 @@ tred as (
               Where ifnull(std1.tlf_name,"") = "" 
                 and ifnull(std1.setlmnt_result_file,"") <> "") t
      Where t.tran_uid = std.tran_uid;
---
+
 --End of Script

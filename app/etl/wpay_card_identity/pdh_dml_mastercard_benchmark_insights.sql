@@ -6,7 +6,7 @@ Date              Author             Description
 2023-06-05        Ray M           MERPAY-781
 *********************************************************************************************************/
 
-----------------------------------------------------------------------------------------------------------
+--------------------------
 --MMI DATA
 -- REMOVING DUPLICATION FROM THE MMI DATA
 
@@ -60,7 +60,7 @@ on mt.area = t.area
 
 );
 
-----------------------------------------------------------------------------------------------------------------
+--------------------------------
 -- Assigning previous month/year MMI AVG Ticket
 
 create or replace table wpay_analytics.mmi_area_industry_edit as
@@ -130,12 +130,12 @@ on
 )
 ;
 
-----------------------------------------------------------------------------------------------------
+--------------------
 ----- OVERALL BENCHMARKS
 -- LGA/STATE
 
 create or replace table pdh_staging_ds.temp_location as (
--------------------------------------------------------------------------------------------------------------------
+-----------------------------------
 -- Store base table + mastercard linking and benchmark
 
 with
@@ -275,7 +275,7 @@ on
   
   and cast(store_lga.industry as string) = cast(ind_lga.industry_code as string)))
 
-----------------------------------------
+
 -- wpay store transactions
 ,
  store_trans as 
@@ -374,7 +374,7 @@ on (amount.Year = counts.Year)
    and (amount.Brand = counts.Brand)
    and (amount.Suburb = counts.Suburb)
 order by Store,year,month)
--------------------------------------------------------------------------------------------------------------
+-----------------------------
 
 -- Joined on same table to get previous month/year
 
@@ -458,7 +458,7 @@ on
 order by store_trans.Store, store_trans.Year,store_trans.Month
 )
 
----------------------------------------------------------------------------------------------------------------
+-------------------------------
 ,
 wpay_store_trans as
   (select 
@@ -507,7 +507,7 @@ wpay_store_trans as
   order by store_id
   )
 
--------------------------------------------
+---
 --- adding only LGA to wpay_trans
 
 , wpay_LGA as
@@ -547,7 +547,7 @@ wpay_store_trans as
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 
@@ -569,7 +569,7 @@ lga_bench as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , lga_benchmark as
 (
@@ -754,20 +754,10 @@ lga_bench as
       --fee.calc_scheme as scheme,
       --fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -785,11 +775,11 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
   order by lga_bench.Year, lga_bench.Month, lga_bench.store_id
 )
 -- end
---------------------------------------------------------------------------------------------------------------
+------------------------------
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- STATE/AUS
---------------------------------------------------------------------------------------------------------------
+------------------------------
 
 -- Store base table + mastercard linking and benchmark
 
@@ -910,7 +900,7 @@ on
   and cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
+
 -- wpay store transactions
 ,
  store_trans_state as 
@@ -1041,7 +1031,7 @@ on (amount.Year = counts.Year)
    and (amount.merchant_portal_cg = counts.merchant_portal_cg)
    --and (amount.Suburb = counts.Suburb))
 )
----------------------------------------------------------------------------------------------------------
+-------------------------
 
 -- Joined on same table to get previous month/year
 
@@ -1153,7 +1143,7 @@ on
 order by store_trans_state.State, store_trans_state.Year,store_trans_state.Month
 )
 
----------------------------------------------------------------------------------------------------------
+-------------------------
 
 --- adding only LGA to wpay_trans
 
@@ -1199,7 +1189,7 @@ order by store_trans_state.State, store_trans_state.Year,store_trans_state.Month
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 state_bench as 
@@ -1215,7 +1205,7 @@ state_bench as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , state_benchmark as
 (
@@ -1397,20 +1387,10 @@ state_bench as
       --fee.calc_scheme as scheme,
       --fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -1436,13 +1416,13 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
 )
 -- end
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- END
---------------------------------------------------------------------------------------------------------------
+------------------------------
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- Country
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- Store base table + mastercard linking and benchmark
 
 ,
@@ -1557,7 +1537,7 @@ on
  cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
+
 -- wpay store transactions
 ,
  store_trans_country as 
@@ -1688,7 +1668,7 @@ on (amount.Year = counts.Year)
    and (amount.merchant_portal_cg = counts.merchant_portal_cg)
    --and (amount.Suburb = counts.Suburb))
 )
-------------------------------------------------------------------------------------------------------------
+----------------------------
 
 , country_internal as
 (
@@ -1794,7 +1774,7 @@ on
 order by store_trans_country.Year,store_trans_country.Month
 )
 
------------------------------------------------------------------------------------------------------------
+---------------------------
 
 --- adding only LGA to wpay_trans
 
@@ -1840,7 +1820,7 @@ order by store_trans_country.Year,store_trans_country.Month
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 country_bench as 
@@ -1851,7 +1831,7 @@ country_bench as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , country_benchmark as
 (
@@ -1957,20 +1937,10 @@ country_bench as
       --fee.calc_scheme as scheme,
       --fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -2009,17 +1979,17 @@ select
 
 );
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- END
---------------------------------------------------------------------------------------------------------------
+------------------------------
 
 -- FILTERS
 -- ONLINE/OFFLINE + SCHEME + CARD TYPE
 
 create or replace table pdh_staging_ds.temp_filters_combo as (
--------------------------------------------------------------------------------------------------------------------
+-----------------------------------
 -- LGA/STATE
--------------------------------------------------------------------------------------------------------------------
+-----------------------------------
 -- Store base table + mastercard linking and benchmark
 
 with
@@ -2158,7 +2128,7 @@ on
   ((cast(store_lga.LGA_id as string) = cast(ind_lga.area as string))
   and cast(store_lga.industry as string) = cast(ind_lga.industry_code as string)))
 
-----------------------------------------
+
 -- wpay store transactions
 ,
   store_trans_filt as 
@@ -2258,7 +2228,7 @@ on (amount.Year = counts.Year)
    and (amount.Suburb = counts.Suburb)
 order by Store,year,month)
 
--------------------------------------------------------------------------------------------------------------
+-----------------------------
 
 -- Joined on same table to get previous month/year
 
@@ -2358,7 +2328,7 @@ on
 order by store_trans_filt.Store, store_trans_filt.Year,store_trans_filt.Month
 )
 
----------------------------------------------------------------------------------------------------------------
+-------------------------------
 ,
 wpay_store_trans_filt as
   (select 
@@ -2409,7 +2379,7 @@ wpay_store_trans_filt as
   order by store_id
   )
 
--------------------------------------------
+---
 --- adding only LGA to wpay_trans
 
 , wpay_LGA_filt as
@@ -2449,7 +2419,7 @@ wpay_store_trans_filt as
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 
@@ -2471,7 +2441,7 @@ lga_bench_filt as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , lga_benchmark_filt as
 (
@@ -2656,20 +2626,10 @@ lga_bench_filt as
       fee.calc_scheme as scheme,
       fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -2689,15 +2649,7 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
      and cust_info.card_type = lga_bench_filt.scheme_card_type
   order by lga_bench_filt.Year, lga_bench_filt.Month, lga_bench_filt.store_id
 )
--- end
 
---------------------------------------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------------------------------------
--- STATE/AUS
---------------------------------------------------------------------------------------------------------------
-
--- Store base table + mastercard linking and benchmark
 
 ,
  final_state_filt as 
@@ -2816,7 +2768,7 @@ on
   and cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
+
 -- wpay store transactions
 ,
  store_trans_state_filt as 
@@ -2953,7 +2905,7 @@ on (amount.Year = counts.Year)
    and (amount.scheme_card_type = counts.scheme_card_type)
    --and (amount.Suburb = counts.Suburb))
 )
----------------------------------------------------------------------------------------------------------
+-------------------------
 
 -- Joined on same table to get previous month/year
 
@@ -3081,7 +3033,7 @@ on
 order by store_trans_state_filt.State, store_trans_state_filt.Year,store_trans_state_filt.Month
 )
 
----------------------------------------------------------------------------------------------------------
+-------------------------
 
 --- adding only LGA to wpay_trans
 
@@ -3127,7 +3079,7 @@ order by store_trans_state_filt.State, store_trans_state_filt.Year,store_trans_s
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 state_bench_filt as 
@@ -3143,7 +3095,7 @@ state_bench_filt as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , state_benchmark_filt as
 (
@@ -3325,20 +3277,10 @@ state_bench_filt as
       fee.calc_scheme as scheme,
       fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -3367,13 +3309,13 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
 )
 -- end
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- END
---------------------------------------------------------------------------------------------------------------
+------------------------------
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- Country
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- Store base table + mastercard linking and benchmark
 
 ,
@@ -3488,7 +3430,7 @@ on
  cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
+
 -- wpay store transactions
 ,
  store_trans_country_filt as 
@@ -3623,7 +3565,7 @@ on (amount.Year = counts.Year)
    and (amount.scheme_card_type = counts.scheme_card_type)
    --and (amount.Suburb = counts.Suburb))
 )
-------------------------------------------------------------------------------------------------------------
+----------------------------
 
 , country_internal_filt as
 (
@@ -3747,7 +3689,7 @@ and    (store_trans_country_filt.division = prev_m.division)
 order by store_trans_country_filt.Year,store_trans_country_filt.Month
 )
 
------------------------------------------------------------------------------------------------------------
+---------------------------
 
 --- adding only LGA to wpay_trans
 
@@ -3793,7 +3735,7 @@ order by store_trans_country_filt.Year,store_trans_country_filt.Month
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 country_bench_filt as 
@@ -3804,7 +3746,7 @@ country_bench_filt as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , country_benchmark_filt as
 (
@@ -3910,20 +3852,10 @@ country_bench_filt as
       fee.calc_scheme as scheme,
       fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -3963,18 +3895,18 @@ select
   from country_benchmark_filt
 
 );
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- END
---------------------------------------------------------------------------------------------------------------
+------------------------------
 
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- ONLINE + OFFLINE ONLY
 
 create or replace table pdh_staging_ds.temp_online as (
--------------------------------------------------------------------------------------------------------------------
+-----------------------------------
 -- LGA/STATE
--------------------------------------------------------------------------------------------------------------------
+-----------------------------------
 -- Store base table + mastercard linking and benchmark
 
 with
@@ -4113,7 +4045,7 @@ on
   ((cast(store_lga.LGA_id as string) = cast(ind_lga.area as string))
   and cast(store_lga.industry as string) = cast(ind_lga.industry_code as string)))
 
-----------------------------------------
+
 -- wpay store transactions
 ,
   store_trans_online as 
@@ -4214,7 +4146,7 @@ on (amount.Year = counts.Year)
 --order by Store,year,month
 )
 
--------------------------------------------------------------------------------------------------------------
+-----------------------------
 
 -- Joined on same table to get previous month/year
 
@@ -4310,7 +4242,7 @@ on
 order by store_trans_online.Store, store_trans_online.Year,store_trans_online.Month
 )
 
----------------------------------------------------------------------------------------------------------------
+-------------------------------
 ,
 wpay_store_trans_online as
   (select 
@@ -4360,7 +4292,7 @@ wpay_store_trans_online as
   order by store_id
   )
 
--------------------------------------------
+---
 --- adding only LGA to wpay_trans
 
 , wpay_LGA_online as
@@ -4400,7 +4332,7 @@ wpay_store_trans_online as
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 
@@ -4422,7 +4354,7 @@ lga_bench_online as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , lga_benchmark_online as
 (
@@ -4607,20 +4539,10 @@ lga_bench_online as
       --fee.calc_scheme as scheme,
       --fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -4638,15 +4560,7 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
      and concat(lga_bench_online.Year,concat('-',lga_bench_online.Month)) = cust_info.Transaction_Date
   order by lga_bench_online.Year, lga_bench_online.Month, lga_bench_online.store_id
 )
--- end
 
---------------------------------------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------------------------------------
--- STATE/AUS
---------------------------------------------------------------------------------------------------------------
-
--- Store base table + mastercard linking and benchmark
 
 ,
  final_state_online as 
@@ -4765,7 +4679,7 @@ on
   and cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
+
 -- wpay store transactions
 ,
  store_trans_state_online as 
@@ -4898,7 +4812,7 @@ on (amount.Year = counts.Year)
    --and (amount.Card_Type = counts.Card_Type)
    --and (amount.Suburb = counts.Suburb))
 )
----------------------------------------------------------------------------------------------------------
+-------------------------
 
 -- Joined on same table to get previous month/year
 
@@ -5016,7 +4930,7 @@ on
 order by store_trans_state_online.State, store_trans_state_online.Year,store_trans_state_online.Month
 )
 
----------------------------------------------------------------------------------------------------------
+-------------------------
 
 --- adding only LGA to wpay_trans
 
@@ -5062,7 +4976,7 @@ order by store_trans_state_online.State, store_trans_state_online.Year,store_tra
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 state_bench_online as 
@@ -5078,7 +4992,7 @@ state_bench_online as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , state_benchmark_online as
 (
@@ -5260,20 +5174,10 @@ state_bench_online as
       --fee.calc_scheme as scheme,
       --fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -5300,13 +5204,13 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
 )
 -- end
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- END
---------------------------------------------------------------------------------------------------------------
+------------------------------
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- Country
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- Store base table + mastercard linking and benchmark
 
 ,
@@ -5421,7 +5325,7 @@ on
  cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
+
 -- wpay store transactions
 ,
  store_trans_country_online as 
@@ -5552,7 +5456,7 @@ on (amount.Year = counts.Year)
    and (amount.merchant_portal_cg = counts.merchant_portal_cg)
    --and (amount.Suburb = counts.Suburb))
 )
-------------------------------------------------------------------------------------------------------------
+----------------------------
 
 , country_internal_online as
 (
@@ -5666,7 +5570,7 @@ and    (store_trans_country_online.division = prev_m.division)
 order by store_trans_country_online.Year,store_trans_country_online.Month
 )
 
------------------------------------------------------------------------------------------------------------
+---------------------------
 
 --- adding only LGA to wpay_trans
 
@@ -5712,7 +5616,7 @@ order by store_trans_country_online.Year,store_trans_country_online.Month
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 country_bench_online as 
@@ -5723,7 +5627,7 @@ country_bench_online as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , country_benchmark_online as
 (
@@ -5829,20 +5733,10 @@ country_bench_online as
       --fee.calc_scheme as scheme,
       --fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -5880,14 +5774,14 @@ select
   from country_benchmark_online
 
 );
--------------------------------------------------------------------------------------------------------------
+-----------------------------
 
 --- SCHEME ONLY
 
 create or replace table pdh_staging_ds.temp_scheme as (
--------------------------------------------------------------------------------------------------------------------
+-----------------------------------
 -- LGA/STATE
--------------------------------------------------------------------------------------------------------------------
+-----------------------------------
 -- Store base table + mastercard linking and benchmark
 with
 final_lga_card as 
@@ -6025,7 +5919,7 @@ on
   ((cast(store_lga.LGA_id as string) = cast(ind_lga.area as string))
   and cast(store_lga.industry as string) = cast(ind_lga.industry_code as string)))
 
-----------------------------------------
+
 -- wpay store transactions
 ,
   store_trans_card as 
@@ -6125,7 +6019,7 @@ on (amount.Year = counts.Year)
    and (amount.Suburb = counts.Suburb)
 order by Store,year,month)
 
--------------------------------------------------------------------------------------------------------------
+-----------------------------
 
 -- Joined on same table to get previous month/year
 
@@ -6221,7 +6115,7 @@ on
 order by store_trans_card.Store, store_trans_card.Year,store_trans_card.Month
 )
 
----------------------------------------------------------------------------------------------------------------
+-------------------------------
 ,
 wpay_store_trans_card as
   (select 
@@ -6271,7 +6165,7 @@ wpay_store_trans_card as
   order by store_id
   )
 
--------------------------------------------
+---
 --- adding only LGA to wpay_trans
 
 , wpay_LGA_card as
@@ -6311,7 +6205,7 @@ wpay_store_trans_card as
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 
@@ -6333,7 +6227,7 @@ lga_bench_card as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , lga_benchmark_card as
 (
@@ -6518,20 +6412,10 @@ lga_bench_card as
       fee.calc_scheme as scheme,
       --fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -6549,15 +6433,7 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
      and concat(lga_bench_card.Year,concat('-',lga_bench_card.Month)) = cust_info.Transaction_Date
   order by lga_bench_card.Year, lga_bench_card.Month, lga_bench_card.store_id
 )
--- end
 
---------------------------------------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------------------------------------
--- STATE/AUS
---------------------------------------------------------------------------------------------------------------
-
--- Store base table + mastercard linking and benchmark
 
 ,
  final_state_card as 
@@ -6676,7 +6552,7 @@ on
   and cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
+
 -- wpay store transactions
 ,
  store_trans_state_card as 
@@ -6809,7 +6685,7 @@ on (amount.Year = counts.Year)
    and (amount.scheme = counts.scheme)
    --and (amount.Suburb = counts.Suburb))
 )
----------------------------------------------------------------------------------------------------------
+-------------------------
 
 -- Joined on same table to get previous month/year
 
@@ -6925,7 +6801,7 @@ on
 order by store_trans_state_card.State, store_trans_state_card.Year,store_trans_state_card.Month
 )
 
----------------------------------------------------------------------------------------------------------
+-------------------------
 
 --- adding only LGA to wpay_trans
 
@@ -6971,7 +6847,7 @@ order by store_trans_state_card.State, store_trans_state_card.Year,store_trans_s
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 state_bench_card as 
@@ -6987,7 +6863,7 @@ state_bench_card as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , state_benchmark_card as
 (
@@ -7169,20 +7045,10 @@ state_bench_card as
       fee.calc_scheme as scheme,
       --fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+       
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -7209,13 +7075,13 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
 )
 -- end
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- END
---------------------------------------------------------------------------------------------------------------
+------------------------------
 
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- Country
---------------------------------------------------------------------------------------------------------------
+------------------------------
 -- Store base table + mastercard linking and benchmark
 
 ,
@@ -7330,7 +7196,7 @@ on
  cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
+
 -- wpay store transactions
 ,
  store_trans_country_card as 
@@ -7461,7 +7327,7 @@ on (amount.Year = counts.Year)
    and (amount.merchant_portal_cg = counts.merchant_portal_cg)
    --and (amount.Suburb = counts.Suburb))
 )
-------------------------------------------------------------------------------------------------------------
+----------------------------
 
 , country_internal_card as
 (
@@ -7573,7 +7439,7 @@ and    (store_trans_country_card.division = prev_m.division)
 order by store_trans_country_card.Year,store_trans_country_card.Month
 )
 
------------------------------------------------------------------------------------------------------------
+---------------------------
 
 --- adding only LGA to wpay_trans
 
@@ -7619,7 +7485,7 @@ order by store_trans_country_card.Year,store_trans_country_card.Month
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
+--------------------
 ---- adding benchmark 
 ,
 country_bench_card as 
@@ -7630,7 +7496,7 @@ country_bench_card as
 )
 
 
---------------------------------------------
+----
 --- going over LGA and filling nulls with State
 , country_benchmark_card as
 (
@@ -7736,20 +7602,10 @@ country_bench_card as
       fee.calc_scheme as scheme,
       --fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+      
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -7788,15 +7644,10 @@ select
 
 );
 
--------------------------------------------------------------------------------------------------------------
 
---- CARD TYPE ONLY
 
 create or replace table pdh_staging_ds.temp_card as (
--------------------------------------------------------------------------------------------------------------------
--- LGA/STATE
--------------------------------------------------------------------------------------------------------------------
--- Store base table + mastercard linking and benchmark
+
 with
 final_lga_card as 
 (select
@@ -7849,7 +7700,7 @@ on
  ) mmi_location
 on 
   (cast(stores.postcode as string) = cast(mmi_location.Merchant_Post_Code as string))
-  --and (replace(upper(mmi_location.City_Name),' ','') = replace(upper(stores.suburb),' ',''))
+
 ) store_lga
 left join
   (
@@ -7933,8 +7784,7 @@ on
   ((cast(store_lga.LGA_id as string) = cast(ind_lga.area as string))
   and cast(store_lga.industry as string) = cast(ind_lga.industry_code as string)))
 
-----------------------------------------
--- wpay store transactions
+
 ,
   store_trans_card as 
 (select 
@@ -8013,13 +7863,7 @@ on
   trans.store_id = stores.store_id
 where
   (trans.approval_flag = 'A' ) 
-  -- and ((trans.tran_type_description = 'PURCHASE')
-  -- or (trans.tran_type_description = 'PURCHASE REVERSAL')
-  -- or (trans.tran_type_description = 'PURCHASE WITH CASHOUT')
-  -- or (trans.tran_type_description = 'PURCHASE WITH CASHOUT REVERSAL')
-  -- or (trans.tran_type_description = 'REDEMPTION')
-  -- or (trans.tran_type_description = 'REDEMPTION REVERSAL')
-  -- )
+
   group by
   1,2,3,4,5,6,7) counts
 on (amount.Year = counts.Year)
@@ -8033,9 +7877,6 @@ on (amount.Year = counts.Year)
    and (amount.Suburb = counts.Suburb)
 order by Store,year,month)
 
--------------------------------------------------------------------------------------------------------------
-
--- Joined on same table to get previous month/year
 
 , store_internal_card as
 (
@@ -8129,7 +7970,6 @@ on
 order by store_trans_card.Store, store_trans_card.Year,store_trans_card.Month
 )
 
----------------------------------------------------------------------------------------------------------------
 ,
 wpay_store_trans_card as
   (select 
@@ -8179,8 +8019,6 @@ wpay_store_trans_card as
   order by store_id
   )
 
--------------------------------------------
---- adding only LGA to wpay_trans
 
 , wpay_LGA_card as
  (select 
@@ -8219,8 +8057,7 @@ wpay_store_trans_card as
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
----- adding benchmark 
+
 ,
 
 MaxMMIDate as (
@@ -8241,8 +8078,7 @@ lga_bench_card as
 )
 
 
---------------------------------------------
---- going over LGA and filling nulls with State
+
 , lga_benchmark_card as
 (
   select
@@ -8426,20 +8262,10 @@ lga_bench_card as
       --fee.calc_scheme as scheme,
       fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -8459,13 +8285,6 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
 )
 -- end
 
---------------------------------------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------------------------------------
--- STATE/AUS
---------------------------------------------------------------------------------------------------------------
-
--- Store base table + mastercard linking and benchmark
 
 ,
  final_state_card as 
@@ -8584,8 +8403,7 @@ on
   and cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
--- wpay store transactions
+
 ,
  store_trans_state_card as 
 (select 
@@ -8690,13 +8508,7 @@ on
   trans.store_id = stores.store_id
 where
   (trans.approval_flag = 'A' ) 
-  -- and ((trans.tran_type_description = 'PURCHASE')
-  -- or (trans.tran_type_description = 'PURCHASE REVERSAL')
-  -- or (trans.tran_type_description = 'PURCHASE WITH CASHOUT')
-  -- or (trans.tran_type_description = 'PURCHASE WITH CASHOUT REVERSAL')
-  -- or (trans.tran_type_description = 'REDEMPTION')
-  -- or (trans.tran_type_description = 'REDEMPTION REVERSAL')
-  -- )
+
   group by
   1,2,3,4,5,6,7,8,9,10,11,12,13) counts
 on (amount.Year = counts.Year)
@@ -8717,9 +8529,7 @@ on (amount.Year = counts.Year)
    and (amount.scheme_card_type = counts.scheme_card_type)
    --and (amount.Suburb = counts.Suburb))
 )
----------------------------------------------------------------------------------------------------------
 
--- Joined on same table to get previous month/year
 
 , state_internal_card as
 (
@@ -8835,9 +8645,6 @@ on
 order by store_trans_state_card.State, store_trans_state_card.Year,store_trans_state_card.Month
 )
 
----------------------------------------------------------------------------------------------------------
-
---- adding only LGA to wpay_trans
 
 , wpay_State_card as
  (select 
@@ -8881,8 +8688,7 @@ order by store_trans_state_card.State, store_trans_state_card.Year,store_trans_s
   --order by final_lga.Benchmark
  )
 
-------------------------------------------------------------
----- adding benchmark 
+
 ,
 state_bench_card as 
 (
@@ -8897,8 +8703,7 @@ state_bench_card as
 )
 
 
---------------------------------------------
---- going over LGA and filling nulls with State
+
 , state_benchmark_card as
 (
   select
@@ -9079,20 +8884,10 @@ state_bench_card as
       --fee.calc_scheme as scheme,
       fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
@@ -9117,16 +8912,7 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
     and concat(state_bench_card.Year,concat('-',state_bench_card.Month)) = cust_info.Transaction_Date
   order by state_bench_card.Benchmark
 )
--- end
 
---------------------------------------------------------------------------------------------------------------
--- END
---------------------------------------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------------------------------------
--- Country
---------------------------------------------------------------------------------------------------------------
--- Store base table + mastercard linking and benchmark
 
 ,
  final_country_card as 
@@ -9162,7 +8948,7 @@ left join
   select 
     area,
     period,
-    --industry_name,
+
     industry_code,
     left(period,4) as Year,
     right(period,2) as Month,
@@ -9240,19 +9026,16 @@ on
  cast(store_info.industry as string) = cast(ind_lga.industry_code as string)
 )
 
-----------------------------------------
--- wpay store transactions
+
 ,
  store_trans_country_card as 
 (select 
   amount.Year as Year,
   amount.Month as Month,
   amount.Country as Country,
-  --amount.State as State,
-  --amount.scheme_card_type as scheme_card_type,
-  --amount.is_online as is_online,
+
   amount.scheme_card_type as scheme_card_type,
-  --amount.Store as Store,
+
   amount.industry as Industry,
   amount.industry_name as industry_name,
   amount.Brand as Brand,
@@ -9262,7 +9045,7 @@ on
   amount.merchant_group as merchant_group,
   amount.merchant_portal_mg as merchant_portal_mg,
   amount.merchant_portal_cg as merchant_portal_cg,
-  --amount.Suburb as Suburb,
+
   amount.trans_amount as trans_amount,
   counts.trans_count as trans_count,
 from
@@ -9270,13 +9053,11 @@ from
 select
   left(cast(trans.transaction_date as string),4) as Year,
   substring(cast(trans.transaction_date as string),6,2) as Month,
- -- right(cast(trans.transaction_date as string),2) as Day,
+
   stores.country as Country,
-  --trans.state as State,
-  --trans.scheme_card_type as scheme_card_type,
-  --trans.is_online as is_online,
+
   trans.scheme_card_type as scheme_card_type,
-  --trans.store_id as Store,
+
   stores.industry as Industry,
   stores.industry_name as industry_name,
   stores.brand as Brand,
@@ -9286,8 +9067,7 @@ select
   stores.merchant_group as merchant_group,
   stores.merchant_portal_mg as merchant_portal_mg,
   stores.merchant_portal_cg as merchant_portal_cg,
-  --stores.suburb as Suburb,
-  --sum(trans.transaction_count) as trans_count,
+
   sum(trans.settlement_amount_inc_gst) as trans_amount,
 from
   pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist trans
@@ -9314,13 +9094,11 @@ left join
     select
   left(cast(trans.transaction_date as string),4) as Year,
   substring(cast(trans.transaction_date as string),6,2) as Month,
-  --right(cast(trans.transaction_date as string),2) as Day,
+
   stores.country as Country,
-  --trans.state as State,
-  --trans.scheme_card_type as scheme_card_type,
-  --trans.is_online as is_online,
+
   trans.scheme_card_type as scheme_card_type,
-  --trans.store_id as Store,
+
   stores.industry as Industry,
   stores.brand as Brand,
   stores.division as division,
@@ -9329,15 +9107,14 @@ left join
   stores.merchant_group as merchant_group,
   stores.merchant_portal_mg as merchant_portal_mg,
   stores.merchant_portal_cg as merchant_portal_cg,
-  --stores.suburb as Suburb,
-  --sum(trans.transaction_count) as trans_count,
+
   (sum(case when trans.tran_type_description in 
   ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then transaction_count else 0 end)
   -
   sum(case when trans.tran_type_description in 
   ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then transaction_count else 0 end)
   ) as trans_count
-  --sum(trans.settlement_amount_inc_gst) as trans_amount,
+
 from
   pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist trans
 left join 
@@ -9346,22 +9123,14 @@ on
   trans.store_id = stores.store_id
 where
   (trans.approval_flag = 'A' ) 
-  -- and ((trans.tran_type_description = 'PURCHASE')
-  -- or (trans.tran_type_description = 'PURCHASE REVERSAL')
-  -- or (trans.tran_type_description = 'PURCHASE WITH CASHOUT')
-  -- or (trans.tran_type_description = 'PURCHASE WITH CASHOUT REVERSAL')
-  -- or (trans.tran_type_description = 'REDEMPTION')
-  -- or (trans.tran_type_description = 'REDEMPTION REVERSAL')
-  -- )
+
   group by
   1,2,3,4,5,6,7,8,9,10,11,12) counts
 on (amount.Year = counts.Year)
    and (amount.Month = counts.Month)
-   --and (amount.State = counts.State)
-   --and (amount.scheme_card_type = counts.scheme_card_type)
-   --and (amount.is_online = counts.is_online)
+
    and (amount.scheme_card_type = counts.scheme_card_type)
-   --and (amount.Store = counts.Store)
+
    and (amount.Brand = counts.Brand)
    and (amount.division = counts.division)
    and (amount.company = counts.company)
@@ -9369,9 +9138,8 @@ on (amount.Year = counts.Year)
    and (amount.merchant_group = counts.merchant_group)
    and (amount.merchant_portal_mg = counts.merchant_portal_mg)
    and (amount.merchant_portal_cg = counts.merchant_portal_cg)
-   --and (amount.Suburb = counts.Suburb))
+
 )
-------------------------------------------------------------------------------------------------------------
 
 , country_internal_card as
 (
@@ -9431,7 +9199,7 @@ and    (curr.division = prev.division)
    and (curr.merchant_portal_cg = prev.merchant_portal_cg)
    and curr.Month = prev.Month
    and (cast(curr.Year as int)-1) = cast(prev.Year as int)
-   --and curr.is_online = prev.is_online
+
    and curr.scheme_card_type = prev.scheme_card_type
 order by curr.Year,curr.Month
 ) prev_y
@@ -9445,7 +9213,7 @@ and    (store_trans_country_card.division = prev_y.division)
    and (store_trans_country_card.merchant_portal_cg = prev_y.merchant_portal_cg)
   and store_trans_country_card.Year = prev_y.Year
   and store_trans_country_card.Month = prev_y.Month
-  --and store_trans_country_card.is_online = prev_y.is_online
+
    and store_trans_country_card.scheme_card_type = prev_y.scheme_card_type
 left join
 (
@@ -9466,7 +9234,7 @@ and    (curr.division = prev.division)
    and (curr.merchant_portal_cg = prev.merchant_portal_cg)
     and left(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),4) = cast(prev.Year as string)
     and substring(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),6,2)  = prev.Month
-  -- and curr.is_online = prev.is_online
+
    and curr.scheme_card_type = prev.scheme_card_type
 order by curr.Year,curr.Month
 ) prev_m
@@ -9480,20 +9248,18 @@ and    (store_trans_country_card.division = prev_m.division)
    and (store_trans_country_card.merchant_portal_cg = prev_m.merchant_portal_cg)
   and store_trans_country_card.Year = prev_m.Year
   and store_trans_country_card.Month = prev_m.Month
- -- and store_trans_country_card.is_online = prev_m.is_online
+
    and store_trans_country_card.scheme_card_type = prev_m.scheme_card_type
 order by store_trans_country_card.Year,store_trans_country_card.Month
 )
 
------------------------------------------------------------------------------------------------------------
 
---- adding only LGA to wpay_trans
 
 , wpay_country_card as
  (select 
     country_internal_card.*,
     final_country_card.area,
-    --final_country_card.industry_name,
+
     final_country_card.spend_growth_yoy,
     final_country_card.spend_growth_mom,
     final_country_card.txn_growth_yoy,
@@ -9510,7 +9276,7 @@ order by store_trans_country_card.Year,store_trans_country_card.Month
     final_country_card.ecom_ind_rank,
     final_country_card.ecom_txns_share,
     final_country_card.ecom_ind_rank_share,
-    --final_lga.Benchmark
+
   from 
     country_internal_card
   left join 
@@ -9524,15 +9290,12 @@ order by store_trans_country_card.Year,store_trans_country_card.Month
     and (country_internal_card.merchant_portal_mg = final_country_card.merchant_portal_mg)
     and (country_internal_card.merchant_portal_cg = final_country_card.merchant_portal_cg)
     and (country_internal_card.Year = final_country_card.Year)
-    --and (country_internal.Month = final_country.Month)
+
     and (cast(country_internal_card.Month as int) = cast(final_country_card.Month as int))
-  --where country_internal_card.Year ='2022'
-  --    and country_internal_card.Month ='07'
-  --order by final_lga.Benchmark
+
  )
 
-------------------------------------------------------------
----- adding benchmark 
+
 ,
 country_bench_card as 
 (
@@ -9542,8 +9305,7 @@ country_bench_card as
 )
 
 
---------------------------------------------
---- going over LGA and filling nulls with State
+
 , country_benchmark_card as
 (
   select
@@ -9559,7 +9321,7 @@ country_bench_card as
     'All' as suburb,
     'All' as postcode,
     'All' as caid,
-    --'All' as is_closed,
+
     country_bench_card.company,
     country_bench_card.invoice_group,
     country_bench_card.merchant_group,
@@ -9572,8 +9334,7 @@ country_bench_card as
     'All' as LGA_id,
     country_bench_card.area,
     country_bench_card.industry_name,
-    --final_lga.industry_code,
-    --wpay_LGA.Period,
+
     concat(country_bench_card.Year,concat('-',country_bench_card.Month)) as Period,
     country_bench_card.Year,
     country_bench_card.Month,
@@ -9622,7 +9383,7 @@ country_bench_card as
     country_bench_card.ecom_ind_rank as b_ecom_ind_rank,
     country_bench_card.ecom_txns_share as b_ecom_txns_share,
     country_bench_card.ecom_ind_rank_share as b_ecom_ind_rank_share,
-    --country_bench_card.Benchmark,
+
     country_bench_card.industry_name as Benchmark,
     country_bench_card.Benchmark as Benchmark_Location,
     'External' as Benchmark_lvl
@@ -9638,37 +9399,20 @@ country_bench_card as
       m.brand, 
       m.merchant_portal_mg,
       m.merchant_portal_cg,   
-      --m.store_id,   
-      --m.site_name,    
-     -- m.suburb,   
-      --m.state,    
-      --m.postcode,
+
       m.country,
-      --m.is_online,
-      --fee.calc_scheme as scheme,
+
       fee.calc_card_type as card_type,
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
-      -- sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end)/100 as trans_amount,
-      -- (sum(case when fee.calc_tran_type_description in
-      -- ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL') then 1 else 0 end)
-      -- -
-      -- sum(case when fee.calc_tran_type_description in 
-      -- ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
-      -- ) as trans_count,
+
       count(distinct fee.card_id) unique_card_count,
       count(distinct fee.card_id) unique_customer_count
-      -- (count(1) / count(distinct fee.card_id)) frequency_of_visits,
-      -- (  sum(case when fee.calc_tran_type_description in
-      -- ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL') then fee.transaction_total else 0 end) 
-      -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
+
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
       `pdh_ref_ds.ref_store_details` m 
       on LEFT(FEE.net_term_id, 5) = M.store_id
-      --inner join
-      --wpay_analytics.wpay_card_identity_model cim
-      --on trim(cim.scdr_token) = trim(fee.scdr_token)
+
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
 and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
@@ -9685,7 +9429,7 @@ and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PU
     and cust_info.merchant_portal_cg = country_bench_card.merchant_portal_cg
     and concat(country_bench_card.Year,concat('-',country_bench_card.Month)) = cust_info.Transaction_Date
 )
--- end
+
 select 
   *
   from lga_benchmark_card
@@ -9700,9 +9444,7 @@ select
 
 );
 
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
--- FINAL EXTERNAL TABLE (union of store,state,country)
+
 create or replace table pdh_staging_ds.temp_external as (
   select 
     Aggregation_Level,					
@@ -9790,16 +9532,10 @@ create or replace table pdh_staging_ds.temp_external as (
   where store_id is not null
 )
 ;
------------------------------------------------------------------------------------------------------------------
---INTERNAL BENCHMARKS
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
--- BASE TABLE (ALL)
+
 create or replace table pdh_staging_ds.temp_internal as 
 (
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
--- Country
+
 
 with w_internal_country as 
 (select 
@@ -9865,7 +9601,7 @@ with w_internal_country as
   0 as b_ecom_ind_rank,					
   0 as b_ecom_txns_share,					
   0 as b_ecom_ind_rank_share,					
-  --'Country' as Benchmark,
+
   base.merchant_group as Benchmark,			
   'Country' as Benchmark_Location,	
   'Internal' as Benchmark_lvl
@@ -9879,7 +9615,7 @@ select
   is_online,
   scheme,
   card_type,
-  --state,
+
   division,
   brand,
   merchant_portal_mg,
@@ -9887,7 +9623,7 @@ select
   company,
   invoice_group,
   merchant_group,
-  --LGA_id,
+
   Period,
   Year,
   Month,
@@ -9925,7 +9661,7 @@ select
   else 0 end 
   as w_trans_count_tot_mom,
 
-  case when ((sum(w_trans_count) <>0 ) and (sum(w_trans_count_LM) <>0))
+  case when ((sum(w_trans_count) <>0 ) and (sum(w_trans_count_LM) <>0) and (sum(w_trans_amount_LM) <>0))
   then (((sum(w_trans_amount)/sum(w_trans_count)) - (sum(w_trans_amount_LM)/sum(w_trans_count_LM)))/((sum(w_trans_amount_LM)/sum(w_trans_count_LM))))
   else 0 end 
   as w_trans_value_tot_mom,
@@ -9940,7 +9676,7 @@ select
   else 0 end 
   as w_trans_count_tot_yoy,
 
-  case when ((sum(w_trans_count) <>0 ) and (sum(w_trans_count_LY) <>0))
+  case when ((sum(w_trans_count) <>0 ) and (sum(w_trans_count_LY) <>0) and (sum(w_trans_amount_LY) <> 0))
   then (((sum(w_trans_amount)/sum(w_trans_count)) - (sum(w_trans_amount_LY)/sum(w_trans_count_LY)))/((sum(w_trans_amount_LY)/sum(w_trans_count_LY))))
   else 0 end 
   as w_trans_value_tot_yoy
@@ -9953,7 +9689,7 @@ on
   and base.is_online = internal_lga.is_online
   and base.scheme = internal_lga.scheme
   and base.card_type = internal_lga.card_type
-  --and base.state = internal_lga.state
+
   and base.division = internal_lga.division
   and base.brand = internal_lga.brand
   and (base.merchant_portal_mg = internal_lga.merchant_portal_mg)
@@ -9961,7 +9697,7 @@ on
   and base.company = internal_lga.company
   and base.invoice_group = internal_lga.invoice_group
   and base.merchant_group = internal_lga.merchant_group
-  --and base.LGA_id = internal_lga.LGA_id
+
   and base.Period = internal_lga.Period
   and base.Year = internal_lga.Year
   and base.Month = internal_lga.Month
@@ -9969,9 +9705,7 @@ on
 where base.Aggregation_Level = 'State'
 )
 
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
--- STATE
+
 ,
  w_internal_state as 
 (select 
@@ -10037,7 +9771,7 @@ where base.Aggregation_Level = 'State'
   0 as b_ecom_ind_rank,					
   0 as b_ecom_txns_share,					
   0 as b_ecom_ind_rank_share,					
-  --'State' as Benchmark,
+
   base.merchant_group as Benchmark,	
   'State' as Benchmark_Location,					
   'Internal' as Benchmark_lvl
@@ -10059,7 +9793,7 @@ select
   company,
   invoice_group,
   merchant_group,
-  --LGA_id,
+
   Period,
   Year,
   Month,
@@ -10097,7 +9831,7 @@ select
   else 0 end 
   as w_trans_count_tot_mom,
 
-  case when ((sum(w_trans_count) <>0 ) and (sum(w_trans_count_LM) <>0))
+  case when ((sum(w_trans_count) <>0 ) and (sum(w_trans_count_LM) <>0) and (sum(w_trans_amount_LM) <>0))
   then (((sum(w_trans_amount)/sum(w_trans_count)) - (sum(w_trans_amount_LM)/sum(w_trans_count_LM)))/((sum(w_trans_amount_LM)/sum(w_trans_count_LM))))
   else 0 end 
   as w_trans_value_tot_mom,
@@ -10112,7 +9846,7 @@ select
   else 0 end 
   as w_trans_count_tot_yoy,
 
-  case when ((sum(w_trans_count) <>0 ) and (sum(w_trans_count_LY) <>0))
+  case when ((sum(w_trans_count) <>0 ) and (sum(w_trans_count_LY) <>0) and (sum(w_trans_amount_LY) <>0))
   then (((sum(w_trans_amount)/sum(w_trans_count)) - (sum(w_trans_amount_LY)/sum(w_trans_count_LY)))/((sum(w_trans_amount_LY)/sum(w_trans_count_LY))))
   else 0 end 
   as w_trans_value_tot_yoy
@@ -10133,7 +9867,7 @@ on
   and base.company = internal_lga.company
   and base.invoice_group = internal_lga.invoice_group
   and base.merchant_group = internal_lga.merchant_group
-  --and base.LGA_id = internal_lga.LGA_id
+
   and base.Period = internal_lga.Period
   and base.Year = internal_lga.Year
   and base.Month = internal_lga.Month
@@ -10141,21 +9875,14 @@ on
 where base.Aggregation_Level = 'Store'
 )
 
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
+-----------------------------
+------------------------------
 
   select * from w_internal_state
   union all
   select * from w_internal_country
 );
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
--- END
---------------------------------------------------------------------------------------------------------------
 
----------------------------------------------------------------------------------------------------
---STABLE STORES
 
 create or replace table wpay_analytics.ref_store_stable as
 (
@@ -10166,7 +9893,7 @@ create or replace table wpay_analytics.ref_store_stable as
     left(cast(transaction_date as string),7) as active_months
   from
     pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist
-  --where left(cast(transaction_date as string),7) > left(cast(date_add(current_date(), interval -1 year) as string),7)
+
   group by 1,2
   order by 1,2
   ) 
@@ -10174,7 +9901,7 @@ create or replace table wpay_analytics.ref_store_stable as
 cal as 
 (
 select
-  --concat(left(cast(transaction_date as string),7),'-01') as cal_months
+
   left(cast(transaction_date as string),7) as cal_months
 from
   pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist
@@ -10208,9 +9935,7 @@ from
 where active_months >= 13
 )
 ;
----------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
--- FINAL EXTERNAL TABLE (union of store,state,country)
+
 create or replace table pdh_staging_ds.temp_external_stable as (
   
 with store_stable as
@@ -10298,7 +10023,7 @@ from
 )
 ,
 
--- STATE
+
 
 state_stable as
 (
@@ -10375,8 +10100,7 @@ state_stable as
   ind_lga.b_ecom_ind_rank,
   ind_lga.b_ecom_txns_share,
   ind_lga.b_ecom_ind_rank_share,
-  --base.industry_name as Benchmark,
-  --Benchmark_Location,
+
   'External' as Benchmark_lvl
  from
   (
@@ -10465,7 +10189,7 @@ left join
   select 
     area,
     period,
-    --industry_name,
+
     industry_code,
     left(period,4) as Year,
     right(period,2) as Month,
@@ -10558,15 +10282,9 @@ left join
       m.brand, 
       m.merchant_portal_mg,
       m.merchant_portal_cg,   
-      --m.store_id,   
-      --m.site_name,    
-     -- m.suburb,   
+
       m.state,    
-      --m.postcode,
-     -- m.country,
-      --m.is_online,
-      --fee.calc_scheme as scheme,
-      --fee.calc_card_type as card_type,
+
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
       count(distinct fee.card_id) w_unique_card,
       count(distinct fee.card_id) w_unique_cust
@@ -10574,9 +10292,7 @@ left join
       inner join
       `pdh_ref_ds.ref_store_details` m 
       on LEFT(FEE.net_term_id, 5) = M.store_id
-      --inner join
-      --wpay_analytics.wpay_card_identity_model cim
-      --on trim(cim.scdr_token) = trim(fee.scdr_token)
+
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
 and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
@@ -10770,7 +10486,7 @@ left join
   select 
     area,
     period,
-    --industry_name,
+
     industry_code,
     left(period,4) as Year,
     right(period,2) as Month,
@@ -10849,14 +10565,13 @@ left join
   group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
   ) ind_lga
 on 
-  --cast(base.country as string) = cast(ind_lga.area as string)
-  cast(base.country as string) = left(cast(ind_lga.area as string),2) 
+
+  cast(base.country as string) = left(cast(ind_lga.area as string),2) 
   and cast(base.industry as string) = cast(ind_lga.industry_code as string)
   and cast(base.period as string) = cast(ind_lga.period as string)
 )
 ,
--------------------------------------------------------------------------------------------------------------------------------------------
--- COUNTRY STABLE 
+
 
 country_stable as
 (
@@ -10933,14 +10648,13 @@ country_stable as
   ind_lga.b_ecom_ind_rank,
   ind_lga.b_ecom_txns_share,
   ind_lga.b_ecom_ind_rank_share,
-  --base.industry_name as Benchmark,
-  --Benchmark_Location,
+
   'External' as Benchmark_lvl
  from
   (
   select 
     country,
-    --state,
+
     division,
     brand,
     industry,
@@ -11023,7 +10737,7 @@ left join
   select 
     area,
     period,
-    --industry_name,
+
     industry_code,
     left(period,4) as Year,
     right(period,2) as Month,
@@ -11102,8 +10816,8 @@ left join
   group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
   ) ind_lga
 on 
-  --cast(base.country as string) = cast(ind_lga.area as string)
-  cast(base.country as string) = left(cast(ind_lga.area as string),2)
+
+  cast(base.country as string) = left(cast(ind_lga.area as string),2)
   and cast(base.industry as string) = cast(ind_lga.industry_code as string)
   and cast(base.period as string) = cast(ind_lga.period as string)
 
@@ -11117,15 +10831,9 @@ left join
       m.brand, 
       m.merchant_portal_mg,
       m.merchant_portal_cg,   
-      --m.store_id,   
-      --m.site_name,    
-     -- m.suburb,   
-      --m.state,    
-      --m.postcode,
+
       m.country,
-      --m.is_online,
-      --fee.calc_scheme as scheme,
-      --fee.calc_card_type as card_type,
+
       left(cast(fee.switch_tran_date as string),7) Transaction_Date,
       count(distinct fee.card_id) w_unique_card,
       count(distinct fee.card_id) w_unique_cust
@@ -11133,9 +10841,7 @@ left join
       inner join
       `pdh_ref_ds.ref_store_details` m 
       on LEFT(FEE.net_term_id, 5) = M.store_id
-      --inner join
-      --wpay_analytics.wpay_card_identity_model cim
-      --on trim(cim.scdr_token) = trim(fee.scdr_token)
+
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
 and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
@@ -11249,16 +10955,10 @@ from
 
 
 ;
------------------------------------------------------------------------------------------------------------------
---INTERNAL BENCHMARKS
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
--- BASE TABLE (ALL)
+
 create or replace table pdh_staging_ds.temp_internal_stable as 
 (
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
--- Country
+
 
 with w_internal_country as 
 (select 
@@ -11324,7 +11024,7 @@ with w_internal_country as
   0 as b_ecom_ind_rank,					
   0 as b_ecom_txns_share,					
   0 as b_ecom_ind_rank_share,					
-  --'Country' as Benchmark,
+
   base.merchant_group as Benchmark,		
   'Country' as Benchmark_Location,		
   'Internal' as Benchmark_lvl
@@ -11338,7 +11038,7 @@ select
   is_online,
   scheme,
   card_type,
-  --state,
+
   division,
   brand,
   company,
@@ -11346,7 +11046,7 @@ select
   merchant_group,
   merchant_portal_mg,
   merchant_portal_cg,
-  --LGA_id,
+
   Period,
   Year,
   Month,
@@ -11412,7 +11112,7 @@ on
   and base.is_online = internal_lga.is_online
   and base.scheme = internal_lga.scheme
   and base.card_type = internal_lga.card_type
-  --and base.state = internal_lga.state
+
   and base.division = internal_lga.division
   and base.brand = internal_lga.brand
   and base.company = internal_lga.company
@@ -11420,7 +11120,7 @@ on
   and base.merchant_group = internal_lga.merchant_group
   and (base.merchant_portal_mg = internal_lga.merchant_portal_mg)
    and (base.merchant_portal_cg = internal_lga.merchant_portal_cg)
-  --and base.LGA_id = internal_lga.LGA_id
+
   and base.Period = internal_lga.Period
   and base.Year = internal_lga.Year
   and base.Month = internal_lga.Month
@@ -11428,9 +11128,7 @@ on
 where base.Aggregation_Level = 'State'
 )
 
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
--- STATE
+
 ,
  w_internal_state as 
 (select 
@@ -11496,7 +11194,7 @@ where base.Aggregation_Level = 'State'
   0 as b_ecom_ind_rank,					
   0 as b_ecom_txns_share,					
   0 as b_ecom_ind_rank_share,					
-  --'State' as Benchmark,
+
   base.merchant_group as Benchmark,		
   'State' as Benchmark_Location,		
   'Internal' as Benchmark_lvl
@@ -11518,7 +11216,7 @@ select
   merchant_group,
   merchant_portal_mg,
   merchant_portal_cg,
-  --LGA_id,
+
   Period,
   Year,
   Month,
@@ -11592,7 +11290,7 @@ on
   and base.merchant_group = internal_lga.merchant_group
   and (base.merchant_portal_mg = internal_lga.merchant_portal_mg)
    and (base.merchant_portal_cg = internal_lga.merchant_portal_cg)
-  --and base.LGA_id = internal_lga.LGA_id
+
   and base.Period = internal_lga.Period
   and base.Year = internal_lga.Year
   and base.Month = internal_lga.Month
@@ -11600,18 +11298,13 @@ on
 where base.Aggregation_Level = 'Store'
 )
 
--------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
 
   select * from w_internal_state
   union all
   select * from w_internal_country
 );
 
----------------------------------------------------------------------------------------------------
----------------------------------------------------------------------------------------------------
 
---------------------------------------------------------------------------------------------------------------
 create or replace table pdh_staging_ds.temp_output as (
   select * from
   ( select * from
@@ -11627,29 +11320,14 @@ create or replace table pdh_staging_ds.temp_output as (
   pdh_staging_ds.temp_internal_stable)
 );
 
-----------------------------------------------------------------------------------------------------------
------------------------------------------------------------------------------------------------------------
 
--- SEGMENTING CUSTOMERS
--- NEW CUSTOMERS/ONCE OFF
 create or replace table pdh_staging_ds.temp_cust_count as (
 with cust_count as
 (
 select
-  -- m.company,
+
   m.invoice_group,    
-  -- m.merchant_group,
-  -- m.division, 
-  -- m.brand,    
-  -- m.store_id,   
-  -- m.site_name,    
-  -- m.suburb,   
-  -- m.state,    
-  -- m.postcode,
-  -- m.country,
-  --m.is_online,
-  --fee.calc_scheme as scheme,
-  --fee.calc_card_type as card_type,
+
   left(cast(fee.switch_tran_date as string),7) Transaction_Date,
   fee.card_id,
   (sum(case when fee.calc_tran_type_description in
@@ -11688,38 +11366,16 @@ cust_visits as
     cust_count m
   left join
     cust_count mt
-  -- on m.company = mt.company
+
   on m.invoice_group = mt.invoice_group
-  -- and m.merchant_group = mt.merchant_group
-  -- and m.division = mt.division
-  -- and m.brand = mt.brand
-  -- and m.store_id  = mt.store_id
-  -- and m.site_name  = mt.site_name
-  -- and m.suburb = mt.suburb
-  -- and m.state  = mt.state
-  -- and  m.postcode = mt.postcode
-  -- and m.country = mt.country
-  --and m.is_online = mt.is_online
-  --and m.scheme = mt.scheme
-  --and m.card_type = mt.card_type
+
   and cast(date_add(cast(concat(m.Transaction_Date,'-01') as date), interval -1 month) as string) = cast(concat(mt.Transaction_Date,'-01') as string)
   and m.card_id = mt.card_id
   left join
     cust_count mmt
-  -- on m.company = mmt.company
+
   on m.invoice_group = mmt.invoice_group
-  -- and m.merchant_group = mmt.merchant_group
-  -- and m.division = mmt.division
-  -- and m.brand = mmt.brand
-  -- and m.store_id  = mmt.store_id
-  -- and m.site_name  = mmt.site_name
-  -- and m.suburb = mmt.suburb
-  -- and m.state  = mmt.state
-  -- and  m.postcode = mmt.postcode
-  -- and m.country = mmt.country
-  --and m.is_online = mmt.is_online
-  --and m.scheme = mmt.scheme
-  --and m.card_type = mmt.card_type
+
   and cast(date_add(cast(concat(m.Transaction_Date,'-01') as date), interval -2 month) as string) = cast(concat(mmt.Transaction_Date,'-01') as string)
   and m.card_id = mmt.card_id
 )
@@ -11728,10 +11384,9 @@ cust_visits as
 final_cust as
 (
 select 
-  -- company,
+
   invoice_group,
-  -- division,
-  --store_id,
+
   Transaction_Date,
   sum(case when month_tran_count = 1 then 1 else 0 end) as once_off_cust,
   sum(case when month_tran_count > 1 then 1 else 0 end) as repeat_cust,
@@ -11753,7 +11408,7 @@ group by 1,2
 )
 
 select  
-  -- company,
+
   'Country' as Aggregation_Level,
   'External' as Benchmark_lvl,
   'All' as store_status,
@@ -11762,8 +11417,7 @@ select
   'All' as card_type,
 
   invoice_group,
-  -- division,
-  --store_id,
+
   Transaction_Date,
   once_off_cust,
   repeat_cust,
@@ -11784,30 +11438,16 @@ from
   final_cust
 group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20
 );
-----------------------------------------------------------------------------------------------------
 
-----------------------------------------------------------------------------------------------------
--- SEGMENTING CUSTOMERS
--- ONLINE/BOTH
--- Displayed at a store level (online/offline at specific brand)
 create or replace table pdh_staging_ds.temp_cust_count_online as (
 with cust_count_online as
 (
 select
-  -- m.company,
+
   m.invoice_group,    
-  -- m.merchant_group,
-  -- m.division, 
-  -- m.brand,    
-  -- m.store_id,   
-  -- m.site_name,    
-  -- m.suburb,   
-  -- m.state,    
-  -- m.postcode,
-  -- m.country,
+
   m.is_online,
-  --fee.calc_scheme as scheme,
-  --fee.calc_card_type as card_type,
+
   left(cast(fee.switch_tran_date as string),7) Transaction_Date,
   fee.card_id,
   (sum(case when fee.calc_tran_type_description in
@@ -11835,32 +11475,14 @@ group by 1,2,3,4
 order by 1,2,3,4
 )
 
--- select 
---   transaction_date,
---   is_online,
---   count(distinct card_id)
--- from
---   cust_count_online
--- where 
---  invoice_group = 'EG Fuel'
--- and transaction_date = '2022-09'
--- and month_tran_count = 0
--- group by 1,2
+
 
 ,cust_trans as 
 (
 select 
-  -- company,
+
   invoice_group,    
-  -- merchant_group,
-  -- division, 
-  -- brand,    
-  -- store_id,   
-  -- site_name,    
-  -- suburb,   
-  -- state,    
-  -- postcode,
-  -- country,
+
   Transaction_Date,
   card_id,
   sum(case when (is_online = 'Online' and month_tran_count > 0) then 1 else 0 end) as online_cust,
@@ -11872,13 +11494,13 @@ select
   sum(case when (is_online = 'Online' and month_tran_count > 0) then month_tran_amount else 0 end) as on_cust_amount,
   sum(case when (is_online = 'Not Online' and month_tran_count > 0) then month_tran_amount else 0 end) as off_cust_amount
 from cust_count_online
---where store_id = 'F3490'
+
 group by 1,2,3
 order by 1,2,3
 )
 
 select 
-  -- company,
+
   'Country' as Aggregation_Level,
   'External' as Benchmark_lvl,
   'All' as store_status,
@@ -11888,12 +11510,8 @@ select
 
 
   invoice_group,    
-  --merchant_group,
-  --division, 
-  --brand,      
-  -- country,
   Transaction_Date,
-  --count(distinct scdr_token),
+
   sum(case when (online_cust > 0 and offline_cust = 0) then 1 else 0 end) as online_cust,
   sum(case when (online_cust = 0 and offline_cust > 0) then 1 else 0 end) as offline_cust,
   sum(case when (online_cust > 0 and offline_cust > 0) then 1 else 0 end) as both_cust,
@@ -11911,12 +11529,6 @@ where card_id is not null
 group by 1,2,3,4,5,6,7,8
 order by 1,2,3,4,5,6,7,8
 );
-----------------------------------------------------------------------------------------------------------
------------------------------------------------------------------------------------------------------------
-
---------------------------------------------------------------------------------------------------------------
--- RE-ARRANGING FIELDS
---------------------------------------------------------------------------------------------------------------
 
 create or replace table pdh_staging_ds.temp_output_format as (
 select distinct *
@@ -12263,11 +11875,10 @@ select distinct *
     and curr.invoice_group = cust_count_online.invoice_group    
     and curr.Period = cust_count_online.Transaction_Date
 )
--- where curr.w_trans_amount is not null,
-  --and curr.w_trans_count is not null,	
+
 );
 
-------------------------------------------------------------------------------------------------------------------------------
+------
 
 create or replace table wpay_analytics.wpay_all_merchants_performance_metrics as
 (select * from pdh_staging_ds.temp_output_format);
@@ -12290,10 +11901,6 @@ and cast(period as string)
 )
 ;
 
---create or replace view pdh_sf_mep_vw.vw_wpay_all_merchants_performance_metrics
---as select * from 
---pdh_sf_mep_vw.wpay_all_merchants_performance_metrics
---;
 
 drop table if exists pdh_staging_ds.temp_card;
 drop table if exists pdh_staging_ds.temp_card_stable;
@@ -12313,6 +11920,6 @@ drop table if exists pdh_staging_ds.temp_scheme;
 drop table if exists pdh_staging_ds.temp_scheme_stable;
 drop table if exists pdh_staging_ds.temp_cust_count_online;
 drop table if exists pdh_staging_ds.temp_cust_count;
-
-----------------------------------------------------------------------------------------------------------------
+drop table if exists pdh_staging_ds.temp_cust_count;
+drop table if exists pdh_staging_ds.temp_cust_count_online;
 
