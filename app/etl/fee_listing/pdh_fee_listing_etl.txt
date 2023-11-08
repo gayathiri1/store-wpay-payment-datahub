@@ -23,7 +23,7 @@ DECLARE fee_list,var_list,new_var_list ARRAY <string>;
 
 --To check if variable present in table
 DECLARE ftlf_prfx_cnt, var_cnt,new_var_len,x,date_array_cnt,y INT64 DEFAULT 0;
-DECLARE environment,bucket,project_id,email,prefix,view_name,etl_path,outgoing_path,tran_uid_val STRING;
+DECLARE environment,bucket,project_id,email,prefix,view_name,etl_path,outgoing_path,tran_uid_val,inp_column,inp_prefix,inp_version STRING;
 
 -- Get count
 DECLARE minitaf_count DEFAULT (SELECT COUNT(0) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` WHERE file_date = tran_date);
@@ -51,31 +51,29 @@ THEN
     RETURN;
 END IF;
 
-SET fee_list = ARRAY(Select distinct ftlf_prefix 
+#fetch all the versions
+SET fee_list = ARRAY(Select distinct concat(ftlf_prefix,"_feelist_",ftlf_version)
 					 from `pdh_ref_ds.ref_stlm_tlf_config`
-                     where ftlf_prefix is not null);
+                     where ftlf_prefix is not null 
+										 union all 
+										 Select distinct concat(ftlf_prefix_old,"_feelist_",ftlf_version_old)
+					 from `pdh_ref_ds.ref_stlm_tlf_config`
+                     where ftlf_prefix_old is not null
+										 and ftlf_version_old is not null);
+
 
 SET var_list =( with feelist_prefix_seq as 
           				(select  fee_list [SAFE_OFFSET(offset)] as ftlf_prefix ,offset as ftlf_seq 
            				 from unnest(fee_list) with OFFSET
            				)
 					 		select array_agg (merchant_name)
-					 		from pdh_analytics_ds.file_gen_bq_to_gcs a
+					 		from `pdh_analytics_ds.file_gen_bq_to_gcs` a
 					 			,feelist_prefix_seq b
-					 		where merchant_name = (concat(b.ftlf_prefix,'feelist')));
+					 		where merchant_name = b.ftlf_prefix);
 
-SET ftlf_prfx_cnt = (Select count(0) 
-					 from `pdh_ref_ds.ref_stlm_tlf_config`
-                     where ftlf_prefix is not null);
+SET ftlf_prfx_cnt = ARRAY_LENGTH(fee_list);
 
-SET var_cnt = ( with feelist_prefix_seq as 
-          				(select  fee_list [SAFE_OFFSET(offset)] as ftlf_prefix ,offset as ftlf_seq 
-           				 from unnest(fee_list) with OFFSET)
-					 			select count(0)
-					 			from pdh_analytics_ds.file_gen_bq_to_gcs a
-					 				,feelist_prefix_seq b
-					 			where merchant_name = (concat(b.ftlf_prefix,'feelist'))
-							);
+SET var_cnt = ARRAY_LENGTH(var_list);
 							
 SET project_id = (SELECT distinct catalog_name from INFORMATION_SCHEMA.SCHEMATA);
 
@@ -106,8 +104,15 @@ SET tran_uid_val = (SELECT value from pdh_ref_ds.ref_key_value
 IF ftlf_prfx_cnt <> var_cnt then
 
 	MERGE `pdh_analytics_ds.file_gen_bq_to_gcs` D
-	USING (SELECT * FROM `pdh_ref_ds.ref_stlm_tlf_config` where ftlf_prefix is not null) S
-	ON RTRIM(D.merchant_name,"feelist")= S.ftlf_prefix
+	USING (Select distinct concat(ftlf_prefix,"_feelist_",ftlf_version) as ftlf_prefix_ver, ftlf_prefix as prefix, ftlf_version as version, case when ftlf_version = 'V2' then '' else concat(ftlf_version,'_') end as fversion
+					 from `pdh_ref_ds.ref_stlm_tlf_config`
+                     where ftlf_prefix is not null 
+										 union all 
+										 Select distinct concat(ftlf_prefix_old,"_feelist_",ftlf_version_old) as ftlf_prefix_ver, ftlf_prefix_old as prefix, ftlf_version_old as version, case when ftlf_version_old = 'V2' then '' else concat(ftlf_version_old,'_') end as fversion
+					 from `pdh_ref_ds.ref_stlm_tlf_config`
+                     where ftlf_prefix_old is not null
+										 and ftlf_version_old is not null) S
+	ON D.merchant_name = S.ftlf_prefix_ver
 		WHEN NOT MATCHED THEN
 			INSERT VALUES
 			(
@@ -123,17 +128,17 @@ IF ftlf_prfx_cnt <> var_cnt then
 			environment,
 			'',
 			'N',
-			concat("gs://",outgoing_path,"/",S.ftlf_prefix,"_feelist"),
+			concat("gs://",outgoing_path,"/",S.prefix,"_feelist"),
 			email,
 			'N',
 			'',
 			'',
 			'',
 			'Y',
-			concat(S.ftlf_prefix,"feelist"),
-			concat(S.ftlf_prefix, "_Fee_Listing_"),
+			concat(S.prefix,"_feelist_",version),
+			concat(S.prefix,"_Fee_Listing_",fversion),
 			'fee_listing/pdh_fee_listing.txt',
-			concat(project_id,".pdh_extraction_ds.vw_",lower(S.ftlf_prefix),"_fee_listing"),
+			concat(project_id,".pdh_extraction_ds.vw_",lower(S.prefix),"_fee_listing_",lower(version)),
 			'Y',
 			'',
 			',',
@@ -145,16 +150,16 @@ IF ftlf_prfx_cnt <> var_cnt then
 	;
 
 	SET new_var_list = ARRAY(
-		with 
+		with     
 		feelist_prefix_seq as 
 			(select  fee_list [SAFE_OFFSET(offset)] as ftlf_prefix ,offset as ftlf_seq 
 			from unnest(fee_list) with OFFSET ),
 		var_chk_seq as
 			(select  var_list [SAFE_OFFSET(offset)] as var_mer_name ,offset as var_seq 
 			from unnest(var_list) with OFFSET )
-					SELECT ftlf_prefix
+					SELECT  concat (SPLIT(ftlf_prefix,"_feelist_")[0],'_fee_listing_',SPLIT(ftlf_prefix, "_feelist_")[1])
 					from feelist_prefix_seq a
-					where ftlf_prefix not in (select RTRIM(var_mer_name,"feelist") from var_chk_seq ));
+					where ftlf_prefix not in (select var_mer_name from var_chk_seq ));
 	
 	SET new_var_len = ARRAY_LENGTH(new_var_list);
 
@@ -164,10 +169,15 @@ IF ftlf_prfx_cnt <> var_cnt then
 				LEAVE;
 		END IF;
 	
-		SET view_name = concat("pdh_extraction_ds.vw_",lower(new_var_list[offset(x)]),"_fee_listing");
+		SET view_name = concat("pdh_extraction_ds.vw_",lower(new_var_list[offset(x)]));
+
+		set inp_prefix = SPLIT(new_var_list[offset(x)],"_fee_listing_")[0];
+		set inp_version =  SPLIT(new_var_list[offset(x)],"_fee_listing_")[1];
+
+		#Table function to get the Columns
+		EXECUTE IMMEDIATE CONCAT ("Select * from pdh_ref_ds.ftlf_table(" , '"', inp_version , '"' , ")") into inp_column;
 		
-		EXECUTE IMMEDIATE CONCAT("CREATE OR REPLACE VIEW ", view_name ," AS select * except (file_prefix) from pdh_analytics_ds.fee_listing where file_prefix = '", new_var_list[offset(x)],"' ;")
-		;
+		EXECUTE IMMEDIATE CONCAT("CREATE OR REPLACE VIEW ", view_name ," AS select ", inp_column ," from pdh_analytics_ds.fee_listing where file_prefix = '", inp_prefix , "';"  );
 		
 		SET x = x+1;
 	
@@ -186,10 +196,10 @@ IF current_batch_no = 'FTLF000000001' THEN
 ELSE
    SET max_file_date = (SELECT distinct date(file_date)
                         FROM pdh_analytics_ds.gen_ctrl_data
-                        WHERE merchant_name like '%feelist'
+                        WHERE merchant_name like '%feelist%'
                           AND batch_number  = (SELECT distinct max(batch_number) 
                                                FROM pdh_analytics_ds.gen_ctrl_data
-                                               WHERE merchant_name like '%feelist'));
+                                               WHERE merchant_name like '%feelist%'));
 END IF;
 
 -- Get transaction date based on run date
@@ -247,6 +257,9 @@ WITH result AS (
     IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
 	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
+	IFNULL(FORMAT('%.4f', extern_scheme_fees_ex_gst *100), "0.0000") scheme_fee,
+	"" fraud_check_fee,
+	"" threeds_fee,
 	ftlf_prefix file_prefix,
 	PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) tran_date
     FROM `pdh_analytics_ds.tbl_sml_merchant_fees_rpt` a,
@@ -296,6 +309,9 @@ SELECT 'D' H,
     IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
 	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
+	IFNULL(FORMAT('%.4f', extern_scheme_fees_ex_gst *100), "0.0000") scheme_fee,
+	"" fraud_check_fee,
+	"" threeds_fee,
 	ftlf_prefix file_prefix,
 	PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) tran_date
     FROM `pdh_analytics_ds.tbl_edg_fees_rpt` a,
@@ -345,6 +361,9 @@ SELECT 'D' H,
     IFNULL(FORMAT('%.4f', 0.0), "0.0000") interchange_fee_rebate,
     IFNULL(FORMAT('%.4f', vcalc_processing_fees_ex_gst *100), "0.0000") processing_fee,
 	IFNULL(FORMAT('%.4f', vcalc_early_settlement_fees_ex_gst *100), "0.0000") early_settlement_fee,
+	IFNULL(FORMAT('%.4f', extern_scheme_fees_ex_gst *100), "0.0000") scheme_fee,
+	"" fraud_check_fee,
+	"" threeds_fee,
 	ftlf_prefix file_prefix,
 	PARSE_DATE('%Y%m%d', LEFT(local_timestamp, 8)) tran_date
     FROM `pdh_analytics_ds.tbl_egfuel_fees_rpt` a,
@@ -362,7 +381,7 @@ SELECT * FROM result;
 --Insert Trailer Record
 
 INSERT INTO pdh_analytics_ds.fee_listing
-SELECT 'T', SAFE_CAST(COUNT(0) AS STRING), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, file_prefix,tran_date
+SELECT 'T', SAFE_CAST(COUNT(0) AS STRING), null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, file_prefix,tran_date
 from pdh_analytics_ds.fee_listing
 group by file_prefix,tran_date;
 
@@ -392,7 +411,10 @@ SELECT curr_date processing_date,
 	null additional_data_2,
 	null additional_data_3,
 	early_settlement_fee,
-	tran_date
+	tran_date,
+	scheme_fee,
+	fraud_check_fee,
+	threeds_fee,
 FROM `pdh_analytics_ds.fee_listing` WHERE H <> 'T';
 	
 --Insert data into control table
@@ -407,7 +429,7 @@ LOOP
 				)
 		SELECT current_batch_no as batch_number,
 				curr_date as processing_date, 
-				concat(fl.ftlf_prefix,"feelist") as merchant_name,
+				fl.ftlf_prefix as merchant_name,
 				true etl_complete, 
 				cast(null as boolean) extract_wf_complete,
 				datetime_add(cast(trans_date_range[offset(y)]  as datetime), Interval fl.ftlf_seq second) extract_start_datetime,

@@ -14,6 +14,9 @@
 --20230613 Use surcharge and tip from standard settlement table
 --20300615 Use today for settlement_date
 --20230703 add columns par and pan_alias (stlf_versionv 3) process only version 2
+--20230913 update the script to deliever to 2 versions at the same time - Ray M
+--20231023 Get Order_number from Gravy if available
+--20231023 update the script to deliever to 2 versions at the same time - Ray M
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
 DECLARE nullstr string;
@@ -26,19 +29,14 @@ declare syd_hour INT64 default (select extract(hour from current_time("Australia
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime;
 declare batch_end_yyyy_mm_dd_hh_mm_ss_1 datetime;
 declare batch_end_yyyymmdd string;
-declare current_version string default
-         ifnull((select sc.stlf_version
-                 from  `pdh_ref_ds.stlm_stlf_columns` sc
-                 where sc.stlf_prefix = "HEADER"
-                   and sc.par = "Y"    --Check for "Y" for version with par(V3)
-                ),"");
+declare current_version string default "V3";
 declare max_settlementdate date default (Select max(cast(datetime_created as date)) 
                                          FROM `pdh_analytics_ds.audit_stlm_batch`
                                        where batchnumber between "S000000001" and "S999999999");
  --
  if (select count(msw.division)
     from `pdh_ref_ds.ref_merchant_settlement_window` msw
-    join `pdh_ref_ds.ref_stlm_tlf_config` tlf
+    join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf
             on upper(trim(tlf.division)) = msw.division
     where is_active = "Y"
       and settlement_cycle = syd_hour
@@ -59,9 +57,9 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                                                      INTERVAL -1 DAY);
 --
 -- Always add CSV Headers based on settlement window
-  --truncate table `pdh_analytics_ds.stlm_std_transaction_listing`; --Block for v3
-  --
-  insert into `pdh_analytics_ds.stlm_std_transaction_listing`
+  truncate table `pdh_analytics_ds.stlm_std_transaction_listing_v3`;
+  
+  insert into `pdh_analytics_ds.stlm_std_transaction_listing_v3`
          select distinct 
                     concat(tlf.stlf_prefix,"_Settlement_",
                                                      format_date("%Y%m%d%H%M%S",
@@ -103,13 +101,25 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                     "mcr_ind",
                     "par",   --20230703
                     "pan_alias"  --20230703
-         from `pdh_ref_ds.ref_stlm_tlf_config` tlf
+         from `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf
+            join `pdh_ref_ds.ref_merchant_settlement_window` msw
+         on msw.division = tlf.division
+         and msw.settlement_cycle = syd_hour
          where ifnull(tlf.stlf_prefix,"") <> ""
            and tlf.stlf_version = current_version;
 --
 --Add details if settled not reported exists exists
- insert into `pdh_analytics_ds.stlm_std_transaction_listing`
-   With trqc as ( --1
+ insert into `pdh_analytics_ds.stlm_std_transaction_listing_v3`
+    --
+   With Gravy as (Select distinct connector_transaction_id isg_order_number,
+                        external_identifier gravy_order_number
+               from pdh_rd_gr4vy_views.vw_rd_tran_gr4vy
+               where ifnull(connector_transaction_id,"") <> ""), --2023-10-06 Gravy
+        Gravy_seq as (
+                     select isg_order_number,gravy_order_number, 
+                     row_number() over(partition by isg_order_number) seq
+              from Gravy ),  --2023-10-06 Gravy
+   trqc as ( --1
           Select pdh_ref_ds.get_tran_uid(
                                     "QC",
                                      tqc.approvalcode, 
@@ -179,7 +189,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   "" as par_s,
                   "" as scdr_token_s
       from pdh_analytics_ds.stlm_standard_settlement_table st1
-      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+      join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
                 on upper(trim(tlf.division)) = st1.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version
@@ -247,7 +257,11 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                      else "0"
                   end approval_status,                  
                   tcy.approval_code approval_code,
-                  st2.order_number,
+                  case
+                     when ifnull(Gravy_chk.gravy_order_number,"") <> "" 
+                             then Gravy_chk.gravy_order_number
+                     else st2.order_number
+                  end order_number,
                   tcy.decline_reason addtl_response_data,
                   cast(null as string) as   account_type,
                   st2.surcharge_amt,
@@ -269,7 +283,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   "" as par_s,
                   "" as scdr_token_s
       from pdh_analytics_ds.stlm_standard_settlement_table st2
-      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+      join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
                 on upper(trim(tlf.division)) = st2.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version 
@@ -290,6 +304,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
       left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
           and upper(trim(rk.key)) = upper(trim(cast(tcy.merchant_id as string)))
+      left join (select * from Gravy_seq where seq = 1) Gravy_chk
+           on Gravy_chk.isg_order_number = st2.order_number
       where ifnull(st2.tlf_name,"") = "" 
         and ifnull(st2.setlmnt_result_file,"") <> ""
                ),
@@ -362,7 +378,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   "" as par_s,
                   "" as scdr_token_s
       from pdh_analytics_ds.stlm_standard_settlement_table st3
-      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+      join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
                 on upper(trim(tlf.division)) = st3.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version
@@ -452,7 +468,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   "" as par_s,
                   "" as scdr_token_s
       from pdh_analytics_ds.stlm_standard_settlement_table st4
-      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+      join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
                 on upper(trim(tlf.division)) = st4.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version
@@ -528,7 +544,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                   dn.pymt_acct_ref as par_s,
                   dn.scdr_token    as scdr_token_s
     from pdh_analytics_ds.stlm_standard_settlement_table st5
-    join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+    join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
                 on upper(trim(tlf.division)) = st5.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version
@@ -616,7 +632,7 @@ tred as (
                "" as par_s,
                "" as scdr_token_s
       from pdh_analytics_ds.stlm_standard_settlement_table st6
-      join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+      join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
                 on upper(trim(tlf.division)) = st6.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version
@@ -715,30 +731,26 @@ tred as (
         join `pdh_ref_ds.ref_store_details` rsd on upper(trim(rsd.store_id)) = trn.store_id 
         join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
              on upper(trim(scm.wpay_store_number)) = trn.store_id
-        join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+        join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
              on upper(trim(tlf.division)) = upper(trim(rsd.division))
             and tlf.stlf_version = current_version
         where trn.tran_seq = 1;
          
     --Always Add Trailor 
-      insert into `pdh_analytics_ds.stlm_std_transaction_listing`
+      insert into `pdh_analytics_ds.stlm_std_transaction_listing_v3`
               (file_name,merchant,record_type,transaction_uid)
               Select tl.file_name,tl.merchant,"T", cast(count(*) - 1 as string)
-              from `pdh_analytics_ds.stlm_std_transaction_listing` tl
+              from `pdh_analytics_ds.stlm_std_transaction_listing_v3` tl
               join (select distinct stlf_prefix,stlf_version 
-                    from pdh_ref_ds.ref_stlm_tlf_config) tlf 
+                    from pdh_ref_ds.vw_ref_stlm_tlf_config) tlf 
                          on tl.merchant = tlf.stlf_prefix
                         and tlf.stlf_version = current_version
               Group By 1,2;
               
     --add to history
-       insert into `pdh_analytics_ds.stlm_std_transaction_listing_history` 
+       insert into `pdh_analytics_ds.stlm_std_transaction_listing_v3_history` 
           select batch_end_yyyy_mm_dd_hh_mm_ss, tl.*
-          from `pdh_analytics_ds.stlm_std_transaction_listing` tl
-          join (select distinct stlf_prefix,stlf_version 
-                from pdh_ref_ds.ref_stlm_tlf_config) tlf 
-                   on tl.merchant = tlf.stlf_prefix
-                  and tlf.stlf_version = current_version;
+          from `pdh_analytics_ds.stlm_std_transaction_listing_v3` tl;
       --
      --Insert Batch Audit if Detail exists
       insert into `pdh_analytics_ds.audit_stlm_batch`
@@ -767,7 +779,7 @@ tred as (
                    count(*) no_trans_posted, 
                    round(sum(tran_settlement_amount),2) amount_posted
             from `pdh_analytics_ds.stlm_standard_settlement_table` st1
-            join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+            join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
                 on upper(trim(tlf.division)) = st1.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version
@@ -795,7 +807,7 @@ tred as (
                      min(st.transaction_timestamp) min_transaction,
                      max(st.transaction_timestamp) max_transaction
               from (select upper(trim(division)) division, stlf_prefix, stlf_version
-                    from `pdh_ref_ds.ref_stlm_tlf_config` 
+                    from `pdh_ref_ds.vw_ref_stlm_tlf_config` 
                     where ifnull(stlf_prefix,"") <> ""
                       and stlf_version = current_version) tlf
               join  `pdh_ref_ds.ref_merchant_settlement_window` msw
@@ -810,21 +822,23 @@ tred as (
               where ifnull(tlf.stlf_prefix,"") <> "" 
               group by 1) std;
      --
+
      --Update Generic table
         Update  `pdh_analytics_ds.stlm_standard_settlement_table` std
            set std.tlf_name = t.tlf_name,
                std.last_update_datetime = batch_end_yyyy_mm_dd_hh_mm_ss,
                std.last_updated_by  ="EG Settlement"
         from (select std1.tran_uid, 
-                     concat(tlf.stlf_prefix,"_Settlement_",
+                     concat(tlf.stlf_prefix,"_Settlement_", tlf.stlf_version, "_",
                             format_date("%Y%m%d%H%M%S",batch_end_yyyy_mm_dd_hh_mm_ss_1)) tlf_name
               from `pdh_analytics_ds.stlm_standard_settlement_table` std1
-              join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+              join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
                        on upper(trim(tlf.division)) = std1.division
                       and ifnull(tlf.stlf_prefix,"") <> ""
                       and tlf.stlf_version = current_version
               Where ifnull(std1.tlf_name,"") = "" 
                 and ifnull(std1.setlmnt_result_file,"") <> "") t
      Where t.tran_uid = std.tran_uid;
+
 --
 --End of Script

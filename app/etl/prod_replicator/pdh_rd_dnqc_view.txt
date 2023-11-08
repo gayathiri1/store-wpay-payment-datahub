@@ -11,7 +11,8 @@ DECLARE  query_navigator STRING DEFAULT concat(
          || " UNION ALL"),
          "UNION ALL,","UNION ALL "))
         FROM `pdh_rd_data_navigator`.INFORMATION_SCHEMA.TABLES 
-		WHERE REGEXP_CONTAINS(ddl,'file_date'));
+		WHERE REGEXP_CONTAINS(ddl,'file_date')
+		AND upper(table_type) <> 'VIEW');
 DECLARE  query_quickcilver STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
         "SELECT  file_date,file_name,cast(pdh_load_time as DATETime) as pdh_load_time,count(0) as count, '" 
          || table_schema || "' as table_schema, '" || table_name || 
@@ -21,7 +22,8 @@ DECLARE  query_quickcilver STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
          || " UNION ALL"),
          "UNION ALL,","UNION ALL "))
         FROM `pdh_rd_quickcilver.`.INFORMATION_SCHEMA.TABLES 
-		WHERE REGEXP_CONTAINS(ddl,'file_date'));
+		WHERE REGEXP_CONTAINS(ddl,'file_date')
+		AND upper(table_type) <> 'VIEW');
 DECLARE  query_external STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
         "SELECT file_date,file_name,cast(pdh_load_time as DATEtime) as pdh_load_time,count(0) as count, '" 
          || table_schema || "' as table_schema, '" || table_name || 
@@ -31,7 +33,8 @@ DECLARE  query_external STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
          || " UNION ALL"),
          "UNION ALL,","UNION ALL "))
         FROM `pdh_rd_external.`.INFORMATION_SCHEMA.TABLES 
-		WHERE REGEXP_CONTAINS(ddl,'file_date'));
+		WHERE REGEXP_CONTAINS(ddl,'file_date')
+		AND upper(table_type) <> 'VIEW');
 DECLARE  query_wdp STRING DEFAULT (SELECT RTRIM((REPLACE(STRING_AGG(
         "SELECT date(load_dttm),' ',null,count(0) as count, '" 
          || table_schema || "' as table_schema, '" || table_name || 
@@ -41,7 +44,8 @@ DECLARE  query_wdp STRING DEFAULT (SELECT RTRIM((REPLACE(STRING_AGG(
          || " UNION ALL"),
          "UNION ALL,","UNION ALL ")),"UNION ALL")
         FROM `pdh_rd_wdp.`.INFORMATION_SCHEMA.TABLES 
-		WHERE REGEXP_CONTAINS(ddl,'load_dttm'));
+		WHERE REGEXP_CONTAINS(ddl,'load_dttm')
+		AND upper(table_type) <> 'VIEW');
 DECLARE  query_apm STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
         "SELECT file_date,file_name,cast(pdh_load_time as Datetime) as pdh_load_time,count(0) as count, '" 
          || table_schema || "' as table_schema, '" || table_name || 
@@ -51,7 +55,8 @@ DECLARE  query_apm STRING DEFAULT (SELECT(REPLACE(STRING_AGG(
          || " UNION ALL"),
          "UNION ALL,","UNION ALL "))
         FROM `pdh_rd_apm.`.INFORMATION_SCHEMA.TABLES 
-		WHERE REGEXP_CONTAINS(ddl,'file_date'));	
+		WHERE REGEXP_CONTAINS(ddl,'file_date')
+        AND upper(table_type) <> 'VIEW');
 TRUNCATE TABLE pdh_composer.recon_frmwork_main; 
 TRUNCATE TABLE pdh_composer.recon_frmwork; 
 INSERT INTO pdh_composer.recon_frmwork_main (table_schema,table_name,date_loaded) 

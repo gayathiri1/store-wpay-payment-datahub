@@ -61,7 +61,7 @@ def readexecuteQuery(**kwargs):
                 logging.info("Query executed for {}".format(i['query_file']))
                 logging.info("i['merchant']{}".format(i['merchant']))
                 merchant_mrc = '%' + i['merchant'] #%'feelist'
-                merchant_mrc = "'" + merchant_mrc.replace("'","") + "'" #'%feelist'
+                merchant_mrc = "'" + merchant_mrc.replace("'","") + "%" + "'" #'%feelist%'
                 logging.info("i['merchant']{}".format(merchant_mrc))
                 qc_query = qc_select.replace('mrc', merchant_mrc)
               #  qc_query = qc_select.replace('mrc', i['merchant'])

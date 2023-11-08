@@ -63,10 +63,11 @@ With SettlementDetail as (
                          When ifNULL(rc0.Merchant_to_report,"") <> "" then rc0.Merchant_to_report
                          Else mh.division
                       End)) as Merchant,
-        upper(trim(case(mh.division)  when "LIVE GROUP" then mh.store_id else "" end)) as store_id,
-          upper(trim(case(mh.division)    when "LIVE GROUP" then mh.site_name else "" end)) as site_name, 
+        upper(trim(case(mh.division)  when "LIVE GROUP" then mh.store_id when "BEPOZ" then mh.store_id else "" end)) as store_id,
+          upper(trim(case(mh.division)    when "LIVE GROUP" then mh.site_name when "BEPOZ" then   mh.site_name else "" end)) as site_name, 
         -- mh.store_id,
-         --mh.site_name          
+         --mh.site_name  
+             mh.MCC_Code mcc_code        
 
     From SettlementDetail sd 
     Join `pdh_ref_ds.ref_store_details` mh 
@@ -79,6 +80,7 @@ left join `pdh_ref_ds.ref_Compliance_Control_Table` rc0
     ),
 settlement as 
 (SELECT gm.Merchant,
+        gm.mcc_code,
        gm.store_id, 
        gm.site_name,
        gm.scheme, 
@@ -90,10 +92,11 @@ settlement as
 FROM  GetMetchant gm
 left join `pdh_ref_ds.ref_tran_type_codes` tt
      on Upper(trim(tt.tran_type_desc)) = trim(Concat(gm.tran_type_abbr,gm.ReversalCode))
-Group By gm.Merchant, gm.store_id,gm.site_name, gm.scheme, gm.FirstOfMonth,SysDateTime
+Group By gm.Merchant,gm.mcc_code, gm.store_id,gm.site_name, gm.scheme, gm.FirstOfMonth,SysDateTime
 Order by 5,1,2,3,4),
 
- monthly as (SELECT Merchant,					
+ monthly as (SELECT Merchant,
+			mcc_code,
           store_id,					
           site_name,					
           FirstOfMonth,	
@@ -102,11 +105,12 @@ Order by 5,1,2,3,4),
           sum( trans_count)	 as trans_count		
    FROM 		settlement			
    Where FirstOfMonth >= StartDate and FirstOfMonth < EndDate					
-   Group By Merchant,store_id, site_name,	 Datetime_Created,				
+   Group By Merchant,mcc_code,store_id, site_name,	 Datetime_Created,				
             FirstOfMonth)
 
 
     Select m.Merchant,
+	       m.mcc_code,
            m.store_id,
            m.site_name,
            m.FirstOfMonth,

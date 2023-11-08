@@ -10,80 +10,88 @@
 5. approval_flag ='Y' 
 REmove project reference, point store_details and response_codes to ref_ds
 */
-Declare Sys_Datetime Datetime DEFAULT current_datetime("Australia/Sydney");
 
-Truncate Table `pdh_analytics_ds.BillingTrnByMerchantScheme`;
-Insert into `pdh_analytics_ds.BillingTrnByMerchantScheme`
+Declare Sys_Datetime Datetime DEFAULT current_datetime("Australia/Sydney");
+
+Truncate Table `pdh_analytics_ds.BillingTrnByMerchantScheme`;
+Insert into `pdh_analytics_ds.BillingTrnByMerchantScheme`
 
 
-With SettlementDetail as (
-    select 
-        Upper(left(trim(dn.net_term_id),5)) StoreID,
-        --Upper(trim(dn.scheme)) scheme,
+With SettlementDetail as (
+    select 
+
+        Upper(left(trim(dn.net_term_id),5)) StoreID,
+        --Upper(trim(dn.scheme)) scheme,
         -- Calling function
               pdh_ref_ds.get_scheme(dn.proc_id_iss_b, dn.inst_id_recon_iss) scheme,
-        DATE_TRUNC(CAST(dn.tstamp_trans AS DATE),month) as FirstOfMonth,
-        Case dn.mti
-           when '1440' then ' REVERSAL'
-           else ''
-        End ReversalCode,
-        Case upper(trim(proc_id_iss_b))
-           When 'RED' then
-                Case Upper(trim(t.abbr))
-                   when 'PURCHASE' then 'REDEMPTION'
-                   when 'REFUND' then 'ACTIVATION'
-                   when 'BALANCE INQUIRY - SAVINGS' then 'BALANCE INQUIRY'
-                   else Upper(trim(t.abbr))
-               end
-          else Upper(trim(t.abbr))
-        end tran_type_abbr,
-        dn.amt_recon_net
-    from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn   
-    Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
-    join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
-    WHERE upper(trim(r.approval_flag)) = 'Y'
-      and dn.amt_recon_net <> 0
-      and cast(dn.tstamp_trans as date) >= '2021-06-28'
-      and cast(dn.tstamp_trans as date) < Date_sub(current_date,Interval 3 day)
-    Union ALL Select Left(CONCAT(Upper(storeid), "000"),5) StoreID,
-                     Upper(trim(schemeName)) scheme,
-                     DATE_TRUNC(PARSE_DATE("%Y%m%d", CAST(Date AS STRING)),month) as FirstOfMonth,
-                     '' As   ReversalCode,
-                     Upper(trim(transactionType)) as tran_type_abbr,
-                     CAST(amount AS NUMERIC) *100 amt_recon_net
-              from `pdh_analytics_ds.dpay`
-              where Date >=20210705 
-                and Date < CAST(FORMAT_DATE('%Y%m%d', Date_sub(current_date,Interval 3 day)) AS INT64)),
- --     
-  GetMetchant As (
-    Select sd.*, 
-           Upper(trim(Case 
-                         When ifNULL(rc1.Merchant_to_report,"") <> "" then rc1.Merchant_to_report
-                         Else mh.division
-                      End)) as Merchant,
-        upper(trim(case(mh.division)  when "LIVE GROUP" then mh.store_id else "" end)) as store_id,
-          upper(trim(case(mh.division)    when "LIVE GROUP" then mh.site_name else "" end)) as site_name, 
-        -- mh.store_id,
-         --mh.site_name          
+        DATE_TRUNC(CAST(dn.tstamp_trans AS DATE),month) as FirstOfMonth,
+        Case dn.mti
+           when '1440' then ' REVERSAL'
+           else ''
+        End ReversalCode,
+        Case upper(trim(proc_id_iss_b))
+           When 'RED' then
+                Case Upper(trim(t.abbr))
+                   when 'PURCHASE' then 'REDEMPTION'
+                   when 'REFUND' then 'ACTIVATION'
+                   when 'BALANCE INQUIRY - SAVINGS' then 'BALANCE INQUIRY'
+                   else Upper(trim(t.abbr))
+               end
+          else Upper(trim(t.abbr))
+        end tran_type_abbr,
+        dn.amt_recon_net
+    from `pdh_rd_data_navigator.gfs_pdh_txn_interface` dn   
+    Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
+    join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
+    WHERE upper(trim(r.approval_flag)) = 'Y'
+      and dn.amt_recon_net <> 0
+      and cast(dn.tstamp_trans as date) >= '2021-06-28'
+      and cast(dn.tstamp_trans as date) < Date_sub(current_date,Interval 3 day)
+    Union ALL Select Left(CONCAT(Upper(storeid), "000"),5) StoreID,
+                     Upper(trim(schemeName)) scheme,
+                     DATE_TRUNC(PARSE_DATE("%Y%m%d", CAST(Date AS STRING)),month) as FirstOfMonth,
+                     '' As   ReversalCode,
+                     Upper(trim(transactionType)) as tran_type_abbr,
+                     CAST(amount AS NUMERIC) *100 amt_recon_net
+              from `pdh_analytics_ds.dpay`
+              where Date >=20210705 
+              and Date < CAST(FORMAT_DATE('%Y%m%d', Date_sub(current_date,Interval 3 day)) AS INT64)),
+ --     
+  GetMetchant As (
+    Select sd.*, 
+           Upper(trim(Case 
+                         When ifNULL(rc1.Merchant_to_report,"") <> "" then rc1.Merchant_to_report
+                         Else mh.division
+                      End)) as Merchant,
+        upper(trim(case(mh.division)  when "LIVE GROUP"  then mh.store_id when "BEPOZ" then mh.store_id else "" end)) as store_id,
+          upper(trim(case(mh.division) when "LIVE GROUP" then mh.site_name when "BEPOZ" then mh.site_name else "" end)) as site_name, 
+           mh.MCC_Code mcc_code,
+        -- mh.store_id,
+         --mh.site_name          
 
-    From SettlementDetail sd 
-    Join `pdh_ref_ds.ref_store_details` mh 
-         on  Upper(trim(mh.store_id)) = sd.StoreId
-         and ifNull(mh.division,"") <> "" 
-   left join `pdh_ref_ds.ref_Compliance_Control_Table` rc1
-         on trim(rc1.Merchant) =  trim(mh.division)
-        and rc1.Rule_ID = 22
-        and rc1.Attribute = "Total_Transaction volume per scheme for each merchant_CARD PRESENT" )
-SELECT gm.Merchant,
-       gm.store_id, 
-       gm.site_name,
-       gm.scheme, 
-       gm.FirstOfMonth,
-       Sys_Datetime Datetime_Created,
-       Sum(ifNull(tt.spend_factor,0) * gm.amt_recon_net) * 0.01 as settlement_amount
-    
-FROM  GetMetchant gm
-left join `pdh_ref_ds.ref_tran_type_codes` tt
-     on Upper(trim(tt.tran_type_desc)) = trim(Concat(gm.tran_type_abbr,gm.ReversalCode))
-Group By gm.Merchant, gm.store_id,gm.site_name, gm.scheme, gm.FirstOfMonth, Sys_Datetime
-Order by 5,1,2,3,4;
+    From SettlementDetail sd 
+    Join `pdh_ref_ds.ref_store_details` mh 
+         on  Upper(trim(mh.store_id)) = sd.StoreId
+         and ifNull(mh.division,"") <> "" 
+   left join `pdh_ref_ds.ref_Compliance_Control_Table` rc1
+         on trim(rc1.Merchant) =  trim(mh.division)
+        and rc1.Rule_ID = 22
+        and rc1.Attribute = "Total_Transaction volume per scheme for each merchant_CARD PRESENT" )
+SELECT gm.Merchant,
+       gm.mcc_code,
+       gm.store_id, 
+       gm.site_name,
+       gm.scheme, 
+       gm.FirstOfMonth,
+       Sys_Datetime Datetime_Created,
+       Sum(ifNull(tt.spend_factor,0) * gm.amt_recon_net) * 0.01 as settlement_amount
+    
+FROM  GetMetchant gm
+left join `pdh_ref_ds.ref_tran_type_codes` tt
+     on Upper(trim(tt.tran_type_desc)) = trim(Concat(gm.tran_type_abbr,gm.ReversalCode))
+
+Group By gm.Merchant, gm.mcc_code, gm.store_id,gm.site_name, gm.scheme, gm.FirstOfMonth, Sys_Datetime
+Order by 5,1,2,3,4;
+
+
+
