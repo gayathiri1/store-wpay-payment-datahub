@@ -832,11 +832,19 @@ Select
 insert into `pdh_staging_ds.tbl_temp_billing_all`
 select 
     PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) switch_tran_date,
-	case
-		when upper(trim(scheme)) ='VISA' then cast(tran_uid as string)
-		when upper(trim(scheme)) = 'MASTERCARD' then trace_id
-		else  cast(tran_uid as string)
-	end as tran_uid,
+	 pdh_ref_ds.get_tran_uid(
+                                "CY",
+                                null, 
+                                null,
+                                0,
+                                null,
+                                concat(
+                                left(rpad(cast(transaction_timestamp as string),14,"0"),8),"T",
+                                right(rpad(cast(transaction_timestamp as string),14,"0"),6)),
+                                cast(tran_uid as string),
+                                null, 
+                                transaction_type, 
+                                transaction_amount) as tran_uid ,
 	CASE
 		WHEN LENGTH(CAST(transaction_timestamp AS STRING)) = 14 THEN CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(transaction_timestamp AS STRING), 6))) as timestamp)
 		ELSE CAST(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_timestamp AS STRING), 8)) as timestamp)

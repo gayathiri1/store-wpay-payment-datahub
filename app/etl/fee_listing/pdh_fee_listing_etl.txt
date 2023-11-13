@@ -20,10 +20,11 @@ DECLARE batch_end_time DATETIME;
 
 --Get Feelist prefix & variable list
 DECLARE fee_list,var_list,new_var_list ARRAY <string>;
+declare tran_uid_val array<string>;
 
 --To check if variable present in table
 DECLARE ftlf_prfx_cnt, var_cnt,new_var_len,x,date_array_cnt,y INT64 DEFAULT 0;
-DECLARE environment,bucket,project_id,email,prefix,view_name,etl_path,outgoing_path,tran_uid_val,inp_column,inp_prefix,inp_version STRING;
+DECLARE environment,bucket,project_id,email,prefix,view_name,etl_path,outgoing_path,inp_column,inp_prefix,inp_version STRING;
 
 -- Get count
 DECLARE minitaf_count DEFAULT (SELECT COUNT(0) FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface` WHERE file_date = tran_date);
@@ -97,9 +98,9 @@ SET outgoing_path = (SELECT value from pdh_ref_ds.ref_key_value
 					 WHERE attribute =  'outgoing-GCS'
 					   AND key = environment );
 
-SET tran_uid_val = (SELECT value from pdh_ref_ds.ref_key_value 
-				    WHERE attribute = 'tran-uid'
-					    AND key = 'Y' );
+set tran_uid_val = (SELECT array_agg(value) from pdh_ref_ds.ref_key_value 
+ 			    WHERE attribute = 'tran-uid'
+				    AND key = 'Y' );
 							  
 IF ftlf_prfx_cnt <> var_cnt then
 
@@ -220,7 +221,7 @@ SET date_array_cnt = (SELECT ARRAY_LENGTH(trans_date_range));
 CREATE OR REPLACE TABLE `pdh_analytics_ds.fee_listing` AS
 WITH result AS (
     SELECT 'D' H, 
-	CASE WHEN UPPER(tran_uid_val) = UPPER(a.division) THEN a.tran_uid
+	CASE WHEN (UPPER(tran_uid_val[0]) = UPPER(a.division) or UPPER(tran_uid_val[1]) = UPPER(a.division)) THEN a.tran_uid
 		 ELSE null END AS transaction_uid, 
 	terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
     LEFT(switch_timestamp, 14) transaction_timestamp,
@@ -272,7 +273,7 @@ WITH result AS (
 	AND (action_code <> '902' OR action_code IS NULL)
 UNION ALL
 SELECT 'D' H, 
-	CASE WHEN UPPER(tran_uid_val) = UPPER(a.division) THEN a.tran_uid
+	CASE WHEN (UPPER(tran_uid_val[0]) = UPPER(a.division) or UPPER(tran_uid_val[1]) = UPPER(a.division)) THEN a.tran_uid
 		 ELSE null END AS transaction_uid, 
 	terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
     LEFT(switch_timestamp, 14) transaction_timestamp,
@@ -324,7 +325,7 @@ SELECT 'D' H,
 	AND (action_code <> '902' OR action_code IS NULL)
 UNION ALL
 SELECT 'D' H, 
-	CASE WHEN UPPER(tran_uid_val) = UPPER(a.division) THEN a.tran_uid
+	CASE WHEN (UPPER(tran_uid_val[0]) = UPPER(a.division) or UPPER(tran_uid_val[1]) = UPPER(a.division)) THEN a.tran_uid
 		 ELSE null END AS transaction_uid, 
 	terminal_id, card_acpt_id card_acceptor_id, FORMAT('%.4f', transaction_amount*100) transaction_amt,
     LEFT(switch_timestamp, 14) transaction_timestamp,
