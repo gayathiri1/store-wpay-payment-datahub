@@ -9,6 +9,7 @@ DECLARE error_rows ARRAY<STRING>;
 DECLARE settle_array ARRAY<STRUCT<settle_date DATE, cost_factor INT64, legacy_cost_factor INT64>>;
 DECLARE forex_array ARRAY<STRUCT<txn_date DATE, local_currency STRING, exchange_rate NUMERIC>>;
 DECLARE local_currencies ARRAY<STRING>;
+DECLARE nullstr STRING;
 
 SET missing_data = (SELECT ARRAY((
 	SELECT "gfs_pdh_txn_interface" name FROM `pdh_rd_data_navigator.gfs_pdh_txn_interface`
@@ -182,10 +183,7 @@ CALL pdh_staging_ds.CalculateCostFactor(start_date, end_date, settle_array);
 
 CREATE OR REPLACE TABLE `pdh_staging_ds.temp_early_settlement_fee` AS
 	SELECT * FROM UNNEST(settle_array);
-	
-	
-	
-	
+
 -- FOREX RATE ARRAY
 SET local_currencies = (
 	SELECT ARRAY_AGG(DISTINCT kv.value) from `pdh_ref_ds.ref_store_details` s
@@ -209,8 +207,6 @@ END IF;
 INSERT INTO `pdh_staging_ds.billing_forex_hist`
 SELECT current_date('+10:00'), fx.txn_date, fx.local_currency, fx.exchange_rate
 FROM UNNEST(forex_array) fx;
-
-	
 
 -- MASTERCARD JOIN QUERY
 -- The Mastercard scheme data is received as two files (TFL6 for transactions and T1G0 for settlements),
@@ -299,7 +295,17 @@ END IF;
 create or replace table `pdh_staging_ds.tbl_temp_billing_all` as
 select 
 CAST(dn.tstamp_trans AS DATE) switch_tran_date,
-dn.tran_uid,
+pdh_ref_ds.get_tran_uid(
+						"TC",
+						nullstr, 
+						nullstr,
+						0,
+						nullstr, 
+						nullstr,
+						dn.tran_uid,
+						nullstr,
+						nullstr, 
+						0) as tran_uid,
 dn.tstamp_trans,
 dn.tstamp_local,
 dn.masked_pan,
@@ -404,7 +410,17 @@ AND s.is_closed = FALSE
 insert into `pdh_staging_ds.tbl_temp_billing_all`
 select 
 CAST(dn.tstamp_trans AS DATE) switch_tran_date,
-dn.tran_uid,
+pdh_ref_ds.get_tran_uid(
+                        "TC",
+                        nullstr, 
+                        nullstr,
+                        0,
+                        nullstr, 
+                        nullstr,
+                        dn.tran_uid,
+                        nullstr,
+                        nullstr, 
+                        0) as tran_uid,
 dn.tstamp_trans,
 dn.tstamp_local,
 dn.masked_pan,
@@ -454,16 +470,16 @@ when 'AMEX' then 'AMEX'
 when 'EHB' then 'EFTPOS'
 when 'FDF' then 'FUEL CARDS'
 when 'FDI' then
-	if(trim(dn.issuer_institution_id) in ('060092425', '060092426', '060092427', '060092428'), 'UPI', 'DINERS')
+    if(trim(dn.issuer_institution_id) in ('060092425', '060092426', '060092427', '060092428'), 'UPI', 'DINERS')
 when 'RED' then 'GIFT CARDS'
 when 'ANZ' then
-	if(trim(dn.issuer_institution_id) ='056025433' or trim(dn.issuer_institution_id) = '056025434'or trim(dn.issuer_institution_id) =  '056025435'
-		or trim(dn.issuer_institution_id) = '056025436'or trim(dn.issuer_institution_id) =  '056025437'
-		or trim(dn.issuer_institution_id) = '056025438'or trim(dn.issuer_institution_id) =  '056025439' 
-		or trim(dn.issuer_institution_id) = '056025440'or trim(dn.issuer_institution_id) =  '83990554161'
-		or trim(dn.issuer_institution_id) = '83990554162'or trim(dn.issuer_institution_id) =  '83990554163'
-		or trim(dn.issuer_institution_id) = '83990554164',  'UPI' ,
-	if(t.account='CRD' ,'CRD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT')) )
+    if(trim(dn.issuer_institution_id) ='056025433' or trim(dn.issuer_institution_id) = '056025434'or trim(dn.issuer_institution_id) =  '056025435'
+        or trim(dn.issuer_institution_id) = '056025436'or trim(dn.issuer_institution_id) =  '056025437'
+        or trim(dn.issuer_institution_id) = '056025438'or trim(dn.issuer_institution_id) =  '056025439' 
+        or trim(dn.issuer_institution_id) = '056025440'or trim(dn.issuer_institution_id) =  '83990554161'
+        or trim(dn.issuer_institution_id) = '83990554162'or trim(dn.issuer_institution_id) =  '83990554163'
+        or trim(dn.issuer_institution_id) = '83990554164',  'UPI' ,
+    if(t.account='CRD' ,'CRD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT')) )
 when 'FIS' then 'CRD'
 when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','VISA'))
 when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','MASTERCARD'))
@@ -511,7 +527,17 @@ AND s.is_closed = FALSE
 insert into `pdh_staging_ds.tbl_temp_billing_all`
 	Select 
 	CAST(txnTime AS DATE) switch_tran_date,
-    'DP' tran_uid,
+    pdh_ref_ds.get_tran_uid(
+                         "DP",
+                         nullstr, 
+                         trim(txnRef), 
+                         0, 
+                         nullstr,
+                         nullstr,
+                         nullstr,
+                         nullstr, 
+                         nullstr, 
+                         0) AS tran_uid,
 	txnTime tstamp_trans,
 	null tstamp_local,
 	CAST(bin AS STRING) masked_pan,
@@ -628,8 +654,25 @@ insert into `pdh_staging_ds.tbl_temp_billing_all`
 insert into `pdh_staging_ds.tbl_temp_billing_all`
 Select 
 	CAST(TransactionDate AS DATE) switch_tran_date,
-    'QC' tran_uid,
-	cast(concat(TransactionDate,' ',TransactionTime) as TIMESTAMP) tstamp_trans,
+    pdh_ref_ds.get_tran_uid(
+                            "QC",
+                             d.approvalcode, 
+                             d.ReferenceNumber, 
+                             d.BatchNumber, 
+                             nullstr,
+                             concat(CASE 
+                                     when d.transactiondate is null then "19000101"
+                                    else format_date("%Y%m%d",d.transactiondate)
+                                    End,"T",
+                                    CASE 
+                                     when d.transactiontime is null then "000000"
+                                     else format_time("%H%M%S",d.transactiontime)
+                                    end),
+                              nullstr,
+                              nullstr, 
+                              nullstr, 
+                              0) as tran_uid,
+    cast(concat(TransactionDate,' ',TransactionTime) as TIMESTAMP) tstamp_trans,
 	null tstamp_local,
 	CAST(CardNumber AS STRING) masked_pan,  -- MASK PAN
     CAST(TransactionDate AS DATE) date_recon_acq,
@@ -740,8 +783,24 @@ Select
 
 insert into `pdh_staging_ds.tbl_temp_billing_all`
 Select 
-	ReqDate switch_tran_date,
-    ReqTxRef tran_uid,
+    ReqDate switch_tran_date,
+    pdh_ref_ds.get_tran_uid("LK",
+                             nullstr, 
+                             ResRef,
+                             0, 
+                             nullstr,
+                             concat(CASE 
+                                     when ReqDate is null then "19000101"
+                                    else format_date("%Y%m%d",ReqDate)
+                                    End,"T",
+                                    CASE 
+                                     when ReqTime is null then "000000"
+                                     else format_time("%H%M%S",ReqTime)
+                                    end),
+                              nullstr,
+                              nullstr, 
+                              nullstr, 
+                              0) as tran_uid,
 	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_trans,
 	PARSE_TIMESTAMP("%Y%m%d%H%M%S", CONCAT(FORMAT_DATE("%Y%m%d", ReqDate), FORMAT_TIME("%H%M%S", ReqTime))) tstamp_local,
 	CAST(ReqPAN AS STRING) masked_pan,
@@ -771,7 +830,7 @@ Select
     null pos_crdhldr_presnt,
     null order_number,
     null approval_code,
-    null adtnl_response_data,
+    ReqTxRef adtnl_response_data,
     null card_acpt_id,
     null merchant_store_id,
     null as dom_int_ind,
@@ -832,19 +891,19 @@ Select
 insert into `pdh_staging_ds.tbl_temp_billing_all`
 select 
     PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) switch_tran_date,
-	 pdh_ref_ds.get_tran_uid(
-                                "CY",
-                                null, 
-                                null,
-                                0,
-                                null,
-                                concat(
-                                left(rpad(cast(transaction_timestamp as string),14,"0"),8),"T",
-                                right(rpad(cast(transaction_timestamp as string),14,"0"),6)),
-                                cast(tran_uid as string),
-                                null, 
-                                transaction_type, 
-                                transaction_amount) as tran_uid ,
+    pdh_ref_ds.get_tran_uid(
+                            "CY",
+                            nullstr, 
+                            nullstr,
+                            0,
+                            nullstr,
+                            concat(
+                            left(rpad(cast(transaction_timestamp as string),14,"0"),8),"T",
+                            right(rpad(cast(transaction_timestamp as string),14,"0"),6)),
+                            cast(tran_uid as string),
+                            nullstr, 
+                            transaction_type, 
+                            transaction_amount) as tran_uid,
 	CASE
 		WHEN LENGTH(CAST(transaction_timestamp AS STRING)) = 14 THEN CAST(CONCAT(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_timestamp AS STRING), 8)),' ', parse_time('%H%M%S',RIGHT(CAST(transaction_timestamp AS STRING), 6))) as timestamp)
 		ELSE CAST(PARSE_DATE('%Y%m%d', LEFT(CAST(transaction_timestamp AS STRING), 8)) as timestamp)
@@ -891,7 +950,11 @@ select
     null pos_crdhldr_presnt,
     cast(order_num as string) order_number,
     approval_code approval_code,
-    null adtnl_response_data,
+    case
+		when upper(trim(scheme)) ='VISA' then cast(tran_uid as string)
+		when upper(trim(scheme)) = 'MASTERCARD' then trace_id
+		else  cast(tran_uid as string)
+	end as adtnl_response_data,  -- Fix for tran_uid join issue
     null card_acpt_id,
     null merchant_store_id,
     domesitic_international_ind as dom_int_ind,
@@ -1083,7 +1146,7 @@ ON dn.merchant_name = kv1.key
 AND kv1.attribute = 'gr4vy-merchant-store-id'
 JOIN `pdh_ref_ds.ref_key_value` kv2
 ON dn.merchant_name = kv2.key
-AND dn.scheme = kv2.value
+AND upper(coalesce(dn.scheme,dn.payment_method)) = upper(kv2.value)
 AND kv2.attribute = 'gr4vy-merchant-scheme-config'
 LEFT JOIN `pdh_ref_ds.ref_store_details` s ON kv1.value = s.store_id
 LEFT JOIN `pdh_ref_ds.ref_merchant_settlement_window` msw ON upper(s.division) = upper(msw.division)
@@ -1216,8 +1279,7 @@ AND CAST(i.tstamp_trans AS DATE) BETWEEN start_date AND end_date;
 UPDATE `temp_billing_all`
 SET calc_card_type = 'DEBIT'
 WHERE (TRIM(calc_card_type) = '' OR calc_card_type IS NULL)
-AND TRIM(proc_id_iss_b) IN ('VDCS', 'MC', 'VER')
-AND switch_tran_date BETWEEN start_date AND end_date;
+AND TRIM(proc_id_iss_b) IN ('VDCS', 'MC', 'VER');
 
 -------------------------------------------------------------------------------------------
 -- Check for Rate Card Entry
@@ -1247,7 +1309,7 @@ if
         ON LEFT(d.net_term_id, 5) = s.store_id
 	left join pdh_ref_ds_s.ref_scheme_fee_rate_card sr
 		ON trim(upper(s.scheme_ratecard_group)) = trim(upper(sr.scheme_fee_group))
-		AND trim(upper(d.calc_scheme)) = trim(upper(sr.scheme)) 
+		AND trim(upper(d.calc_scheme)) = trim(upper(sr.scheme))
 		AND CASE WHEN d.calc_card_type IN ('MULTI-NETWORK', 'DIGITAL', 'PROPRIETARY') THEN 'DEBIT' ELSE trim(Upper(d.calc_card_type)) END = trim(upper(sr.card_type))
 		AND CASE WHEN d.dom_int_ind IN ('D', 'I') THEN d.dom_int_ind ELSE 'D' END = sr.dom_vs_int
 		AND d.switch_tran_date BETWEEN sr.from_date AND IFNULL(sr.to_date, '2999-12-31')
@@ -1355,7 +1417,7 @@ SELECT
 		if(proc_fee_code ='FIXED', proc_fee_fixed*100,
 		if(proc_fee_code ='PERCENT',(d.transaction_total * proc_fee_percent/100),0))) 
 	, 0) as processing_fees,
-	CAST(0.0 AS NUMERIC) fraud_fees,
+	IF(d.calc_scheme IN ('VISA', 'MASTERCARD', 'EFTPOS', 'AMEX', 'UPI', 'DINERS', 'DISCOVER', 'JCB', 'PAYPAL') OR d.calc_scheme = 'GIFT CARDS' AND calc_tran_type_abbr = 'REDEMPTION' AND NOT (act_code = '400' AND mti = '1440'), fraud_fee_fixed, 0.0) fraud_fees,
 	000000 as settled_datetime,
 	000000 as fncl_posted_datetime,
 	case
@@ -1652,7 +1714,7 @@ Update `temp_fee_calc` i
 set interchange_fees_actual = s.Fee * 100,
 i.fee_indicator = 'A'
 from `pdh_rd_apm.alipay_stlm` s
-where i.tran_uid = CAST(s.transaction_id AS STRING)
+where i.adtnl_response_data = CAST(s.transaction_id AS STRING)
 and CAST(ROUND(s.amount * 100) AS INT64) = i.transaction_total
 and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
 and (case i.calc_tran_type_abbr when 'PURCHASE' THEN 'P' WHEN 'REFUND' then 'R' else null end) = TRIM(s.Type)
@@ -1666,7 +1728,7 @@ Update `temp_fee_calc` i
 set interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
 i.fee_indicator = 'A'
 from (SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM (SELECT DISTINCT pdh_load_time, interchange_fee_atm, txn_id, txn_code_of_fin_txn, samt FROM `pdh_rd_data_navigator.tc33_visa`) v) s
-where i.tran_uid = CAST(s.txn_id AS STRING)
+where i.adtnl_response_data = CAST(s.txn_id AS STRING)
 and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
 and i.amt_recon_net = s.samt
 and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
@@ -1686,7 +1748,7 @@ from (
     RANK() OVER (PARTITION BY trace_id ORDER BY pdh_load_time DESC) rank
     FROM `pdh_rd_data_navigator.tn70_mc`
 ) s
-where i.tran_uid = concat(right(s.trace_id,4), left(s.trace_id, length(s.trace_id)-4))
+where i.adtnl_response_data = concat(right(s.trace_id,4), left(s.trace_id, length(s.trace_id)-4))
 and i.calc_tran_type_abbr = 'PURCHASE'
 and rank = 1
 AND cast(i.tstamp_trans as date) >= start_date AND cast(i.tstamp_trans as date) <= end_date
