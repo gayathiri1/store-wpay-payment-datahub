@@ -1417,7 +1417,7 @@ SELECT
 		if(proc_fee_code ='FIXED', proc_fee_fixed*100,
 		if(proc_fee_code ='PERCENT',(d.transaction_total * proc_fee_percent/100),0))) 
 	, 0) as processing_fees,
-	IF(d.calc_scheme IN ('VISA', 'MASTERCARD', 'EFTPOS', 'AMEX', 'UPI', 'DINERS', 'DISCOVER', 'JCB', 'PAYPAL') OR d.calc_scheme = 'GIFT CARDS' AND calc_tran_type_abbr = 'REDEMPTION' AND NOT (act_code = '400' AND mti = '1440'), fraud_fee_fixed, 0.0) fraud_fees,
+	IF((d.calc_scheme <> 'GIFT CARDS' AND calc_tran_type_abbr = 'PURCHASE' OR d.calc_scheme = 'GIFT CARDS' AND calc_tran_type_abbr = 'REDEMPTION') AND NOT (IFNULL(act_code, '200') = '400' AND IFNULL(mti, '1210') = '1440') AND s.is_online = 'Online', fraud_fee_fixed * 100, 0.0) fraud_fees,
 	000000 as settled_datetime,
 	000000 as fncl_posted_datetime,
 	case
