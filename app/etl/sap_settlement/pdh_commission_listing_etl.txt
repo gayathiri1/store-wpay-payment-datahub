@@ -6,10 +6,8 @@
 --20230516 execute only if commission divisio exists for current hour
 --20230517 add control record only if commission is generated
 --20230810 compute commission for reversal and output 0 commissions
-
-
 --20230814 Stop Refund except Reversal
-
+--20231106 exclude if flagged
 
 declare batch_end_yyyy_mm_dd_hh_mm_ss datetime default
           datetime_trunc(current_datetime("Australia/Sydney"),second);
@@ -71,8 +69,9 @@ insert into `pdh_analytics_ds.stlm_commission`
                     or ifnull(commission_fixed_value,"") <> "")
       where ifnull(st.commission_filename,"") = ""
         and ifnull(st.setlmnt_result_file,"") <> ""
-		--and ifnull(st.setlmnt_result_file,"") <> "Excluded" 
-   ) 
+        and (ifnull(st.setlmnt_result_file,"") <> "Excluded" or 
+             ifnull(scm.report_exclude_issuers,"Y") <> "N") /* 20231106 exclude if flagged */
+       ) 
       select merchant,
              "D" as record_type,
              tran_uid,
@@ -129,15 +128,11 @@ insert into `pdh_analytics_ds.stlm_commission`
     join (Select st.division,
                  min(st.transaction_timestamp) min_transaction,
                  max(st.transaction_timestamp) max_transaction
-               from `pdh_analytics_ds.stlm_standard_settlement_table` st 
-               join `pdh_analytics_ds.stlm_commission` cl 
-                        on cl.tran_uid = st.tran_uid
-               Where ifnull(st.commission_filename,"") = "" 
-                 and ifnull(st.setlmnt_result_file,"") <> ""  
-				 --and ifnull(st.setlmnt_result_file,"") <> "Excluded"				 
-
-
-               Group by 1
+          from `pdh_analytics_ds.stlm_standard_settlement_table` st 
+          join `pdh_analytics_ds.stlm_commission` cl 
+                       on cl.tran_uid = st.tran_uid
+          Where ifnull(st.commission_filename,"") = "" 
+          Group by 1
               ) std on std.division = m.division
     where ifnull(tlf.stlf_prefix,"") <> "";
                                                           
@@ -151,10 +146,8 @@ insert into `pdh_analytics_ds.stlm_commission`
                        format_date("%Y%m%d%H%M%S",
                                    batch_end_yyyy_mm_dd_hh_mm_ss_1)) commission_filename 
          from `pdh_analytics_ds.stlm_standard_settlement_table` std1
-         join `pdh_analytics_ds.stlm_commission_history` cl 
+         join `pdh_analytics_ds.stlm_commission` cl 
                         on cl.tran_uid = std1.tran_uid
          Where ifnull(std1.commission_filename,"") = "" 
-           and ifnull(std1.setlmnt_result_file,"") <> ""
-		   --and ifnull(std1.setlmnt_result_file,"") <> "Excluded"
-                ) t
+                         ) t
      Where t.tran_uid = std.tran_uid;

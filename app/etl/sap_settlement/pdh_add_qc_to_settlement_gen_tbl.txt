@@ -26,7 +26,9 @@
 --20230810  Restrict Marley Spoon, add transaction_type
 --20231024 Use record_type "6" foe qct.initiatedBY ending with EDPAY
 --         stop record_type 6 from DP
-
+--20231122 Enable order_number fron EDW text after CNPW in txn_desc
+--20231201 Get Order_number from Gravy if available
+--20240112 limit Gravy order number to non Metro pic
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default format_date("%Y-%m-%d",sys_date);
 declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
@@ -73,7 +75,18 @@ insert into `pdh_analytics_ds.stlm_standard_settlement_table`
     surcharge_amt,
     tip_amt,
     transaction_type)  
- With  QCTran as (
+With Gravy as (Select distinct connector_transaction_id isg_order_number,
+                               external_identifier gravy_order_number,
+                                transaction_timestamp
+               from pdh_rd_gr4vy_views.vw_rd_tran_gr4vy
+               where ifnull(connector_transaction_id,"") <> ""
+                 and ifnull(external_identifier,"") <> ""), --2023-10-06 Gravy
+     Gravy_seq as (
+                   select isg_order_number,gravy_order_number, transaction_timestamp,
+                     row_number() over(partition by isg_order_number
+                                       order by transaction_timestamp) seq
+              from Gravy ),  --2023-12-01 Gravy 
+QCTran as (
            Select pdh_ref_ds.get_tran_uid(
                                     "QC",
                                      qct.approvalcode, 
@@ -381,7 +394,12 @@ where ifnull(dpt.amount,0) <> 0
              cast(null as string) as setlmnt_result_file, --6
              upper(left(trim(dn.card_acceptor_terminal_id),5)) as store_id, --7
              upper(trim(rsd.division)) division, --8
-             "" as invoicenumber, --9
+             --"" as invoicenumber, --9
+             case --20231122
+                when (upper(rsd.is_online) <> "ONLINE" or
+                      upper(left(trim(ifnull(dn.txn_desc,"")),4)) <> "CNPW") then ""
+                else substring(trim(dn.txn_desc),5)
+              end as invoicenumber, --9
              abs(ifnull(dn.amount_txn,0)) *
                 tt.settlement_amount_flag *
                    tt.spend_factor * 0.01 as trans_amt, --10
@@ -474,8 +492,11 @@ where dn.txn_disposition = 1
         upper(trim(rsd.division)) division, --8
         case 
             when upper(rsd.is_online) <> "ONLINE" then ""
+            when upper(t.merchant_id) like "%METRO%" then cast(t.order_num as string) /* 20240112 */
+            when ifnull(Gravy_chk.gravy_order_number,"") <> "" 
+                             then Gravy_chk.gravy_order_number
             else cast(t.order_num as string) 
-         end as invoicenumber, --9
+         end as invoicenumber, --9 2023-12-01 Gr4vy
         abs(ifnull(t.transaction_amount,0) * 0.01) * tt.settlement_factor as trans_amt, --10
         0 as discount_amt, --11
         0 as surcharge_amt, --12
@@ -510,6 +531,8 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
            on tt.transaction_type = upper(trim(t.transaction_type))
           and tt.tran_qualifier = "CY"
           and tt.settlement_factor <> 0
+left join (select * from Gravy_seq where seq = 1) Gravy_chk
+           on Gravy_chk.isg_order_number = cast(t.order_num as string)
   where upper(trim(t.transaction_type)) in ("PURCHASE","REFUND")
    and ifnull(t.transaction_approval_status,0) = 0
    and ifnull(t.transaction_amount,0) <> 0

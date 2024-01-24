@@ -27,7 +27,7 @@ try:
    if "PROD" in project_id.upper():
        dag = DAG('pdh_file_gen_etl', catchup=False, default_args=default_args,schedule_interval="30 03,04,05,06,09,11 * * *")
    else:
-      dag = DAG('pdh_file_gen_etl', catchup=False, default_args=default_args,schedule_interval="30 10,11,12,13,14,15 * * *")
+      dag = DAG('pdh_file_gen_etl', catchup=False, default_args=default_args,schedule_interval="30 15,16,17 * * *")
 except Exception as e:
     logging.info("Exception in setting DAG schedule:{}".format(e)) 
 

@@ -1,5 +1,5 @@
 from airflow import DAG
-from google.cloud import storage
+from google.cloud import storage,pubsub_v1
 from google.cloud import bigquery
 from airflow.models import Variable
 from datetime import datetime
@@ -9,7 +9,10 @@ from zlibpdh import pdh_utilities as pu
 import pytz
 from zlibpdh import pdh_utilities as pu
 import pendulum
-
+from pdh_logging.event import Event
+from pdh_logging.utils import get_current_time_str_aest
+from dataclasses import asdict
+import json
 
 #DATPAY-3521 UTC to Sydney timezone change
 local_tz = pendulum.timezone("Australia/Sydney")
@@ -17,11 +20,50 @@ default_args = {
     'start_date': datetime(2021,9, 8, tzinfo=local_tz),    
 }
 
-
 logging.info("constructing dag - using airflow as owner")
+dag_name = "pdh_external_table_refresh"
+try:
+    control_table = Variable.get("external_table_det", deserialize_json=True)["control_table"]
+    project_id = control_table.split(".")[0]
+    if "PROD" in project_id.upper():
+        dag = DAG('pdh_external_table_refresh', catchup=False, default_args=default_args,schedule_interval= "00 03 * * *")
+    else:
+        dag = DAG('pdh_external_table_refresh', catchup=False, default_args=default_args,schedule_interval= "00 13 * * *")
+except Exception as e:
+    logging.info("Exception in setting DAG schedule:{}".format(e))
+
+# https://stackoverflow.com/a/70397050/482899
+#log_prefix = f"[pdh_batch_pipeline][{dag_name}]"
+log_prefix = "[pdh_batch_pipeline]"+"["+dag_name+"]"
+exec_time_aest = get_current_time_str_aest()
 
 
-dag = DAG('pdh_external_table_refresh', catchup=False, default_args=default_args,schedule_interval= "00 03 * * *")
+
+class CustomAdapter(logging.LoggerAdapter):
+    def process(self, msg, kwargs):
+        #return f"{log_prefix} {msg}", kwargs
+        return log_prefix+" "+msg, kwargs
+
+
+logger = CustomAdapter(logging.getLogger(__name__), {})
+logger.info(f"constructing dag {dag_name} - using airflow as owner")
+
+def get_project_id():
+    """
+    Get GCP project_id from airflow variable, which has been configured in control_table
+    """
+    control_table = Variable.get("external_table_det", deserialize_json=True)["control_table"]
+    project_id = control_table.split(".")[0]
+    logger.debug(f"project_id ={project_id}")
+    return project_id
+
+
+publisher = pubsub_v1.PublisherClient()
+project_id = get_project_id()
+topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables
+topic_path = publisher.topic_path(project_id, topic_id)
+# msg = {"dag_name": dag_name}
+# publisher.publish(topic_path, data=json.dumps(msg).encode("utf-8"))
 
 
 def refresh_table(**kwargs):
@@ -56,7 +98,7 @@ def processQuery(query,projectID):
     try:
         client = bigquery.Client()
         query_job = client.query(query)
-        rows = query_job.result()  # Waits for the query to finish        
+        rows = query_job.result()  # Waits for the query to finish                
         return True,rows
     except Exception as e:
         rows=''
@@ -67,7 +109,15 @@ def processQuery(query,projectID):
         body="Exception raised while running external table refresh job in "+projectID+":"+"\n"+str(e)
         emailTo = Variable.get("external_table_det", deserialize_json=True)['emailTo']
         logging.info("subject: {} emailto: {}".format(subject,emailTo))
-        pu.PDHUtils.send_email(emailTo, subject,body)        
+        pu.PDHUtils.send_email(emailTo, subject,body)
+        event_message = "Exception raised while running external table refresh job in "+projectID+":"+"\n"+str(e)
+        event = Event(
+            dag_name=dag_name,
+            event_status="failure",
+            event_message=event_message,
+            start_time=exec_time_aest,
+            )
+        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))        
         #raise AirflowException("extract from staging failed")
         return False,rows	
 
@@ -81,6 +131,13 @@ def sendEmail(**kwargs):
     emailTo = Variable.get("external_table_det", deserialize_json=True)['emailTo']
     logging.info("subject: {} emailto: {}".format(subject,emailTo))
     pu.PDHUtils.send_email(emailTo, subject,body)
+    event_message = "External tables refresh dag ran successfully at" + execTimeInAest.strftime("%Y-%m-%d %H:%M:%S")
+    event = Event(
+        dag_name=dag_name,
+        event_status="success",
+        event_message=event_message,
+        start_time=exec_time_aest,)
+    publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
     return True   
     
 def convertTimeZone(dt, tz1, tz2):

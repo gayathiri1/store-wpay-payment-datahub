@@ -17,6 +17,9 @@
 --20230913 update the script to deliever to 2 versions at the same time - Ray M
 --20231023 Get Order_number from Gravy if available
 --20231023 update the script to deliever to 2 versions at the same time - Ray M
+--20231106 Include/Exclude Excluded trans by configuration (DATPAY-3839)
+--20231201 Remove GR4vy coding
+
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
 DECLARE nullstr string;
@@ -111,15 +114,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
 --Add details if settled not reported exists exists
  insert into `pdh_analytics_ds.stlm_std_transaction_listing_v3`
     --
-   With Gravy as (Select distinct connector_transaction_id isg_order_number,
-                        external_identifier gravy_order_number
-               from pdh_rd_gr4vy_views.vw_rd_tran_gr4vy
-               where ifnull(connector_transaction_id,"") <> ""), --2023-10-06 Gravy
-        Gravy_seq as (
-                     select isg_order_number,gravy_order_number, 
-                     row_number() over(partition by isg_order_number) seq
-              from Gravy ),  --2023-10-06 Gravy
-   trqc as ( --1
+   With trqc as ( --1
           Select pdh_ref_ds.get_tran_uid(
                                     "QC",
                                      tqc.approvalcode, 
@@ -257,11 +252,7 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                      else "0"
                   end approval_status,                  
                   tcy.approval_code approval_code,
-                  case
-                     when ifnull(Gravy_chk.gravy_order_number,"") <> "" 
-                             then Gravy_chk.gravy_order_number
-                     else st2.order_number
-                  end order_number,
+                  st2.order_number,
                   tcy.decline_reason addtl_response_data,
                   cast(null as string) as   account_type,
                   st2.surcharge_amt,
@@ -286,7 +277,10 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
       join `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf 
                 on upper(trim(tlf.division)) = st2.division
                and ifnull(tlf.stlf_prefix,"") <> ""
-               and tlf.stlf_version = current_version 
+               and tlf.stlf_version = current_version
+      join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+          on scm.wpay_store_number = st2.store_id  /*20231106 added to check for exclusion */
+ 
       join `pdh_rd_data_navigator.isg_wpay_tran` tcy
             on st2.tran_uid = pdh_ref_ds.get_tran_uid(
                                 "CY",
@@ -304,11 +298,11 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
       left join pdh_ref_ds.ref_key_value rk 
            on rk.attribute = "merchant-terminalid mapping"
           and upper(trim(rk.key)) = upper(trim(cast(tcy.merchant_id as string)))
-      left join (select * from Gravy_seq where seq = 1) Gravy_chk
-           on Gravy_chk.isg_order_number = st2.order_number
       where ifnull(st2.tlf_name,"") = "" 
         and ifnull(st2.setlmnt_result_file,"") <> ""
-               ),
+        and (ifnull(st2.setlmnt_result_file,"") <> "Excluded"  or 
+             ifnull(scm.report_exclude_issuers,"Y") <> "N") /* 20231106 exclude if flagged */
+             ),
 --
      trlk as ( --3
             Select pdh_ref_ds.get_tran_uid(  "LK",
@@ -548,6 +542,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                 on upper(trim(tlf.division)) = st5.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version
+    join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+          on scm.wpay_store_number = st5.store_id  /*20231106 added to check for exclusion */
     join pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface dn 
              on st5.tran_uid = pdh_ref_ds.get_tran_uid(
                                 "TC",
@@ -568,7 +564,9 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                 on trim(ds.code) = trim(dn.tran_type_id)
     where ifnull(st5.tlf_name,"") = "" 
       and ifnull(st5.setlmnt_result_file,"") <> ""
-		   ),
+      and (ifnull(st5.setlmnt_result_file,"") <> "Excluded"  or 
+             ifnull(scm.report_exclude_issuers,"Y") <> "N") /* 20231106 exclude if flagged */
+         ),
    --
 tred as (
          Select pdh_ref_ds.get_tran_uid(
@@ -783,8 +781,12 @@ tred as (
                 on upper(trim(tlf.division)) = st1.division
                and ifnull(tlf.stlf_prefix,"") <> ""
                and tlf.stlf_version = current_version
-            where ifnull(tlf_name,"") = "" 
-             and ifnull(setlmnt_result_file,"") <> ""
+            join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+                   on upper(trim(scm.wpay_store_number)) = st1.store_id
+            where ifnull(st1.tlf_name,"") = ""
+              and ifnull(st1.setlmnt_result_file,"") <> ""
+              and (ifnull(st1.setlmnt_result_file,"") <> "Excluded" or 
+                   ifnull(scm.report_exclude_issuers,"Y") <> "N")
             group by 1,2,3,4)  std
       join (Select division, min(cutoff_start) cutoff_min, max(cutoff_end) cutoff_max
             FROM `pdh_analytics_ds.audit_stlm_batch`
@@ -815,14 +817,19 @@ tred as (
                    and msw.is_active = "Y"
                    and msw.settlement_cycle = syd_hour
                    and msw.division_type <> "PARTNER"
-              left join (select * from `pdh_analytics_ds.stlm_standard_settlement_table`
-                         where  ifnull(tlf_name,"") = "" 
-                           and ifnull(setlmnt_result_file,"") <> "") st
+              left join (select st1.* 
+                         from `pdh_analytics_ds.stlm_standard_settlement_table` st1
+                         join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+                              on upper(trim(scm.wpay_store_number)) = st1.store_id
+                         where ifnull(st1.tlf_name,"") = "" 
+                           and ifnull(st1.setlmnt_result_file,"") <> ""
+                           and (ifnull(st1.setlmnt_result_file,"") <> "Excluded" or 
+                                ifnull(scm.report_exclude_issuers,"Y") <> "N") /* 20231106 exclude if flagged */
+                                ) st
                         on msw.division = st.division
               where ifnull(tlf.stlf_prefix,"") <> "" 
               group by 1) std;
      --
-
      --Update Generic table
         Update  `pdh_analytics_ds.stlm_standard_settlement_table` std
            set std.tlf_name = t.tlf_name,
@@ -836,9 +843,13 @@ tred as (
                        on upper(trim(tlf.division)) = std1.division
                       and ifnull(tlf.stlf_prefix,"") <> ""
                       and tlf.stlf_version = current_version
+              join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+                      on upper(trim(scm.wpay_store_number)) = std1.store_id        
               Where ifnull(std1.tlf_name,"") = "" 
-                and ifnull(std1.setlmnt_result_file,"") <> "") t
+                and ifnull(std1.setlmnt_result_file,"") <> ""
+                and (ifnull(std1.setlmnt_result_file,"") <> "Excluded" or 
+                     ifnull(scm.report_exclude_issuers,"Y") <> "N")
+                ) t
      Where t.tran_uid = std.tran_uid;
-
 --
 --End of Script

@@ -33,7 +33,7 @@ try:
     if "PROD" in project_id.upper():
         dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "00 09 * * *")
     else:
-        dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "00 10 * * *")
+        dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "00 16 * * *")
 except Exception as e:
     logging.info("Exception in setting DAG schedule:{}".format(e))
 

@@ -20,7 +20,15 @@ default_args = {
 
 logging.info("constructing dag - using airflow as owner")
 
-dag = DAG('pdh_generic_file_gen_etl', catchup=False, default_args=default_args, schedule_interval="00 11 * * *")
+try:
+   control_table = Variable.get("generic_file_gen_etl", deserialize_json=True)["control_table"] 
+   project_id = control_table.split(".")[0]
+   if "PROD" in project_id.upper():
+       dag = DAG('pdh_generic_file_gen_etl', catchup=False, default_args=default_args, schedule_interval="00 11 * * *")
+   else:
+      dag = DAG('pdh_generic_file_gen_etl', catchup=False, default_args=default_args, schedule_interval="30 16 * * *")
+except Exception as e:
+    logging.info("Exception in setting DAG schedule:{}".format(e)) 
 
 
 def readexecuteQuery(**kwargs):
