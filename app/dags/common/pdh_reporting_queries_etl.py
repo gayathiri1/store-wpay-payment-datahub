@@ -25,7 +25,7 @@ try:
    control_table = Variable.get("reporting_queries", deserialize_json=True)["control_table"] 
    project_id = control_table.split(".")[0]
    if "PROD" in project_id.upper():
-       dag = DAG('pdh_reporting_queries', catchup=False, default_args=default_args,schedule_interval= "45 09,10,15 * * *")
+       dag = DAG('pdh_reporting_queries', catchup=False, default_args=default_args,schedule_interval= "10 23 * * *")
    else:
       dag = DAG('pdh_reporting_queries', catchup=False, default_args=default_args,schedule_interval= "45 22 * * *")
 except Exception as e:
