@@ -1,0 +1,8 @@
+DECLARE inp_lookup STRING DEFAULT "Ref Key Value";
+DECLARE batch string;
+DECLARE sef_date datetime default DATETIME_TRUNC(CURRENT_DATETIME("Australia/Sydney"),SECOND);
+
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+
+insert into pdh_analytics_ds.file_gen_details values(batch,current_date("Australia/Sydney"),'ref_key_value',true,null,sef_date,
+sef_date,sef_date,null);
