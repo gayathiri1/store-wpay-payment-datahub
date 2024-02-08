@@ -1,0 +1,1082 @@
+-- `wpay_analytics.vw_wpay_payment_fees_summary`
+
+create or replace table wpay_analytics.wpay_payment_fees_summary as (
+
+select 
+*
+from
+(
+
+  with weekly_retail 
+  as
+  (
+
+
+    with t1 
+    as
+    (
+      select 
+      "Weekly" as timeframe,
+      "Fiscal" as calendar_type,
+      -- "Null" transaction_date, 
+      transaction_week period,
+      transaction_week_start_date commencement_date,
+      fee_indicator,
+      company, 
+      invoice_group, 
+      merchant_group, 
+      merchant_portal_mg,
+      division, 
+      brand,
+      site_name, 
+      concat(store_id, " | ", upper(site_name)) store_id,
+      tran_type_description,
+      case when trim(upper(approval_flag)) = "A" then "Approved" 
+      when trim(upper(approval_flag)) = "D" then "Declined" 
+      end as approval_status,
+      scheme,
+      case
+      when scheme = 'ALIPAY' then 'APM'
+      when scheme = 'EFTPOS' then 'DEBIT'
+      when scheme = 'FUEL CARDS' then 'APM'
+      when scheme = 'GIFT CARDS' then 'APM'
+      when scheme = 'PAYPAL' then 'APM'
+      else card_type
+      end as scheme_card_type,
+      dom_int_ind,
+      sum(transaction_count) as transaction_count,
+      0 as transaction_amount,
+      0 as interchange_fees_tran_count,
+      0 as interchange_fees_invoiced_ex_gst,
+      0 as processing_fees_tran_count,
+      0 as processing_fees_ex_gst,
+      0 as settlement_amount_inc_gst
+      from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist` fees
+      where trim(upper(approval_flag)) = "A"
+      and transaction_date between
+      date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`)  
+      group by transaction_week_start_date, transaction_date, transaction_week, fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+    )
+
+
+    ,t2 
+    as
+    (
+      select 
+      "Weekly" as timeframe,
+      "Fiscal" as calendar_type,
+      -- "Null" transaction_date,
+      transaction_week period,
+      transaction_week_start_date commencement_date,
+      --  calendar_week,
+      --  "Null" transaction_month,  
+      fee_indicator,
+      company, 
+      invoice_group, 
+      merchant_group, 
+      merchant_portal_mg,
+      division, 
+      brand,
+      site_name, 
+      concat(store_id, " | ", upper(site_name)) store_id,
+      tran_type_description,
+      case when trim(upper(approval_flag)) = "A" then "Approved" 
+      when trim(upper(approval_flag)) = "D" then "Declined" 
+      end as approval_status,
+      scheme,
+      case
+      when scheme = 'ALIPAY' then 'APM'
+      when scheme = 'EFTPOS' then 'DEBIT'
+      when scheme = 'FUEL CARDS' then 'APM'
+      when scheme = 'GIFT CARDS' then 'APM'
+      when scheme = 'PAYPAL' then 'APM'
+      else card_type
+      end as scheme_card_type,
+      dom_int_ind,
+      sum(transaction_count) as transaction_count,
+      -1*(sum(transaction_amount)) as transaction_amount,
+      sum(interchange_fees_tran_count) as interchange_fees_tran_count,
+      sum(interchange_fees_invoiced_ex_gst) as interchange_fees_invoiced_ex_gst,
+      sum(processing_fees_tran_count) as processing_fees_tran_count,
+      sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+      sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+      from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist` fees
+      -- left join `pdh_ref_ds.dim_date`  dates
+      -- on fees.clndr_date = dates.clndr_date
+      where (upper(trim(tran_type_description)) in ('PURCHASE REVERSAL','REFUND', "CASHOUT REVERSAL", "PURCHASE WITH CASHOUT REVERSAL", "ACTIVATION")) 
+      and trim(upper(approval_flag)) = "A"
+      and transaction_date between
+      date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+      group by transaction_week_start_date,transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+    )
+    , t3 
+    as
+    (
+      select 
+      "Weekly" as timeframe,
+      "Fiscal" as calendar_type,
+      -- "Null" transaction_date,
+      transaction_week period,
+      transaction_week_start_date commencement_date,
+      --  calendar_week,
+      --  "Null" transaction_month, 
+      fee_indicator,
+      company, 
+      invoice_group, 
+      merchant_group, 
+      merchant_portal_mg,
+      division, 
+      brand,
+      site_name, 
+      concat(store_id, " | ", upper(site_name)) store_id,
+      tran_type_description,
+      case when trim(upper(approval_flag)) = "A" then "Approved" 
+      when trim(upper(approval_flag)) = "D" then "Declined" 
+      end as approval_status,
+      scheme,
+      case
+      when scheme = 'ALIPAY' then 'APM'
+      when scheme = 'EFTPOS' then 'DEBIT'
+      when scheme = 'FUEL CARDS' then 'APM'
+      when scheme = 'GIFT CARDS' then 'APM'
+      when scheme = 'PAYPAL' then 'APM'
+      else card_type
+      end as scheme_card_type,
+      dom_int_ind,
+      sum(transaction_count) as transaction_count,
+      0 as transaction_amount,
+      0 as interchange_fees_tran_count,
+      0 as interchange_fees_invoiced_ex_gst,
+      sum(processing_fees_tran_count) as processing_fees_tran_count,
+      sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+      sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+      from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+      -- where transaction_date between "2023-07-01" and "2023-07-31" 
+      where trim(upper(approval_flag)) = "D"
+      and transaction_date between
+      date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+      group by transaction_week_start_date, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+    )
+
+    , t4 
+    as
+    (
+      select 
+      "Weekly" as timeframe,
+      "Fiscal" as calendar_type,
+      -- "Null" transaction_date,
+      transaction_week period,
+      transaction_week_start_date commencement_date,
+      --  calendar_week,
+      --  "Null" transaction_month,  
+      fee_indicator,
+      company, 
+      invoice_group, 
+      merchant_group, 
+      merchant_portal_mg,
+      division, 
+      brand,
+      site_name, 
+      concat(store_id, " | ", upper(site_name)) store_id,
+      tran_type_description,
+      case when trim(upper(approval_flag)) = "A" then "Approved" 
+      when trim(upper(approval_flag)) = "D" then "Declined" 
+      end as approval_status,
+      scheme,
+      case
+      when scheme = 'ALIPAY' then 'APM'
+      when scheme = 'EFTPOS' then 'DEBIT'
+      when scheme = 'FUEL CARDS' then 'APM'
+      when scheme = 'GIFT CARDS' then 'APM'
+      when scheme = 'PAYPAL' then 'APM'
+      else card_type
+      end as scheme_card_type,
+      dom_int_ind,
+      sum(transaction_count) as transaction_count,
+      sum(transaction_amount) as transaction_amount,
+      sum(interchange_fees_tran_count) as interchange_fees_tran_count,
+      sum(interchange_fees_invoiced_ex_gst) as interchange_fees_invoiced_ex_gst,
+      sum(processing_fees_tran_count) as processing_fees_tran_count,
+      sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+      sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+      from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+      -- where transaction_date between "2023-07-01" and "2023-07-31" --date_diff("2023-08-31",transaction_date,month) <= 3
+      where upper(trim(tran_type_description)) not in ('PURCHASE REVERSAL','REFUND', 'PRE-AUTH','PRE-AUTH REVERSAL', "CASHOUT REVERSAL", "PURCHASE WITH CASHOUT REVERSAL", "ACTIVATION")
+      and trim(upper(approval_flag)) = "A"
+      and transaction_date between
+      date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+      group by transaction_week_start_date, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+    )
+
+    --- Full Output for Weekly View ---
+
+    select *
+    from
+    (
+
+      select * from t1 
+
+      union all 
+
+      select * from t2
+
+      union all 
+
+      select * from t3
+
+      union all 
+
+      select * from t4
+
+    )
+
+  )
+
+, weekly_calendar 
+as
+(
+
+
+  with t1 
+  as
+  (
+
+    select 
+    "Weekly" as timeframe,
+    "Calendar" as calendar_type,
+    -- "Null" transaction_date, 
+    calendar_week period,
+    transaction_week_start_date commencement_date,
+    --  calendar_week,
+    --  "Null" transaction_month, 
+    fee_indicator,
+    company, 
+    invoice_group, 
+    merchant_group, 
+    merchant_portal_mg,
+    division, 
+    brand,
+    site_name, 
+    concat(store_id, " | ", upper(site_name)) store_id,
+    tran_type_description,
+    case when trim(upper(approval_flag)) = "A" then "Approved" 
+    when trim(upper(approval_flag)) = "D" then "Declined" 
+    end as approval_status,
+    scheme,
+    case
+    when scheme = 'ALIPAY' then 'APM'
+    when scheme = 'EFTPOS' then 'DEBIT'
+    when scheme = 'FUEL CARDS' then 'APM'
+    when scheme = 'GIFT CARDS' then 'APM'
+    when scheme = 'PAYPAL' then 'APM'
+    else card_type
+    end as scheme_card_type,
+
+
+    dom_int_ind,
+
+
+    sum(transaction_count) as transaction_count,
+    0 as transaction_amount,
+    0 as interchange_fees_tran_count,
+    0 as interchange_fees_invoiced_ex_gst,
+    0 as processing_fees_tran_count,
+    0 as processing_fees_ex_gst,
+    0 as settlement_amount_inc_gst
+
+    from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    -- where transaction_date between "2023-07-01" and "2023-07-31" 
+    -- where upper(trim(tran_type_description)) in ('PRE-AUTH','PRE-AUTH REVERSAL')
+    where trim(upper(approval_flag)) = "A"
+    and transaction_date between
+    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`)  
+    group by transaction_week_start_date, calendar_week, transaction_date, transaction_week, fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+  )
+
+
+  ,t2 as
+  (
+
+    select 
+    "Weekly" as timeframe,
+    "Calendar" as calendar_type,
+    -- "Null" transaction_date,
+    calendar_week period,
+    transaction_week_start_date commencement_date,
+    --  calendar_week,
+    --  "Null" transaction_month,  
+    fee_indicator,
+    company, 
+    invoice_group, 
+    merchant_group, 
+    merchant_portal_mg,
+    division, 
+    brand,
+    site_name, 
+    concat(store_id, " | ", upper(site_name)) store_id,
+    tran_type_description,
+    case when trim(upper(approval_flag)) = "A" then "Approved" 
+    when trim(upper(approval_flag)) = "D" then "Declined" 
+    end as approval_status,
+    scheme,
+    case
+    when scheme = 'ALIPAY' then 'APM'
+    when scheme = 'EFTPOS' then 'DEBIT'
+    when scheme = 'FUEL CARDS' then 'APM'
+    when scheme = 'GIFT CARDS' then 'APM'
+    when scheme = 'PAYPAL' then 'APM'
+    else card_type
+    end as scheme_card_type,
+    dom_int_ind,
+
+
+    sum(transaction_count) as transaction_count,
+    -1*(sum(transaction_amount)) as transaction_amount,
+    sum(interchange_fees_tran_count) as interchange_fees_tran_count,
+    sum(interchange_fees_invoiced_ex_gst) as interchange_fees_invoiced_ex_gst,
+    sum(processing_fees_tran_count) as processing_fees_tran_count,
+    sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+    sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+
+
+    from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    -- where transaction_date between "2023-07-01" and "2023-07-31" 
+    where (upper(trim(tran_type_description)) in ('PURCHASE REVERSAL','REFUND', "CASHOUT REVERSAL", "PURCHASE WITH CASHOUT REVERSAL", "ACTIVATION")) 
+    and trim(upper(approval_flag)) = "A"
+    and transaction_date between
+    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+    group by transaction_week_start_date, calendar_week, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+  )
+
+  , t3 as(
+
+    select 
+    "Weekly" as timeframe,
+    "Calendar" as calendar_type,
+    -- "Null" transaction_date,
+    calendar_week period,
+    transaction_week_start_date commencement_date,
+    --  calendar_week,
+    --  "Null" transaction_month, 
+    fee_indicator,
+    company, 
+    invoice_group, 
+    merchant_group, 
+    merchant_portal_mg,
+    division, 
+    brand,
+    site_name, 
+    concat(store_id, " | ", upper(site_name)) store_id,
+    tran_type_description,
+    case when trim(upper(approval_flag)) = "A" then "Approved" 
+    when trim(upper(approval_flag)) = "D" then "Declined" 
+    end as approval_status,
+    scheme,
+    case
+    when scheme = 'ALIPAY' then 'APM'
+    when scheme = 'EFTPOS' then 'DEBIT'
+    when scheme = 'FUEL CARDS' then 'APM'
+    when scheme = 'GIFT CARDS' then 'APM'
+    when scheme = 'PAYPAL' then 'APM'
+    else card_type
+    end as scheme_card_type,
+    dom_int_ind,
+
+
+    sum(transaction_count) as transaction_count,
+    0 as transaction_amount,
+    0 as interchange_fees_tran_count,
+    0 as interchange_fees_invoiced_ex_gst,
+    sum(processing_fees_tran_count) as processing_fees_tran_count,
+    sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+    sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+
+    from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    -- where transaction_date between "2023-07-01" and "2023-07-31" 
+    where trim(upper(approval_flag)) = "D"
+    and transaction_date between
+    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+    group by  transaction_week_start_date, calendar_week, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+
+  )
+
+  , t4 
+  as
+  (
+
+    select 
+    "Weekly" as timeframe,
+    "Calendar" as calendar_type,
+    -- "Null" transaction_date,
+    calendar_week period,
+    transaction_week_start_date commencement_date,
+    --  calendar_week,
+    --  "Null" transaction_month,  
+    fee_indicator,
+    company, 
+    invoice_group, 
+    merchant_group, 
+    merchant_portal_mg,
+    division, 
+    brand,
+    site_name, 
+    concat(store_id, " | ", upper(site_name)) store_id,
+    tran_type_description,
+    case when trim(upper(approval_flag)) = "A" then "Approved" 
+    when trim(upper(approval_flag)) = "D" then "Declined" 
+    end as approval_status,
+    scheme,
+    case
+    when scheme = 'ALIPAY' then 'APM'
+    when scheme = 'EFTPOS' then 'DEBIT'
+    when scheme = 'FUEL CARDS' then 'APM'
+    when scheme = 'GIFT CARDS' then 'APM'
+    when scheme = 'PAYPAL' then 'APM'
+    else card_type
+    end as scheme_card_type,
+    dom_int_ind,
+
+    sum(transaction_count) as transaction_count,
+    sum(transaction_amount) as transaction_amount,
+    sum(interchange_fees_tran_count) as interchange_fees_tran_count,
+    sum(interchange_fees_invoiced_ex_gst) as interchange_fees_invoiced_ex_gst,
+    sum(processing_fees_tran_count) as processing_fees_tran_count,
+    sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+    sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+
+
+    from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    -- where transaction_date between "2023-07-01" and "2023-07-31" --date_diff("2023-08-31",transaction_date,month) <= 3
+    where upper(trim(tran_type_description)) not in ('PURCHASE REVERSAL','REFUND', 'PRE-AUTH','PRE-AUTH REVERSAL', "CASHOUT REVERSAL", "PURCHASE WITH CASHOUT REVERSAL", "ACTIVATION")
+    and trim(upper(approval_flag)) = "A"
+    and transaction_date between
+    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+    group by transaction_week_start_date, calendar_week, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+
+  )
+
+  --- Full Output for Weekly View ---
+
+  select *
+  from
+  (
+
+      select * from t1 
+
+      union all 
+
+      select * from t2
+
+      union all 
+
+      select * from t3
+
+      union all 
+
+      select * from t4
+
+    )
+      )
+
+  , monthly_retail as
+  (
+
+  with t1 as
+  (
+
+      select 
+      "Monthly" as timeframe,
+      "Fiscal" as calendar_type,
+      -- concat(fp_start_date, " - ", fp_end_date) period,
+      concat(format_date("%d %b", fp_start_date), " to ", format_date("%d %b", fp_end_date)) period,
+        fp_start_date commencement_date, 
+
+      fee_indicator,
+      company, 
+      invoice_group, 
+      merchant_group, 
+      merchant_portal_mg,
+      division, 
+      brand,
+      site_name, 
+      concat(store_id, " | ", upper(site_name)) store_id,
+      tran_type_description,
+      case when trim(upper(approval_flag)) = "A" then "Approved" 
+      when trim(upper(approval_flag)) = "D" then "Declined" 
+      end as approval_status,
+      scheme,
+      case
+      when scheme = 'ALIPAY' then 'APM'
+      when scheme = 'EFTPOS' then 'DEBIT'
+      when scheme = 'FUEL CARDS' then 'APM'
+      when scheme = 'GIFT CARDS' then 'APM'
+      when scheme = 'PAYPAL' then 'APM'
+      else card_type
+      end as scheme_card_type,
+
+      dom_int_ind,
+
+
+      sum(transaction_count) as transaction_count,
+      0 as transaction_amount,
+      0 as interchange_fees_tran_count,
+      0 as interchange_fees_invoiced_ex_gst,
+      0 as processing_fees_tran_count,
+      0 as processing_fees_ex_gst,
+      0 as settlement_amount_inc_gst
+
+      from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist` fees
+
+      left join `pdh_ref_ds.dim_date` dates
+
+      on fees.clndr_date = dates.clndr_date
+
+      where 1=1
+      and 
+      trim(upper(approval_flag)) = "A"
+      and
+      transaction_date between
+      date_add(date_sub((select max(transaction_date) from(
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+
+      group by  fp_start_date, fp_end_date, transaction_month_start_date , transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+    )
+
+
+    ,t2 as
+    (
+
+      select 
+      "Monthly" as timeframe,
+      "Fiscal" as calendar_type,
+      --  concat(fp_start_date, " - ", fp_end_date) period, 
+      concat(format_date("%d %b", fp_start_date), " to ", format_date("%d %b", fp_end_date)) period,
+        fp_start_date commencement_date, 
+      fee_indicator,
+      company, 
+      invoice_group, 
+      merchant_group,
+      merchant_portal_mg, 
+      division, 
+      brand,
+      site_name, 
+      concat(store_id, " | ", upper(site_name)) store_id,
+      tran_type_description,
+      case when trim(upper(approval_flag)) = "A" then "Approved" 
+      when trim(upper(approval_flag)) = "D" then "Declined" 
+      end as approval_status,
+      scheme,
+      case
+      when scheme = 'ALIPAY' then 'APM'
+      when scheme = 'EFTPOS' then 'DEBIT'
+      when scheme = 'FUEL CARDS' then 'APM'
+      when scheme = 'GIFT CARDS' then 'APM'
+      when scheme = 'PAYPAL' then 'APM'
+      else card_type
+      end as scheme_card_type,
+      dom_int_ind,
+
+
+      sum(transaction_count) as transaction_count,
+      -1*(sum(transaction_amount)) as transaction_amount,
+      sum(interchange_fees_tran_count) as interchange_fees_tran_count,
+      sum(interchange_fees_invoiced_ex_gst) as interchange_fees_invoiced_ex_gst,
+      sum(processing_fees_tran_count) as processing_fees_tran_count,
+      sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+      sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+
+
+      from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist` fees
+
+      left join `pdh_ref_ds.dim_date` dates
+
+      on fees.clndr_date = dates.clndr_date
+
+      where 1=1
+      and 
+      trim(upper(approval_flag)) = "A"
+      and
+      transaction_date between
+      date_add(date_sub((select max(transaction_date) from(
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+
+      group by  fp_start_date, fp_end_date, transaction_month_start_date , transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+  )
+
+  , t3 as
+  (
+
+    select 
+    "Monthly" as timeframe,
+    "Fiscal" as calendar_type,
+    --  concat(fp_start_date, " - ", fp_end_date) period,
+    concat(format_date("%d %b", fp_start_date), " to ", format_date("%d %b", fp_end_date)) period,
+      fp_start_date commencement_date,   
+    fee_indicator,
+    company, 
+    invoice_group, 
+    merchant_group, 
+    merchant_portal_mg,
+    division, 
+    brand,
+    site_name, 
+    concat(store_id, " | ", upper(site_name)) store_id,
+    tran_type_description,
+    case when trim(upper(approval_flag)) = "A" then "Approved" 
+    when trim(upper(approval_flag)) = "D" then "Declined" 
+    end as approval_status,
+    scheme,
+    case
+    when scheme = 'ALIPAY' then 'APM'
+    when scheme = 'EFTPOS' then 'DEBIT'
+    when scheme = 'FUEL CARDS' then 'APM'
+    when scheme = 'GIFT CARDS' then 'APM'
+    when scheme = 'PAYPAL' then 'APM'
+    else card_type
+    end as scheme_card_type,
+    dom_int_ind,
+
+    sum(transaction_count) as transaction_count,
+    0 as transaction_amount,
+    0 as interchange_fees_tran_count,
+    0 as interchange_fees_invoiced_ex_gst,
+    sum(processing_fees_tran_count) as processing_fees_tran_count,
+    sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+    sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+
+    from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist` fees
+
+    left join `pdh_ref_ds.dim_date` dates
+
+    on fees.clndr_date = dates.clndr_date
+
+    where 1=1
+    and 
+    trim(upper(approval_flag)) = "A"
+    and
+    transaction_date between
+    date_add(date_sub((select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+
+    group by  fp_start_date, fp_end_date, transaction_month_start_date , transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+
+  )
+
+  , t4 as
+  (
+
+    select 
+    "Monthly" as timeframe,
+    "Fiscal" as calendar_type,
+    --  concat(fp_start_date, " - ", fp_end_date) period,
+    concat(format_date("%d %b", fp_start_date), " to ", format_date("%d %b", fp_end_date)) period,
+      fp_start_date commencement_date,  
+    fee_indicator,
+    company, 
+    invoice_group, 
+    merchant_group, 
+    merchant_portal_mg,
+    division, 
+    brand,
+    site_name, 
+    concat(store_id, " | ", upper(site_name)) store_id,
+    tran_type_description,
+    case when trim(upper(approval_flag)) = "A" then "Approved" 
+    when trim(upper(approval_flag)) = "D" then "Declined" 
+    end as approval_status,
+    scheme,
+    case
+    when scheme = 'ALIPAY' then 'APM'
+    when scheme = 'EFTPOS' then 'DEBIT'
+    when scheme = 'FUEL CARDS' then 'APM'
+    when scheme = 'GIFT CARDS' then 'APM'
+    when scheme = 'PAYPAL' then 'APM'
+    else card_type
+    end as scheme_card_type,
+    dom_int_ind,
+
+    sum(transaction_count) as transaction_count,
+    sum(transaction_amount) as transaction_amount,
+    sum(interchange_fees_tran_count) as interchange_fees_tran_count,
+    sum(interchange_fees_invoiced_ex_gst) as interchange_fees_invoiced_ex_gst,
+    sum(processing_fees_tran_count) as processing_fees_tran_count,
+    sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+    sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+
+
+    from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist` fees
+
+    left join `pdh_ref_ds.dim_date` dates
+
+    on fees.clndr_date = dates.clndr_date
+
+    where 1=1
+    -- and 
+    -- trim(upper(approval_flag)) = "A"
+    and
+    transaction_date between
+    date_add(date_sub((select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+
+    group by  fp_start_date, fp_end_date, transaction_month_start_date , transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+
+  )
+
+  --- Full output for Monthly view ---
+
+  select *
+
+  from
+  (
+  select * from t4
+  )
+)
+, monthly_calendar as
+(
+
+ with t1 as
+ (
+
+  select 
+  "Monthly" as timeframe,
+  "Calendar" as calendar_type,
+  left(string(clndr_date), 7) period, 
+  transaction_month_start_date commencement_date,
+  fee_indicator,
+  company, 
+  invoice_group, 
+  merchant_group, 
+  merchant_portal_mg,
+  division, 
+  brand,
+  site_name, 
+  concat(store_id, " | ", upper(site_name)) store_id,
+  tran_type_description,
+  case when trim(upper(approval_flag)) = "A" then "Approved" 
+  when trim(upper(approval_flag)) = "D" then "Declined" 
+  end as approval_status,
+  scheme,
+  case
+  when scheme = 'ALIPAY' then 'APM'
+  when scheme = 'EFTPOS' then 'DEBIT'
+  when scheme = 'FUEL CARDS' then 'APM'
+  when scheme = 'GIFT CARDS' then 'APM'
+  when scheme = 'PAYPAL' then 'APM'
+  else card_type
+  end as scheme_card_type,
+
+  dom_int_ind,
+
+
+  sum(transaction_count) as transaction_count,
+  0 as transaction_amount,
+  0 as interchange_fees_tran_count,
+  0 as interchange_fees_invoiced_ex_gst,
+  0 as processing_fees_tran_count,
+  0 as processing_fees_ex_gst,
+  0 as settlement_amount_inc_gst
+
+  from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+  where trim(upper(approval_flag)) = "A"
+
+  and 
+
+  transaction_date between
+  date_add(date_sub((select max(transaction_date) from(
+  select * from 
+  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+  WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+  select * from 
+  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+  WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+
+  group by transaction_month_start_date, clndr_date, transaction_month, transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+  )
+
+
+  ,t2 as
+  (
+
+    select 
+    "Monthly" as timeframe,
+    "Calendar" as calendar_type,
+    left(string(clndr_date), 7) period,  
+    transaction_month_start_date commencement_date,
+    fee_indicator,
+    company, 
+    invoice_group, 
+    merchant_group,
+    merchant_portal_mg, 
+    division, 
+    brand,
+    site_name, 
+    concat(store_id, " | ", upper(site_name)) store_id,
+    tran_type_description,
+    case when trim(upper(approval_flag)) = "A" then "Approved" 
+    when trim(upper(approval_flag)) = "D" then "Declined" 
+    end as approval_status,
+    scheme,
+    case
+    when scheme = 'ALIPAY' then 'APM'
+    when scheme = 'EFTPOS' then 'DEBIT'
+    when scheme = 'FUEL CARDS' then 'APM'
+    when scheme = 'GIFT CARDS' then 'APM'
+    when scheme = 'PAYPAL' then 'APM'
+    else card_type
+    end as scheme_card_type,
+    dom_int_ind,
+
+
+    sum(transaction_count) as transaction_count,
+    -1*(sum(transaction_amount)) as transaction_amount,
+    sum(interchange_fees_tran_count) as interchange_fees_tran_count,
+    sum(interchange_fees_invoiced_ex_gst) as interchange_fees_invoiced_ex_gst,
+    sum(processing_fees_tran_count) as processing_fees_tran_count,
+    sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+    sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+
+
+    from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    -- where transaction_date between "2023-07-01" and "2023-07-31" 
+    where (upper(trim(tran_type_description)) in ('PURCHASE REVERSAL','REFUND', "CASHOUT REVERSAL", "PURCHASE WITH CASHOUT REVERSAL", "ACTIVATION")) 
+    and trim(upper(approval_flag)) = "A"
+    and 
+
+    transaction_date between
+    date_add(date_sub((select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+
+    group by transaction_month_start_date, clndr_date, transaction_date, transaction_month, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+  )
+
+  , t3 as
+  (
+
+    select 
+    "Monthly" as timeframe,
+    "Calendar" as calendar_type,
+    left(string(clndr_date), 7) period, 
+    transaction_month_start_date commencement_date,  
+    fee_indicator,
+    company, 
+    invoice_group, 
+    merchant_group, 
+    merchant_portal_mg,
+    division, 
+    brand,
+    site_name, 
+    concat(store_id, " | ", upper(site_name)) store_id,
+    tran_type_description,
+    case when trim(upper(approval_flag)) = "A" then "Approved" 
+    when trim(upper(approval_flag)) = "D" then "Declined" 
+    end as approval_status,
+    scheme,
+    case
+    when scheme = 'ALIPAY' then 'APM'
+    when scheme = 'EFTPOS' then 'DEBIT'
+    when scheme = 'FUEL CARDS' then 'APM'
+    when scheme = 'GIFT CARDS' then 'APM'
+    when scheme = 'PAYPAL' then 'APM'
+    else card_type
+    end as scheme_card_type,
+    dom_int_ind,
+
+    sum(transaction_count) as transaction_count,
+    0 as transaction_amount,
+    0 as interchange_fees_tran_count,
+    0 as interchange_fees_invoiced_ex_gst,
+    sum(processing_fees_tran_count) as processing_fees_tran_count,
+    sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+    sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+
+    from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    -- where transaction_date between "2023-07-01" and "2023-07-31" 
+    where trim(upper(approval_flag)) = "D"
+    and 
+
+    transaction_date between
+    date_add(date_sub((select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+
+
+    group by transaction_month_start_date, clndr_date, transaction_date, transaction_month,  fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+
+  )
+
+  , t4 as
+  (
+
+    select 
+    "Monthly" as timeframe,
+    "Calendar" as calendar_type,
+    left(string(clndr_date), 7) period, 
+    transaction_month_start_date commencement_date,  
+    fee_indicator,
+    company, 
+    invoice_group, 
+    merchant_group, 
+    merchant_portal_mg,
+    division, 
+    brand,
+    site_name, 
+    concat(store_id, " | ", upper(site_name)) store_id,
+    tran_type_description,
+    case when trim(upper(approval_flag)) = "A" then "Approved" 
+    when trim(upper(approval_flag)) = "D" then "Declined" 
+    end as approval_status,
+    scheme,
+    case
+    when scheme = 'ALIPAY' then 'APM'
+    when scheme = 'EFTPOS' then 'DEBIT'
+    when scheme = 'FUEL CARDS' then 'APM'
+    when scheme = 'GIFT CARDS' then 'APM'
+    when scheme = 'PAYPAL' then 'APM'
+    else card_type
+    end as scheme_card_type,
+    dom_int_ind,
+
+    sum(transaction_count) as transaction_count,
+    sum(transaction_amount) as transaction_amount,
+    sum(interchange_fees_tran_count) as interchange_fees_tran_count,
+    sum(interchange_fees_invoiced_ex_gst) as interchange_fees_invoiced_ex_gst,
+    sum(processing_fees_tran_count) as processing_fees_tran_count,
+    sum(processing_fees_ex_gst) as processing_fees_ex_gst,
+    sum(settlement_amount_inc_gst) as settlement_amount_inc_gst
+
+
+    from  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    -- where transaction_date between "2023-07-01" and "2023-07-31" --date_diff("2023-08-31",transaction_date,month) <= 3
+    where upper(trim(tran_type_description)) not in ('PURCHASE REVERSAL','REFUND', 'PRE-AUTH','PRE-AUTH REVERSAL', "CASHOUT REVERSAL", "PURCHASE WITH CASHOUT REVERSAL", "ACTIVATION")
+    and trim(upper(approval_flag)) = "A"
+    and 
+
+    transaction_date between
+    date_add(date_sub((select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+
+
+    group by transaction_month_start_date, clndr_date, transaction_date, transaction_month, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
+
+
+  )
+
+--- Full output for Monthly view ---
+
+    select *
+
+    from
+    (
+
+    select * from t1 
+
+    union all 
+
+    select * from t2
+
+    union all 
+
+    select * from t3
+
+    union all 
+
+    select * from t4
+
+    )
+  )
+
+    select *
+
+    from
+    (
+
+      select * from weekly_retail
+      union all
+      select * from weekly_calendar
+      union all
+      select * from monthly_retail
+      union all
+      select * from monthly_calendar
+
+
+    )
+  )
+);
+
+
+create or replace table wpay_analytics.wpay_payment_fees_summary as(
+
+select *,
+
+case when (commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Fiscal")) then "max_month_retail"
+when (commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) then "max_month_calendar"
+when (commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly")) then "max_week"
+when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) then "min_month_calendar"
+when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Fiscal")) then "min_month_retail"
+when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Fiscal")) then "min_week_retail"
+when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Calendar")) then "min_week_calendar"
+
+when (commencement_date = (select max(commencement_date) from(
+select distinct commencement_date from wpay_analytics.wpay_payment_fees_summary 
+where timeframe = 'Weekly'
+and commencement_date <> (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary))
+)) then "table_week"
+
+else "null"
+end as max_flag
+
+from wpay_analytics.wpay_payment_fees_summary
+
+
+)
+
