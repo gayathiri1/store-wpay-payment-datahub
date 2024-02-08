@@ -1,0 +1,203 @@
+-- PURCHASES AND REFUNDS
+
+create or replace table wpay_analytics.wpay_payment_preferences as
+(
+
+
+with monthly as
+(
+  select
+  'Monthly' as Timeframe,
+
+  left(cast(trans.tstamp_trans as string),7) as Period,
+  stores.invoice_group invoice_group,
+  stores.company company,
+  stores.merchant_group as Merchant_group,
+  stores.merchant_portal_mg as merchant_portal_mg,
+  stores.brand as Brand,
+  stores.site_name,
+  case when stores.is_online = "Online" then "Online" when stores.is_online = "Not Online" then "In store" end as channel,
+  left(trans.net_term_id,5) as Store_ID,
+  calc_scheme as Scheme,
+  calc_card_type as Card_type,
+  (sum(case when trans.calc_tran_type_description in
+  ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then 1 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
+  ) as Purchase_count,
+  (sum(case when trans.calc_tran_type_description in
+  ('REFUND') then 1 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('REFUND REVERSAL') then 1 else 0 end)
+  ) as Refund_count,
+
+
+  (sum(case when trans.calc_tran_type_description in
+  ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then transaction_total/100 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then transaction_total/100 else 0 end)
+  ) as Purchase_amount,
+  (sum(case when trans.calc_tran_type_description in
+  ('REFUND') then transaction_total/100 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('REFUND REVERSAL') then transaction_total/100 else 0 end)
+  ) as Refund_amount,
+  from
+  wpay_analytics.wpay_billing_engine_tran_dtl trans
+  left join
+  pdh_ref_ds.ref_store_details stores
+  on
+  left(trans.net_term_id,5) = stores.store_id
+  where
+  (trans.calc_approval_flag = 'A' )
+  and calc_card_type not in ('C','D','H','P','R')
+  and trans.switch_tran_date between DATE_SUB((DATE_TRUNC(trans.switch_tran_date, month)), INTERVAL 14 month) and current_Date()
+
+  group by
+  1,2,3,4,5,6,7,8,9,10,11,12
+)
+
+,
+
+monthly_final as
+(
+  (
+    select
+      post.*,
+      pre.Purchase_count as Pre_Purchase_count,
+      pre.Refund_count as Pre_Refund_count,
+      pre.Purchase_amount as Pre_Purchase_amount,
+      pre.Refund_amount as Pre_Refund_amount,
+    from monthly post
+    left join
+      monthly pre
+    on
+    left(cast(date_add(cast(concat(left(post.period,7),'-01') as date), interval -1 month) as string),4) = cast(left(pre.period,4) as string)
+    and substring(cast(date_add(cast(concat(left(post.period,7),'-01') as date), interval -1 month) as string),6,2)  = right(left(pre.period,7),2)
+    and post.Store_ID = pre.Store_ID
+    and post.Scheme = pre.Scheme
+    and post.Card_type = pre.Card_type
+
+  )
+
+)
+
+
+, full_output as
+(
+
+  select
+  *
+  from
+  monthly_final
+
+  where period between 
+    left(string(date_sub(current_date() , interval 14 month)), 7)
+
+    and left(cast(current_date() as string),7)
+
+)
+
+, scheme_lense as 
+(
+
+  select
+
+  timeframe,
+  invoice_group,
+  company,
+  brand,
+  merchant_group,
+  merchant_portal_mg,
+  period,
+  -- Store_ID,
+  concat(Store_ID, " | ", site_name) as Store_ID,
+  channel,
+  scheme payment_method_attribute,
+  case
+  when scheme = 'ALIPAY' then 'APM'
+  when scheme = 'EFTPOS' then 'DEBIT'
+  when scheme = 'FUEL CARDS' then 'APM'
+  when scheme = 'GIFT CARDS' then 'APM'
+  when scheme = 'PAYPAL' then 'APM'
+  else card_type
+  end as card_type,
+  scheme,
+  purchase_amount purchase_amount,
+  purchase_count,
+  refund_amount refund_amount,
+  refund_count,
+  Pre_Purchase_count,
+  Pre_Refund_count,
+  Pre_Purchase_amount Pre_Purchase_amount,
+  Pre_Refund_amount Pre_Refund_amount,
+
+  "Scheme" lense,
+
+  from full_output
+
+)
+
+, card_type_lense as
+(
+
+  select
+
+  timeframe,
+  invoice_group,
+  company,
+  brand,
+  merchant_group,
+  merchant_portal_mg,
+  period,
+  concat(Store_ID, " | ", site_name) as Store_ID,
+  channel,
+  case
+  when scheme = 'ALIPAY' then 'APM'
+  when scheme = 'EFTPOS' then 'DEBIT'
+  when scheme = 'FUEL CARDS' then 'APM'
+  when scheme = 'GIFT CARDS' then 'APM'
+  when scheme = 'PAYPAL' then 'APM'
+  else card_type
+  end as payment_method_attribute,
+  case
+  when scheme = 'ALIPAY' then 'APM'
+  when scheme = 'EFTPOS' then 'DEBIT'
+  when scheme = 'FUEL CARDS' then 'APM'
+  when scheme = 'GIFT CARDS' then 'APM'
+  when scheme = 'PAYPAL' then 'APM'
+  else card_type
+  end as card_type ,
+  scheme,
+  purchase_amount purchase_amount,
+  purchase_count purchase_count,
+  refund_amount refund_amount,
+  refund_count refund_count,
+  Pre_Purchase_count Pre_Purchase_count,
+  Pre_Refund_count Pre_Refund_count,
+  Pre_Purchase_amount Pre_Purchase_amount,
+  Pre_Refund_amount Pre_Refund_amount,
+
+  "Card Type" lense,
+
+
+  from full_output
+
+)
+
+
+select * from scheme_lense
+union all
+select * from card_type_lense
+
+);
+
+
+create or replace view wpay_analytics.vw_wpay_payment_preferences
+as
+select * from wpay_analytics.wpay_payment_preferences
+;

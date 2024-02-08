@@ -1,0 +1,1049 @@
+-------------------------------------------------------------------------------------
+create or replace table wpay_analytics.lv_wpay_billing_engine_tran_dtl
+as
+(
+  with store_latest_time as
+  (
+    SELECT 
+    LEFT(t.net_term_id, 5) as store_id,
+    upper(s.brand) as brand,
+    max(tstamp_trans) as max_time
+    FROM 
+    `wpay_analytics.wpay_billing_engine_tran_dtl` t
+    LEFT JOIN pdh_ref_ds.ref_store_details s 
+    ON LEFT(t.net_term_id, 5) = s.store_id
+    group by 1,2
+  ),
+
+  ----------------------------------------------------------------------------
+  -- RUNNING THE IRT DATA THROUGH THE BILLING ENGINE SCRIPTS TO GET IT IN THE SAME FORMAT AS TRAN_DTL
+
+  irt_trans as
+  (
+    select 
+    CAST(dn.tstamp_trans AS DATE) switch_tran_date,
+    dn.tran_uid as tran_uid,
+    CAST(dn.tstamp_trans AS TIMESTAMP) as tstamp_trans,
+    CAST(dn.tstamp_local AS TIMESTAMP)as tstamp_local,
+    dn.masked_pan,
+    dn.date_recon_acq,
+    dn.net_term_id,
+    dn.rpt_lvl_id_b,
+    dn.mti,
+    dn.tran_type_id,
+    dn.amt_recon_net,
+    dn.act_code,
+    dn.response_code,
+    dn.account_type,
+    dn.transaction_total,
+    dn.purchase_total,
+    dn.cashout_total,
+    dn.retrieval_ref_no,
+    dn.stan,
+    dn.original_stan,
+    dn.proc_id_acq_b,
+    dn.inst_id_recn_acq_b,
+    dn.card_acpt_name_loc,
+    dn.proc_id_iss_b,
+    dn.issuer_institution_id,
+    dn.inst_id_recon_iss_name,
+    dn.card_owner,
+    dn.pos_crd_dat_in_mod,
+    dn.pos_crdhldr_presnt,
+    dn.order_number,
+    dn.approval_code,
+    dn.adtnl_response_data,
+    dn.card_acpt_id,
+    dn.merchant_store_id,
+    CASE
+      WHEN TRIM(dn.proc_id_iss_b) = 'EHB' AND dn.currency_code = 36 THEN 'D'  -- AU EFTPOS transaction are always considered Domestic
+      WHEN dn.dom_int_ind IS NULL THEN 'D'
+      ELSE dn.dom_int_ind
+    END AS dom_int_ind,
+    dn.card_type,
+    dn.card_subtype,
+    dn.bin_product_code,
+    dn.scheme,
+    trim(t.tran_type) tran_type_desc,
+    trim(t.abbr) tran_type_abbr,
+    IFNULL(trim(r.approval_flag), "N") approval_flag,
+    case trim(proc_id_iss_b) 
+    when 'AMEX' then 'AMEX'
+    when 'EHB' then 'EFTPOS'
+    when 'FDF' then 'FUEL CARDS'
+    when 'FDI' then
+    if(trim(dn.issuer_institution_id) in ('060092425', '060092426', '060092427', '060092428'), 'UPI', 'DINERS')
+    when 'RED' then 'GIFT CARDS'
+    when 'ANZ' then
+    if(trim(dn.issuer_institution_id) ='056025433' or trim(dn.issuer_institution_id) = '056025434'or trim(dn.issuer_institution_id) =  '056025435'
+      or trim(dn.issuer_institution_id) = '056025436'or trim(dn.issuer_institution_id) =  '056025437'
+      or trim(dn.issuer_institution_id) = '056025438'or trim(dn.issuer_institution_id) =  '056025439' 
+      or trim(dn.issuer_institution_id) = '056025440'or trim(dn.issuer_institution_id) =  '83990554161'
+      or trim(dn.issuer_institution_id) = '83990554162'or trim(dn.issuer_institution_id) =  '83990554163'
+      or trim(dn.issuer_institution_id) = '83990554164',  'UPI' ,
+    if(t.account='CRD' ,'CRD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT')) )
+    when 'FIS' then 'CRD'
+    when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','VISA'))
+    when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','MASTERCARD'))
+    when 'VER' then  'VERIFONE'
+    else proc_id_iss_b
+    end link_route,
+    msw.reporting_group merchant_group,
+    s.ratecard_group rate_group,
+    c.cur_symbol currency_code,
+    dn.pymt_acct_ref,
+    dn.scdr_token,
+    -- WPAY ANALYTICS FIELDS
+    'DataNav' source_application,
+    CAST(null AS STRING) customerRef,
+    CAST(null AS STRING) userId,
+    CAST(null AS STRING) username,
+    CAST(null AS STRING) userStatus,
+    CAST(null AS STRING) containerId,
+    CAST(null AS STRING) containerRef,
+    CAST(null AS STRING) itemId,
+    CAST(null AS STRING) itemtype,
+    CAST(null AS STRING) item_token,
+    CAST(null AS STRING) schemeName,
+    CAST(null AS STRING) qc_CardNumber,
+    -- SETTLEMENT DATE FIELDS
+    CAST(null AS STRING) AS dp_txnRef,
+    CAST(null AS STRING) AS qc_ReferenceNumber,
+    CAST(null AS NUMERIC) AS qc_BatchNumber,
+    CAST(null AS STRING) AS lk_ResRef,
+    CAST(null AS STRING) AS cy_tran_uid,
+    wallet_id
+    from 
+    pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface dn
+    Left Join `pdh_ref_ds.ref_transaction_types` t on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
+    left join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
+    LEFT JOIN `pdh_ref_ds.ref_store_details` s ON LEFT(dn.net_term_id, 5) = s.store_id
+    LEFT JOIN `pdh_ref_ds.ref_merchant_settlement_window` msw ON upper(s.division) = upper(msw.division)
+    LEFT JOIN `pdh_ref_ds.ref_currency_code` c ON dn.currency_code = c.currency_code
+
+    LEFT JOIN store_latest_time 
+    ON LEFT(dn.net_term_id, 5) = store_latest_time.store_id
+    where timestamp(dn.tstamp_trans) > timestamp(store_latest_time.max_time)
+    and CAST(dn.tstamp_trans AS DATE) between DATE_SUB(CAST(dn.tstamp_trans AS DATE), INTERVAL 14 day) and current_Date()
+    AND s.is_closed = FALSE
+  ),
+
+    ---------------------------------------------------------------------------------------------------
+
+  gravy_irt as
+  (
+    select 
+    CAST(dn.transaction_timestamp AS DATE) switch_tran_date,
+    dn.tran_uid,
+    CAST(dn.transaction_timestamp AS TIMESTAMP) AS tstamp_trans,
+    CAST(dn.transaction_timestamp AS TIMESTAMP) AS tstamp_local,
+    dn.pan AS masked_pan,
+    cast(null as date) AS date_recon_acq,
+    CONCAT(kv1.value, '001') AS net_term_id,
+    CONCAT('01', kv1.value) rpt_lvl_id_b,
+    cast(null as string) as mti,
+    cast(null as string) as tran_type_id,
+    null as amt_recon_net,
+    cast(null as string) as act_code,
+    cast(null as string) as response_code,
+    cast(null as string) as account_type,
+    CAST(dn.transaction_amt AS NUMERIC) AS transaction_total,
+    CAST(dn.transaction_amt AS NUMERIC) AS purchase_total,
+    0 AS cashout_total,
+    cr.retrieval_reference_number AS retrieval_ref_no,
+    null as stan,
+    null as original_stan,
+    cast(null as string) as proc_id_acq_b,
+    cast(null as string) as inst_id_recn_acq_b,
+    merchant_name as card_acpt_name_loc,
+    cast(null as string) as proc_id_iss_b,
+    cast(null as string) as issuer_institution_id,
+    cast(null as string) as inst_id_recon_iss_name,
+    cast(null as string) as card_owner,
+    cast(null as string) as pos_crd_dat_in_mod,
+    cast(null as string) as pos_crdhldr_presnt,
+    dn.external_identifier as order_number,
+    cr.auth_code as approval_code,
+    cast(null as string) as adtnl_response_data,
+    cast(null as string) as card_acpt_id,
+    cast(null as string) as merchant_store_id,
+    cast(null as string) AS dom_int_ind,
+    CASE WHEN LOWER(TRIM(dn.card_type)) = 'debit' THEN 'D'
+      WHEN LOWER(TRIM(dn.card_type)) = 'credit' THEN 'C'
+      ELSE null
+    END card_type,
+    cast(null as string) as card_subtype,
+    cast(null as string) as bin_product_code,
+    dn.scheme,
+    CASE
+    WHEN transaction_status IN ('Authenticating', 'Declined', 'Voided', 'Authorised', 'Failed') THEN 'PRE-AUTH'
+    WHEN transaction_status IN ('Capturing', 'Captured') THEN 'PURCHASE'
+    WHEN transaction_status IN ('PartialRefund', 'Refunded') THEN 'REFUND'
+    ELSE null
+    END as tran_type_desc,
+    CASE
+    WHEN transaction_status IN ('Authenticating', 'Declined', 'Voided', 'Authorised', 'Failed') THEN 'PRE-AUTH'
+    WHEN transaction_status IN ('Capturing', 'Captured') THEN 'PURCHASE'
+    WHEN transaction_status IN ('PartialRefund', 'Refunded') THEN 'REFUND'
+    ELSE null
+    END as tran_type_abbr,
+    CASE
+      WHEN transaction_status IN ('Authorised', 'Captured', 'PartialRefund', 'Refunded') THEN 'Y'
+      WHEN transaction_status IN ('Declined', 'Failed', 'Voided') THEN 'N'
+      ELSE NULL
+    END approval_flag,
+    case lower(trim(scheme)) 
+    when 'amex' then 'AMEX'
+    when 'eftpos' then 'EFTPOS'
+    when 'discover' then 'DISCOVER'
+    when 'jcb' then 'JCB'
+    when 'visa' then 'VISA'
+    when 'mastercard' then 'MASTERCARD'
+    when 'diners-club' then 'DINERS'
+    else scheme
+    end link_route,
+    msw.reporting_group merchant_group,
+    s.ratecard_group rate_group,
+    cr.currency currency_code,
+    dn.PAR pymt_acct_ref,
+    cast(null as string) scdr_token,
+    -- WPAY ANALYTICS FIELDS
+    'Gr4vy' source_application,
+    cast(null as string) customerRef,
+    cast(null as string) userId,
+    cast(null as string) username,
+    cast(null as string) userStatus,
+    cast(null as string) containerId,
+    cast(null as string) containerRef,
+    cast(null as string) itemId,
+    cast(null as string) itemtype,
+    cast(null as string) item_token,
+    cast(null as string) schemeName,
+    cast(null as string) qc_CardNumber,
+    -- SETTLEMENT DATE FIELDS
+    cast(null as string) AS dp_txnRef,
+    cast(null as string) AS qc_ReferenceNumber,
+    null AS qc_BatchNumber,
+    cast(null as string) AS lk_ResRef,
+    cast(null as string) AS cy_tran_uid,
+    CASE WHEN payment_method NOT IN ('CardDebit', 'CardCredit') THEN payment_method
+      ELSE NULL
+    END AS wallet_id
+    from `pdh_rd_gr4vy_views.vw_rd_tran_gr4vy` dn
+    LEFT JOIN `pdh_rd_external.cyb_online_txns_rpt` cr
+    ON dn.connector_transaction_id = cr.request_id
+    LEFT JOIN `pdh_ref_ds.ref_key_value` kv1
+    ON dn.merchant_name = kv1.key
+    AND kv1.attribute = 'gr4vy-merchant-store-id'
+    JOIN `pdh_ref_ds.ref_key_value` kv2
+    ON dn.merchant_name = kv2.key
+    AND upper(coalesce(dn.scheme,dn.payment_method)) = upper(kv2.value)
+    AND kv2.attribute = 'gr4vy-merchant-scheme-config'
+    LEFT JOIN `pdh_ref_ds.ref_store_details` s ON kv1.value = s.store_id
+    LEFT JOIN `pdh_ref_ds.ref_merchant_settlement_window` msw ON upper(s.division) = upper(msw.division)
+
+    LEFT JOIN store_latest_time 
+    ON kv1.value = store_latest_time.store_id
+    where timestamp(dn.transaction_timestamp) > timestamp(store_latest_time.max_time)
+    and CAST(dn.transaction_timestamp AS DATE) between DATE_SUB(CAST(dn.transaction_timestamp AS DATE), INTERVAL 14 day) and current_Date()
+  )
+
+  ----------------------------------------------------------------------------
+  ,irt_trans_union as
+  (
+    select * from irt_trans
+    union all
+    select * from gravy_irt
+  )
+
+  ----------------------------------------------------------------------------
+
+  , temp_irt_trans AS
+  (
+    SELECT 
+    dn.*,
+    case upper(link_route)
+    when 'GIFT CARDS' then if(Upper(tran_type_abbr)='PURCHASE','REDEMPTION',if(upper(tran_type_abbr)='REFUND','ACTIVATION',if(upper(tran_type_abbr) IN ('BALANCE INQUIRY - SAVINGS', 'BALANCE_INQUIRY'), 'BALANCE INQUIRY', UPPER(tran_type_abbr))))
+    else CASE UPPER(tran_type_abbr)
+        WHEN 'PREAUTHORISATION (CREDIT)' THEN 'PRE-AUTH'
+        WHEN 'PURCHASE WITH CASH OUT' THEN 'PURCHASE WITH CASHOUT'
+        WHEN 'CASH OUT' THEN 'CASHOUT'
+        ELSE UPPER(tran_type_abbr) END
+    end calc_tran_type_abbr,
+    case trim(approval_flag)
+    when 'Y' then 'A'
+    when 'N' then 'D'
+    else trim(approval_flag)
+    end calc_approval_flag,
+    case link_route
+    when 'AMEX' THEN 'AMEX'
+    when 'DINERS' then 'DINERS'
+    when 'FUEL CARDS' then 'FUEL CARDS'
+    when 'GIFT CARDS' then 'GIFT CARDS'
+    when 'UPI' then 'UPI'
+    when 'VISA' then 'VISA'
+    when 'MASTERCARD' then 'MASTERCARD'
+    when 'EFTPOS' then 'EFTPOS'
+    when 'VERIFONE' then 'VERIFONE'
+    when 'PAYPAL' then 'PAYPAL'
+    when 'ALIPAY' then 'ALIPAY'
+    else ''
+    end calc_scheme,
+    case link_route
+    when 'AMEX' THEN 'CREDIT'
+    when 'DINERS' then 'CREDIT'
+    when 'VISA' Then if (trim(card_type)='C' or trim(card_type)='R' or trim(card_type)='H' ,'CREDIT',if(trim(card_type)='P'or trim(card_type)='D' , 'DEBIT',''))
+    when 'MASTERCARD' Then if (trim(card_type)='C' or trim(card_type)='R' or trim(card_type)='H' ,'CREDIT',if(trim(card_type)='P'or trim(card_type)='D' , 'DEBIT',''))
+    when 'FUEL CARDS' then 'DEBIT'
+    when 'GIFT CARDS' then 'DEBIT'
+    when 'EFTPOS' then IF(TRIM(bin_product_code) <> '', bin_product_code, 'MULTI-NETWORK')
+    when 'UPI' then 'CREDIT'
+    when 'CRD' then 'CREDIT'
+    when 'DBT' then 'DEBIT'
+    when 'VERIFONE' then 'DEBIT'
+    when 'PAYPAL' then 'OTHER'
+    when 'ALIPAY' then 'OTHER'
+    else if (trim(card_type) IN ('C', 'H', 'R') ,'CREDIT',if(trim(card_type) IN ('D','P') , 'DEBIT', card_type))
+    end calc_card_type,
+    from irt_trans_union dn
+  ),
+
+  temp_irt_trans_calc AS
+  (
+    SELECT
+    d.switch_tran_date,
+    d.tran_uid,
+    d.tstamp_trans,
+    d.tstamp_local,
+    d.masked_pan,
+    COALESCE(std.posting_date, d.date_recon_acq) date_recon_acq,
+    d.date_recon_acq orig_date_recon_acq,
+    CASE WHEN std.posting_date IS NOT NULL THEN 'Y' ELSE 'N' END settlement_date_indicator,
+    d.net_term_id,
+    d.rpt_lvl_id_b,
+    d.mti,
+    d.tran_type_id,
+    d.amt_recon_net,
+    d.act_code,
+    d.response_code,
+    d.account_type,
+    d.transaction_total,
+    d.purchase_total,
+    d.cashout_total,
+    d.retrieval_ref_no,
+    d.stan,
+    d.original_stan,
+    d.proc_id_acq_b,
+    d.inst_id_recn_acq_b,
+    d.card_acpt_name_loc,
+    d.proc_id_iss_b,
+    d.issuer_institution_id,
+    d.inst_id_recon_iss_name,
+    d.card_owner,
+    d.pos_crd_dat_in_mod,
+    d.pos_crdhldr_presnt,
+    d.order_number,
+    d.approval_code,
+    d.adtnl_response_data,
+    d.card_acpt_id,
+    d.merchant_store_id,
+    d.dom_int_ind,
+    d.card_type,
+    d.card_subtype,
+    d.bin_product_code,
+    d.scheme,
+    d.tran_type_desc,
+    d.tran_type_abbr,
+    d.approval_flag,
+    d.link_route,
+    d.merchant_group,
+    d.rate_group,
+    d.currency_code,
+    d.calc_tran_type_abbr,
+    d.calc_approval_flag,
+    d.calc_scheme,
+    d.calc_card_type,
+    case act_code
+    when '400' then if(mti='1440' ,concat(calc_tran_type_abbr , " REVERSAL"),calc_tran_type_abbr)
+    else calc_tran_type_abbr 
+    end calc_tran_type_description,
+    0 as interchange_fees_calc,
+    0.0 interchange_fees_actual, -- should be null
+    0.0 interchange_fees_invoiced, -- should be null
+    0.0 interchange_fees_rebate,
+    '' fee_indicator,
+    0 as processing_fees,
+    0 fraud_fees,
+    000000 as settled_datetime,
+    000000 as fncl_posted_datetime,
+    0 as early_settlement_fees, -- cost to be passed on to the merchant for early settlement
+    0 as cost_of_credit, -- cost incurred by WPAY for early settlement to merchants (internal only)
+    d.pymt_acct_ref,
+    d.scdr_token,
+    -- WPAY ANALYTICS FIELDS
+    d.source_application,
+    d.customerRef,
+    d.userId,
+    d.username,
+    d.userStatus,
+    d.containerId,
+    d.containerRef,
+    d.itemId,
+    d.itemtype,
+    d.item_token,
+    d.schemeName,
+    d.qc_CardNumber,
+    `pdh_ref_ds.get_card_id`(
+        source_application,
+        d.pymt_acct_ref,
+        d.scdr_token,
+        d.customerRef,
+        d.userId,
+        d.containerId,
+        d.itemId,
+        d.qc_CardNumber,
+        d.masked_pan
+    ) card_id,
+    -- ADDITIONAL PRICING MODEL FIELDS
+    cc.pricing_model,
+    0 as extern_scheme_fees,
+    0 as intern_scheme_fees,
+    0 as scheme_fees_rebate,
+    CAST(null AS STRING) fraud_fee_indicator,
+    CAST(null AS STRING) c3ds_fee_indicator,
+    0 c3ds_fees,
+    d.wallet_id
+    from temp_irt_trans d
+    LEFT JOIN `pdh_ref_ds.ref_store_details` s
+    ON LEFT(d.net_term_id, 5) = s.store_id
+    LEFT JOIN `pdh_ref_ds.ref_company_config` cc
+    ON UPPER(TRIM(s.company)) = UPPER(TRIM(cc.company))
+    AND d.switch_tran_date BETWEEN cc.from_date AND IFNULL(cc.to_date, '2999-12-31')
+    LEFT JOIN `pdh_analytics_ds.stlm_standard_settlement_table` std
+    ON `pdh_ref_ds.get_tran_uid`(
+    -- source
+    CASE source_application
+      WHEN 'DataNav' THEN 'TC'
+      WHEN 'DataNavSuper' THEN 'TC'
+      WHEN 'DigitalPay' THEN 'DP'
+      WHEN 'QuikCilver' THEN 'QC'
+      WHEN 'Linkly' THEN 'LK'
+      WHEN 'ISG' THEN 'CY'
+      ELSE source_application
+    END,
+    -- approvalcode
+    approval_code,
+    -- ReferenceNumber
+    CASE source_application
+      WHEN 'DigitalPay' THEN dp_txnRef
+      WHEN 'QuikCilver' THEN qc_ReferenceNumber
+      WHEN 'Linkly' THEN lk_ResRef
+      ELSE null
+    END,
+    -- BatchNumber
+    qc_BatchNumber,
+    -- pan
+    masked_pan,
+    -- yyyymmddThhmmss
+    FORMAT_TIMESTAMP('%Y%m%dT%H%M%S', tstamp_trans),
+    -- tran_uid
+    CASE
+      WHEN source_application IN ('DataNav', 'DataNavSuper') THEN d.tran_uid
+      WHEN source_application = 'ISG' THEN cy_tran_uid
+      ELSE null
+    END,
+    -- InvoiceNumber
+    null,
+    -- transaction_type
+    tran_type_desc,
+    -- trans_amount_in_cents
+    transaction_total
+    ) = std.tran_uid
+  )
+  ,
+  ----------------------------------------------------------------------------------------------
+  -- BUILDING THE FINAL IRT TRANS TABLE
+  -- STEP 1: Access THE TRAN_DTL TABLE
+  
+  -- (select * from wpay_analytics.wpay_billing_engine_tran_dtl);
+
+  ----------------------------------------------------------------------------------------------
+  -- STEP 2: ADDING THE IRT DATA AFTER THE MAX TIME
+
+  wpay_billing_engine_tran_dtl_irt as
+  (
+    SELECT
+    d.switch_tran_date,
+    d.tran_uid,
+    d.tstamp_trans,
+    d.tstamp_local,
+    d.masked_pan,
+    d.date_recon_acq,
+    d.net_term_id,
+    d.rpt_lvl_id_b,
+    d.mti,
+    d.tran_type_id,
+    d.amt_recon_net,
+    d.act_code,
+    d.response_code,
+    d.account_type,
+    d.transaction_total,
+    d.purchase_total,
+    d.cashout_total,
+    d.retrieval_ref_no,
+    d.stan,
+    d.original_stan,
+    d.proc_id_acq_b,
+    d.inst_id_recn_acq_b,
+    d.card_acpt_name_loc,
+    d.proc_id_iss_b,
+    d.issuer_institution_id,
+    d.inst_id_recon_iss_name,
+    d.card_owner,
+    d.pos_crd_dat_in_mod,
+    d.pos_crdhldr_presnt,
+    d.order_number,
+    d.approval_code,
+    d.adtnl_response_data,
+    d.card_acpt_id,
+    d.merchant_store_id,
+    d.dom_int_ind,
+    d.card_type,
+    d.card_subtype,
+    d.bin_product_code,
+    d.scheme,
+    d.tran_type_desc,
+    d.tran_type_abbr,
+    d.approval_flag,
+    d.link_route,
+    d.merchant_group,
+    d.rate_group,
+    d.currency_code,
+    d.calc_tran_type_abbr,
+    d.calc_approval_flag,
+    d.calc_scheme,
+    d.calc_card_type,
+    d.calc_tran_type_description,
+    d.interchange_fees_calc,
+    d.interchange_fees_actual,
+    d.interchange_fees_invoiced,
+    d.interchange_fees_rebate,
+    d.fee_indicator,
+    d.processing_fees,
+    d.fraud_fees,
+    d.settled_datetime,
+    d.fncl_posted_datetime,
+    d.early_settlement_fees,
+    d.cost_of_credit,
+    d.pymt_acct_ref,
+    d.scdr_token,
+    -- WPAY ANALYTICS FIELDS
+    d.source_application,
+    d.customerRef,
+    d.userId,
+    d.username,
+    d.userStatus,
+    d.containerId,
+    d.containerRef,
+    d.itemId,
+    d.itemtype,
+    d.item_token,
+    d.schemeName,
+    d.qc_CardNumber,
+    d.card_id,
+    -- SETTLEMENT DATE FIELDS
+    d.orig_date_recon_acq,
+    d.settlement_date_indicator,
+    -- ADDITIONAL PRICING MODEL FIELDS
+    d.pricing_model,
+    d.extern_scheme_fees,
+    d.intern_scheme_fees,
+    d.scheme_fees_rebate,
+    d.fraud_fee_indicator,
+    d.c3ds_fee_indicator,
+    d.c3ds_fees,
+    d.wallet_id
+    FROM temp_irt_trans_calc d
+    )
+
+
+  select 
+  switch_tran_date	,
+  tran_uid	,
+  tstamp_trans	,
+  tstamp_local	,
+  masked_pan	,
+  date_recon_acq	,
+  net_term_id	,
+  rpt_lvl_id_b	,
+  mti	,
+  tran_type_id	,
+  amt_recon_net	,
+  act_code	,
+  response_code	,
+  account_type	,
+  transaction_total	,
+  purchase_total	,
+  cashout_total	,
+  retrieval_ref_no	,
+  stan	,
+  original_stan	,
+  proc_id_acq_b	,
+  inst_id_recn_acq_b	,
+  card_acpt_name_loc	,
+  proc_id_iss_b	,
+  issuer_institution_id	,
+  inst_id_recon_iss_name	,
+  card_owner	,
+  pos_crd_dat_in_mod	,
+  pos_crdhldr_presnt	,
+  order_number	,
+  approval_code	,
+  adtnl_response_data	,
+  card_acpt_id	,
+  merchant_store_id	,
+  dom_int_ind	,
+  card_type	,
+  card_subtype	,
+  bin_product_code	,
+  scheme	,
+  tran_type_desc	,
+  tran_type_abbr	,
+  approval_flag	,
+  link_route	,
+  merchant_group	,
+  rate_group	,
+  currency_code	,
+  calc_tran_type_abbr	,
+  calc_approval_flag	,
+  calc_scheme	,
+  calc_card_type	,
+  calc_tran_type_description	,
+  interchange_fees_calc	,
+  interchange_fees_actual	,
+  interchange_fees_invoiced	,
+  interchange_fees_rebate	,
+  fee_indicator	,
+  processing_fees	,
+  fraud_fees	,
+  settled_datetime	,
+  fncl_posted_datetime	,
+  early_settlement_fees	,
+  cost_of_credit	,
+  pymt_acct_ref	,
+  scdr_token	,
+  source_application	,
+  customerRef	,
+  userId	,
+  username	,
+  userStatus	,
+  containerId	,
+  containerRef	,
+  itemId	,
+  itemtype	,
+  item_token	,
+  schemeName	,
+  qc_CardNumber	,
+  card_id	,
+  orig_date_recon_acq	,
+  settlement_date_indicator	,
+  pricing_model	,
+  extern_scheme_fees	,
+  intern_scheme_fees	,
+  scheme_fees_rebate	,
+  fraud_fee_indicator	,
+  c3ds_fee_indicator	,
+  c3ds_fees	,
+  wallet_id	,
+  --payment_attempt_id	,
+  --last_updated	 , 
+  'batch' src_type 
+  from 
+  `wpay_analytics.wpay_billing_engine_tran_dtl`
+  where switch_tran_date between DATE_SUB(switch_tran_date, INTERVAL 14 day) and current_Date()
+  union all
+  select 
+  switch_tran_date	,
+  tran_uid	,
+  tstamp_trans	,
+  tstamp_local	,
+  masked_pan	,
+  date_recon_acq	,
+  net_term_id	,
+  rpt_lvl_id_b	,
+  mti	,
+  tran_type_id	,
+  amt_recon_net	,
+  act_code	,
+  response_code	,
+  account_type	,
+  transaction_total	,
+  purchase_total	,
+  cashout_total	,
+  retrieval_ref_no	,
+  stan	,
+  original_stan	,
+  proc_id_acq_b	,
+  inst_id_recn_acq_b	,
+  card_acpt_name_loc	,
+  proc_id_iss_b	,
+  issuer_institution_id	,
+  inst_id_recon_iss_name	,
+  card_owner	,
+  pos_crd_dat_in_mod	,
+  pos_crdhldr_presnt	,
+  order_number	,
+  approval_code	,
+  adtnl_response_data	,
+  card_acpt_id	,
+  merchant_store_id	,
+  dom_int_ind	,
+  card_type	,
+  card_subtype	,
+  bin_product_code	,
+  scheme	,
+  tran_type_desc	,
+  tran_type_abbr	,
+  approval_flag	,
+  link_route	,
+  merchant_group	,
+  rate_group	,
+  currency_code	,
+  calc_tran_type_abbr	,
+  calc_approval_flag	,
+  calc_scheme	,
+  calc_card_type	,
+  calc_tran_type_description	,
+  interchange_fees_calc	,
+  interchange_fees_actual	,
+  interchange_fees_invoiced	,
+  interchange_fees_rebate	,
+  fee_indicator	,
+  processing_fees	,
+  fraud_fees	,
+  settled_datetime	,
+  fncl_posted_datetime	,
+  early_settlement_fees	,
+  cost_of_credit	,
+  pymt_acct_ref	,
+  scdr_token	,
+  source_application	,
+  customerRef	,
+  userId	,
+  username	,
+  userStatus	,
+  containerId	,
+  containerRef	,
+  itemId	,
+  itemtype	,
+  item_token	,
+  schemeName	,
+  qc_CardNumber	,
+  card_id	,
+  orig_date_recon_acq	,
+  settlement_date_indicator	,
+  pricing_model	,
+  extern_scheme_fees	,
+  intern_scheme_fees	,
+  scheme_fees_rebate	,
+  fraud_fee_indicator	,
+  c3ds_fee_indicator	,
+  c3ds_fees	,
+  wallet_id	,
+  --null payment_attempt_id	,
+  --null last_updated	 , 
+  'NRT' src_type from wpay_billing_engine_tran_dtl_irt
+)
+;
+
+create or replace view wpay_analytics.vw_lv_wpay_billing_engine_tran_dtl
+as select * from wpay_analytics.lv_wpay_billing_engine_tran_dtl
+;
+
+  -----------------------PayOuts -----------------------------------
+
+  -- FINAL: NRT
+
+  -----------------------------------
+
+create or replace table wpay_analytics.wpay_payouts_all_merchants 
+as
+(
+  with settle_cutoff as
+  (
+    SELECT
+    division,
+    TIME(
+          CAST(SUBSTR(FORMAT('%04d', settlement_cutoff), 1, 2) AS INT64), 
+          CAST(SUBSTR(FORMAT('%04d', settlement_cutoff), 3, 2) AS INT64), 
+          0
+    ) as settlement_cutoff
+    FROM 
+    pdh_ref_ds.ref_merchant_settlement_window
+    group by 1,2
+  )
+
+
+  , settlement_ref as
+  (
+    select
+    t1.*,
+    t2.settlement_cutoff,
+    CASE 
+    WHEN TIME '00:00:00' < t2.settlement_cutoff
+    THEN 24*60 - TIME_DIFF(t2.settlement_cutoff, TIME '00:00:00', MINUTE)
+    ELSE TIME_DIFF(TIME '00:00:00', t2.settlement_cutoff, MINUTE)
+    END AS time_diff_minutes
+    from
+    wpay_analytics.settlement_reference t1
+  inner join
+    settle_cutoff t2
+  on upper(t1.division) = upper(t2.division)
+  )
+  , excluded_schemes as
+  (
+    select
+    --merchant_organisation_id, 
+    wpay_store_number as store_id,
+    scheme
+    FROM pdh_ref_ds.ref_str_to_sap_customermapping, UNNEST(SPLIT(exclude__issuers)) AS scheme
+    group by 1,2
+    )
+
+    ,
+
+    trans_included as
+    (
+    SELECT t.*,
+          upper(s.division) as division,
+          s.company,
+          s.invoice_group,
+          s.merchant_portal_mg,
+          --  s.site_name as site_name,
+          concat(left(t.net_term_id,5)," | ", upper(site_name)) site_name,
+          TIMESTAMP_ADD(tstamp_trans, INTERVAL time_diff_minutes MINUTE) as new_time
+    FROM wpay_analytics.vw_lv_wpay_billing_engine_tran_dtl t
+    LEFT JOIN pdh_ref_ds.ref_store_details s 
+    ON LEFT(t.net_term_id, 5) = s.store_id
+    LEFT JOIN excluded_schemes e ON LEFT(t.net_term_id, 5) = trim(e.store_id) and t.calc_scheme = e.scheme
+    LEFT JOIN settlement_ref settle on upper(settle.division) = upper(s.division)
+    WHERE (e.scheme IS NULL)
+    -- AND upper(s.company) = 'EG FUEL'
+    --and left(cast(tstamp_trans as string),10) = '2023-11-07'
+    and calc_approval_flag = 'A'
+    and t.switch_tran_date between DATE_SUB(switch_tran_date, INTERVAL 14 day) and current_Date()
+    )
+
+    ,
+
+    trans_excluded as
+    (
+    SELECT t.*,
+          upper(s.division) as division,
+          s.company,
+          s.invoice_group,
+          s.merchant_portal_mg,
+          concat(left(t.net_term_id,5)," | ", upper(site_name)) site_name,
+          TIMESTAMP_ADD(tstamp_trans, INTERVAL time_diff_minutes MINUTE) as new_time
+    FROM wpay_analytics.vw_lv_wpay_billing_engine_tran_dtl t
+    LEFT JOIN pdh_ref_ds.ref_store_details s 
+    ON LEFT(t.net_term_id, 5) = s.store_id
+    LEFT JOIN excluded_schemes e ON LEFT(t.net_term_id, 5) = trim(e.store_id) and t.calc_scheme = e.scheme
+    LEFT JOIN settlement_ref settle on upper(settle.division) = upper(s.division)
+    WHERE (e.scheme IS NOT NULL)
+    -- AND upper(s.company) = 'EG FUEL'
+    --and left(cast(tstamp_trans as string),10) = '2023-11-07'
+    and calc_approval_flag = 'A'
+    and t.switch_tran_date between DATE_SUB(switch_tran_date, INTERVAL 14 day) and current_Date()
+  )
+  -------------------------------------------------------------------------------------------------
+  ,
+  output_included as 
+  (
+    SELECT 
+      'Wpay' as method,
+      date(left(cast(T.new_time as string),10)) as period,
+      T.division,
+      T.company,
+      T.invoice_group,
+      T.site_name,
+      T.merchant_portal_mg,
+      --T.amount,
+      t.calc_scheme as scheme,
+      t.calc_card_type as card_type,
+      CASE
+        WHEN S.payout_days = 'Weekdays' THEN
+          CASE
+            WHEN EXTRACT(DAYOFWEEK FROM T.new_time) = 1 THEN
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL  
+                CASE S.weekend_payout
+                  WHEN 'Monday' THEN 1
+                  WHEN 'Tuesday' THEN 2
+                  WHEN 'Wednesday' THEN 3
+                  WHEN 'Thursday' THEN 4
+                  WHEN 'Friday' THEN 5
+                END DAY))
+            WHEN EXTRACT(DAYOFWEEK FROM T.new_time) = 7 THEN
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL  
+                CASE S.weekend_payout
+                  WHEN 'Monday' THEN 2
+                  WHEN 'Tuesday' THEN 3
+                  WHEN 'Wednesday' THEN 4
+                  WHEN 'Thursday' THEN 5
+                  WHEN 'Friday' THEN 6
+                END DAY))
+            WHEN EXTRACT(DAYOFWEEK FROM TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule DAY)) = 1 THEN
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule + 1 DAY))
+            WHEN EXTRACT(DAYOFWEEK FROM TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule DAY)) = 7 THEN
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule + 2 DAY))
+            ELSE
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule DAY))
+          END
+        ELSE
+          DATE(TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule DAY))
+      END AS settle_date,
+      s.payment_time as payout_time_only,
+
+      (sum(case when T.calc_tran_type_description in 
+      ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','CASHOUT','REFUND REVERSAL') then (transaction_total/100) else 0 end)
+      -
+      sum(case when T.calc_tran_type_description in 
+      ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL','REFUND','ACTIVATION','CASHOUT REVERSAL') then (transaction_total/100) else 0 end)
+      ) as trans_amount,
+
+      (sum(case when T.calc_tran_type_description in 
+      ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then (T.transaction_total/100) else 0 end)
+      -
+      sum(case when T.calc_tran_type_description in 
+      ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then (T.transaction_total/100) else 0 end)
+      ) as gross_sales,
+
+      (sum(case when T.calc_tran_type_description in 
+      ('REFUND REVERSAL') then (T.transaction_total/100) else 0 end)
+      -
+      sum(case when T.calc_tran_type_description in 
+      ('REFUND') then (T.transaction_total/100) else 0 end)
+      ) as refunds,
+
+      (sum(case when T.calc_tran_type_description in 
+      ('CASHOUT') then (T.transaction_total/100) else 0 end)
+      -
+      sum(case when T.calc_tran_type_description in 
+      ('ACTIVATION','CASHOUT REVERSAL') then (T.transaction_total/100) else 0 end)
+      ) as adjustments
+
+    FROM 
+      trans_included T
+    JOIN 
+      wpay_analytics.settlement_reference S 
+    ON 
+      upper(T.division) = upper(S.division)
+    group by 1,2,3,4,5,6,7,8,9,10,11
+  )
+  ,
+  output_excluded as 
+  (
+    SELECT 
+      'Third Party' as method,
+      date(left(cast(T.new_time as string),10)) as period,
+      T.division,
+      T.company,
+      T.invoice_group,
+      T.site_name,
+      T.merchant_portal_mg,
+      --T.amount,
+      t.calc_scheme as scheme,
+      t.calc_card_type as card_type,
+      CASE
+        WHEN S.payout_days = 'Weekdays' THEN
+          CASE
+            WHEN EXTRACT(DAYOFWEEK FROM T.new_time) = 1 THEN
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL  
+                CASE S.weekend_payout
+                  WHEN 'Monday' THEN 1
+                  WHEN 'Tuesday' THEN 2
+                  WHEN 'Wednesday' THEN 3
+                  WHEN 'Thursday' THEN 4
+                  WHEN 'Friday' THEN 5
+                END DAY))
+            WHEN EXTRACT(DAYOFWEEK FROM T.new_time) = 7 THEN
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL  
+                CASE S.weekend_payout
+                  WHEN 'Monday' THEN 2
+                  WHEN 'Tuesday' THEN 3
+                  WHEN 'Wednesday' THEN 4
+                  WHEN 'Thursday' THEN 5
+                  WHEN 'Friday' THEN 6
+                END DAY))
+            WHEN EXTRACT(DAYOFWEEK FROM TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule DAY)) = 1 THEN
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule + 1 DAY))
+            WHEN EXTRACT(DAYOFWEEK FROM TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule DAY)) = 7 THEN
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule + 2 DAY))
+            ELSE
+              DATE(TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule DAY))
+          END
+        ELSE
+          DATE(TIMESTAMP_ADD(T.new_time, INTERVAL S.payout_schedule DAY))
+      END AS settle_date,
+      s.payment_time as payout_time_only,
+
+      (sum(case when T.calc_tran_type_description in 
+      ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','CASHOUT','REFUND REVERSAL') then (transaction_total/100) else 0 end)
+      -
+      sum(case when T.calc_tran_type_description in 
+      ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL','REFUND','ACTIVATION','CASHOUT REVERSAL') then (transaction_total/100) else 0 end)
+      ) as trans_amount,
+
+      (sum(case when T.calc_tran_type_description in 
+      ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then (T.transaction_total/100) else 0 end)
+      -
+      sum(case when T.calc_tran_type_description in 
+      ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then (T.transaction_total/100) else 0 end)
+      ) as gross_sales,
+
+      (sum(case when T.calc_tran_type_description in 
+      ('REFUND REVERSAL') then (T.transaction_total/100) else 0 end)
+      -
+      sum(case when T.calc_tran_type_description in 
+      ('REFUND') then (T.transaction_total/100) else 0 end)
+      ) as refunds,
+
+      (sum(case when T.calc_tran_type_description in 
+      ('CASHOUT') then (T.transaction_total/100) else 0 end)
+      -
+      sum(case when T.calc_tran_type_description in 
+      ('ACTIVATION','CASHOUT REVERSAL') then (T.transaction_total/100) else 0 end)
+      ) as adjustments
+
+    FROM 
+      trans_excluded T
+    JOIN 
+      wpay_analytics.settlement_reference S 
+    ON 
+      upper(T.division) = upper(S.division)
+    group by 1,2,3,4,5,6,7,8,9,10,11
+  )
+  select 
+    *, 
+    concat(cast(settle_date as string),' ',payout_time_only) as payout_time,
+    FORMAT_DATE('%A', settle_date) AS weekday_name,
+    case when (settle_date < current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag 
+  from 
+    output_included
+  union all
+  select 
+    *, 
+    concat(cast(settle_date as string),' ',payout_time_only) as payout_time,
+    FORMAT_DATE('%A', settle_date) AS weekday_name,
+    case when (settle_date < current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag 
+  from 
+    output_excluded
+
+);
+
+create or replace view wpay_analytics.vw_wpay_payouts_all_merchants 
+as select * from wpay_analytics.wpay_payouts_all_merchants 
+;
+
+-------------------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------------------
