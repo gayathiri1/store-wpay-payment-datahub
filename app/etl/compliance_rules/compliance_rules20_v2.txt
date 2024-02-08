@@ -58,11 +58,14 @@ With Monthly As (
           Sys_Datetime as Datetime_Created					
    From Monthly m					
    Left Join Monthly p1 on p1.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p1.FirstOfMonth, INTERVAL 1 MONTH) 					
-             and p1.store_id = m.store_id and p1.site_name= m.site_name					
+             and p1.store_id = m.store_id and p1.site_name= m.site_name	
+             and p1.mcc_code = m.mcc_code				
    Left Join Monthly p2 on p2.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p2.FirstOfMonth, INTERVAL 2 MONTH)					
-             and p2.Store_id = m.Store_id and p2.site_name= m.site_name					
+             and p2.Store_id = m.Store_id and p2.site_name= m.site_name	
+             and p2.mcc_code = m.mcc_code				
    Left Join Monthly p3 on p3.Merchant = m.Merchant and m.FirstOfMonth = Date_Add(p3.FirstOfMonth, INTERVAL 3 MONTH)					
-             and p3.Store_id = m.Store_id and p3.site_name= m.site_name					
+             and p3.Store_id = m.Store_id and p3.site_name= m.site_name	
+             and p3.mcc_code = m.mcc_code				
    left join `pdh_ref_ds.ref_Compliance_Control_Table` rc1					
             on rc1.Rule_ID = 20				
             and rc1.Merchant = "Default"					
@@ -74,4 +77,3 @@ With Monthly As (
    Where m.FirstOfMonth >= RptStartDate and m.FirstOfMonth < EndDate;					
 					
 End if
-
