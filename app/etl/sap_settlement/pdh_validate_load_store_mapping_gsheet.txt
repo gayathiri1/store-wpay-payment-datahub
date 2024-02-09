@@ -28,7 +28,7 @@ end if;
 set duplicate_stores = 
         ARRAY(select upper(trim(wpay_store_number)) store_id
               from `pdh_ref_ds.ref_str_to_sap_customermapping_intermediate`
-              where upper(ifnull(scm.active_flag,"N")) <> "N" 
+              where upper(ifnull(active_flag,"N")) <> "N"
                 and ifnull(wpay_company_code,"") <> ""
               group by 1
               having count(*) > 1
