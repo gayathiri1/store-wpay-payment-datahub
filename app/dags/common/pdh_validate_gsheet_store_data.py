@@ -24,14 +24,14 @@ default_args = {
 logging.info("constructing dag - using airflow as owner")
 
 
-dag_name = "pdh_validate_gsheet_store_date"
+dag_name = "pdh_validate_gsheet_store_data"
 try:
-    control_table = Variable.get("validate_gsheet_store_date", deserialize_json=True)["control_table"]
+    control_table = Variable.get("validate_gsheet_store_data", deserialize_json=True)["control_table"]
     project_id = control_table.split(".")[0]
     if "PROD" in project_id.upper():
-        dag = DAG('pdh_validate_gsheet_store_date', catchup=False, default_args=default_args,schedule_interval= "45 03 * * *")
+        dag = DAG('pdh_validate_gsheet_store_data', catchup=False, default_args=default_args,schedule_interval= "45 03 * * *")
     else:
-        dag = DAG('pdh_validate_gsheet_store_date', catchup=False, default_args=default_args,schedule_interval= "00 14 * * *")
+        dag = DAG('pdh_validate_gsheet_store_data', catchup=False, default_args=default_args,schedule_interval= "00 14 * * *")
 except Exception as e:
     logging.info("Exception in setting DAG schedule:{}".format(e))
 
@@ -55,7 +55,7 @@ def get_project_id():
     """
     Get GCP project_id from airflow variable, which has been configured in control_table
     """
-    control_table = Variable.get("validate_gsheet_store_date", deserialize_json=True)["control_table"]
+    control_table = Variable.get("validate_gsheet_store_data", deserialize_json=True)["control_table"]
     project_id = control_table.split(".")[0]
     logger.debug(f"project_id ={project_id}")
     return project_id
@@ -74,13 +74,13 @@ topic_path = publisher.topic_path(project_id, topic_id)
 
 def readexecuteQuery(**kwargs):
 
-    bucket= Variable.get('validate_gsheet_store_date',deserialize_json=True)['bucket']
+    bucket= Variable.get('validate_gsheet_store_data',deserialize_json=True)['bucket']
     
-    query_file=Variable.get('validate_gsheet_store_date',deserialize_json=True)['files']
+    query_file=Variable.get('validate_gsheet_store_data',deserialize_json=True)['files']
     execTimeInAest = convertTimeZone(datetime.now(),"UTC","Australia/NSW")
     date_time=execTimeInAest.strftime("%Y-%m-%d %H:%M:%S")
-    environment= Variable.get('validate_gsheet_store_date',deserialize_json=True)['environment']
-    email_to = Variable.get("validate_gsheet_store_date", deserialize_json=True)['email_to']
+    environment= Variable.get('validate_gsheet_store_data',deserialize_json=True)['environment']
+    email_to = Variable.get("validate_gsheet_store_data", deserialize_json=True)['email_to']
     Successfull_execution =[]
     for i in query_file:
         storage_client = storage.Client()
@@ -97,7 +97,7 @@ def readexecuteQuery(**kwargs):
             Successfull_execution.append(i['query_file'])            
     logging.info("Length of Successfull_execution  {}".format(len(Successfull_execution)))    
     if len(Successfull_execution) > 0:        
-        event_message = "validate_gsheet_store_date queries were executed successfully in "+environment+": "+str(Successfull_execution) + " at " + execTimeInAest.strftime("%Y-%m-%d %H:%M:%S")
+        event_message = "validate_gsheet_store_data queries were executed successfully in "+environment+": "+str(Successfull_execution) + " at " + execTimeInAest.strftime("%Y-%m-%d %H:%M:%S")
         event = Event(
             dag_name=dag_name,
             event_status="success",
@@ -121,11 +121,11 @@ def processQuery(query,query_file,email,environment,date_time):
         logging.info("Exception Raised:{}".format(e))
         logging.info("email_to: {}".format(email))
         complete_exception = str(e)            
-        body_fail ="Exception raised while executing validate_gsheet_store_date queries "+query_file+":\n\n"+complete_exception
-        subject_fail ="Exception raised while executing validate_gsheet_store_date queries in "+environment+" "+date_time
+        body_fail ="Exception raised while executing validate_gsheet_store_data queries "+query_file+":\n\n"+complete_exception
+        subject_fail ="Exception raised while executing validate_gsheet_store_data queries in "+environment+" "+date_time
         logging.info("email body text: {} ".format(body_fail))
         pu.PDHUtils.send_email(email, subject_fail,body_fail)
-        event_message = "Exception raised while executing validate_gsheet_store_date queries "+query_file+":\n\n"+complete_exception
+        event_message = "Exception raised while executing validate_gsheet_store_data queries "+query_file+":\n\n"+complete_exception
         event = Event(
             dag_name=dag_name,
             event_status="failure",
