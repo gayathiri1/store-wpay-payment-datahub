@@ -1,0 +1,30 @@
+--20240207 -Validate and load Googlesheet for Store_details
+declare duplicate_stores ARRAY <string>;
+declare store_list string; 
+--delete Validate_Store 
+delete `pdh_analytics_ds.sap_missing_store_log`
+   Where create_by = "Validate_Store";
+--
+set duplicate_stores = 
+        ARRAY(select upper(trim(store_id)) store_id
+              from `pdh_ref_ds.ref_store_details_intermediate`
+              where is_closed = false
+              group by 1
+              having count(*) > 1
+            );
+set store_list = array_to_string(duplicate_stores,",");
+if ifnull(store_list,"") <> "" then
+--Add validate_Store entries for duplicate stores
+   insert into `pdh_analytics_ds.sap_missing_store_log`
+       (store_id,create_datetime,create_by,comment )
+     values(store_list,
+            current_datetime("Australia/Sydney"),
+           "Validate_Store",
+           "stores with duplicate records in store_details");
+  return;
+end if;
+--
+truncate table `pdh_ref_ds.ref_store_details`;
+insert pdh_ref_ds.ref_store_details
+    select * from pdh_ref_ds.ref_store_details_intermediate;
+

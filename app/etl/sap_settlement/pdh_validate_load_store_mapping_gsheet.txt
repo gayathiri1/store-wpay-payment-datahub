@@ -1,0 +1,50 @@
+declare duplicate_stores ARRAY <string>;
+declare store_list string; 
+--delete Validate_Store Entries
+delete `pdh_analytics_ds.sap_missing_store_log`
+   Where create_by = "Validate_Store_Mapping";
+--Add validate_Store entries for column change
+if exists(
+      select sc.ordinal_position,sc.column_name
+      from (Select ordinal_position,column_name,data_type
+            FROM pdh_ref_ds.INFORMATION_SCHEMA.COLUMNS 
+             WHERE table_name = "ref_str_to_sap_customermapping") s
+      full join (Select ordinal_position,column_name,data_type
+                 FROM pdh_ref_ds.INFORMATION_SCHEMA.COLUMNS 
+                 WHERE table_name = "ref_str_to_sap_customermapping_intermediate") sc
+     on s.ordinal_position = sc.ordinal_position
+     where ifnull(s.ordinal_position,0) <> ifnull(sc.ordinal_position,0) 
+        or s.column_name <> sc.column_name
+        or s.data_type   <> sc.data_type) then
+ --
+ --Add Missing Store Details Validate store
+   insert into `pdh_analytics_ds.sap_missing_store_log`
+       (create_datetime,create_by,comment )
+       values(current_datetime("Australia/Sydney"),
+              "Validate_Store_Mapping",
+              "column name changed in Store_Mapping Google Sheet");
+        return;
+end if; 
+set duplicate_stores = 
+        ARRAY(select upper(trim(wpay_store_number)) store_id
+              from `pdh_ref_ds.ref_str_to_sap_customermapping_intermediate`
+              where upper(ifnull(scm.active_flag,"N")) <> "N" 
+                and ifnull(wpay_company_code,"") <> ""
+              group by 1
+              having count(*) > 1
+            );
+set store_list = array_to_string(duplicate_stores,",");
+if ifnull(store_list,"") <> "" then
+--Add validate_Store entries for duplicate stores
+   insert into `pdh_analytics_ds.sap_missing_store_log`
+       (store_id,create_datetime,create_by,comment )
+     values(store_list,
+            current_datetime("Australia/Sydney"),
+           "Validate_Store_Mapping",
+           "stores with duplicate records in store Mapping");
+  return;
+end if;
+--
+truncate table `pdh_ref_ds.ref_str_to_sap_customermapping`;
+insert pdh_ref_ds.ref_str_to_sap_customermapping
+   select * from pdh_ref_ds.ref_str_to_sap_customermapping_intermediate;
