@@ -5,6 +5,28 @@ declare store_list string;
 delete `pdh_analytics_ds.sap_missing_store_log`
    Where create_by = "Validate_Store";
 --
+if exists(
+      select sc.ordinal_position,sc.column_name
+      from (Select ordinal_position,column_name,data_type
+            FROM pdh_ref_ds.INFORMATION_SCHEMA.COLUMNS 
+             WHERE table_name = "ref_store_details") s
+      full join (Select ordinal_position,column_name,data_type
+                 FROM pdh_ref_ds.INFORMATION_SCHEMA.COLUMNS 
+                 WHERE table_name = "ref_store_details_intermediate") sc
+     on s.ordinal_position = sc.ordinal_position
+     where ifnull(s.ordinal_position,0) <> ifnull(sc.ordinal_position,0) 
+        or s.column_name <> sc.column_name
+        or s.data_type   <> sc.data_type) then
+ --
+ --Add Missing Store Details Validate store
+   insert into `pdh_analytics_ds.sap_missing_store_log`
+       (create_datetime,create_by,comment )
+       values(current_datetime("Australia/Sydney"),
+              "Validate_Store_Mapping",
+              "column name or data type changed in Store_detail_gsheet");
+        return;
+end if; 
+
 set duplicate_stores = 
         ARRAY(select upper(trim(store_id)) store_id
               from `pdh_ref_ds.ref_store_details_intermediate`

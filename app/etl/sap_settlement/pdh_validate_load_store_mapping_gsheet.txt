@@ -22,7 +22,7 @@ if exists(
        (create_datetime,create_by,comment )
        values(current_datetime("Australia/Sydney"),
               "Validate_Store_Mapping",
-              "column name changed in Store_Mapping Google Sheet");
+              "column name or data type changed in Store_Mapping Google Sheet");
         return;
 end if; 
 set duplicate_stores = 
