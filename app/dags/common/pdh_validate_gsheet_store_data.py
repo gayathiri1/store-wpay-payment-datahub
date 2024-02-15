@@ -105,10 +105,10 @@ def readexecuteQuery(**kwargs):
             start_time=exec_time_aest,)
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
 
-    #calling alert functionality here.
-    err_res,err_rows = sendAlert(email_to,environment,date_time)
+    #calling is_gsheet_valid functionality here.
+    err_res,err_rows = is_gsheet_valid(email_to,environment,date_time)
     if err_res == True:
-        logging.info("**** Entries found in the sap_missing_store_log table ***")
+        logging.info("**** Entries found in the sap_missing_store_log table. ***")
         store_id_list, error_msg, issue_list = [], [], []
         res_issue_dict = {}
         #loop to get store ids and issue list from log table.
@@ -131,7 +131,7 @@ def readexecuteQuery(**kwargs):
                )
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
     else:
-        logging.info("**** No Entries found in the sap_missing_store_log table ***")
+        logging.info("**** No Entries found in the sap_missing_store_log table. ***")
     return True   
 	
 def processQuery(query,query_file,email,environment,date_time):
@@ -173,7 +173,8 @@ def convertTimeZone(dt, tz1, tz2):
     return dt
 
 
-def sendAlert(email,environment,date_time):
+def is_gsheet_valid(email,environment,date_time):
+    gsheet_status=True
     try:
         rows = " "
         client = bigquery.Client()
@@ -184,12 +185,14 @@ def sendAlert(email,environment,date_time):
                  .format(project_id)
         query_job = client.query(query)
         rows = query_job.result()
+        gsheet_status = True
         logging.info("Query executed inside sendAlert function")
-        return True,rows
+        return gsheet_status,rows
     except Exception as e:
         logging.info("Exception Raised:{}".format(e))
         logging.info("email_to: {}".format(email))
-        complete_exception = str(e)            
+        complete_exception = str(e)
+        gsheet_status = False           
         body_fail ="Exception raised while executing validate alert query "+query+":\n\n"+complete_exception
         subject_fail ="Exception raised while executing validate_gsheet_store_data queries in "+environment+" at "+date_time
         logging.info("email body text: {} ".format(body_fail))
@@ -201,8 +204,8 @@ def sendAlert(email,environment,date_time):
             event_message=event_message,
             start_time=exec_time_aest,
             )
-        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
-        return False,rows
+        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))        
+        return gsheet_status,rows
 
     
     
