@@ -104,7 +104,6 @@ def readexecuteQuery(**kwargs):
             event_message=event_message,
             start_time=exec_time_aest,)
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
-
     #calling alert functionality here.
     err_res,err_rows = sendAlert(email_to,environment,date_time)
     if err_res == True:
@@ -202,10 +201,9 @@ def sendAlert(email,environment,date_time):
             start_time=exec_time_aest,
             )
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
-        return False,rows
+        return False,rows  
+    
 
-    
-    
 
         
 
