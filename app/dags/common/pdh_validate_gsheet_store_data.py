@@ -104,6 +104,33 @@ def readexecuteQuery(**kwargs):
             event_message=event_message,
             start_time=exec_time_aest,)
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
+    #calling is_gsheet_valid functionality here.
+    err_res,err_rows = is_gsheet_valid(email_to,environment,date_time)
+    if err_res == True:
+        logging.info("**** Entries found in the sap_missing_store_log table. ***")
+        store_id_list, error_msg, issue_list = [], [], []
+        res_issue_dict = {}
+        #loop to get store ids and issue list from log table.
+        for qcount in err_rows:
+            store_id_list.append(qcount[1])
+            error_msg.append(qcount[3])
+        issue_list = [(key, value) for i, (key, value) in enumerate(zip(store_id_list, error_msg))]
+        res_issue_dict = dict(issue_list)
+        #send email with details.
+        body_issue ="Issue with the gsheets data for store_ids "+str(store_id_list)+":\n\n"+str(res_issue_dict)
+        subject_issue ="Issue with the gsheets data in "+environment+" at "+date_time
+        logging.info("email body text: {} ".format(body_issue))
+        pu.PDHUtils.send_email(email_to, subject_issue,body_issue)
+        event_message = "Issue with the gsheets data for store_ids "+str(store_id_list)+":\n\n"+str(res_issue_dict)
+        event = Event(
+            dag_name=dag_name,
+            event_status="gsheet_issue",
+            event_message=event_message,
+            start_time=exec_time_aest,
+               )
+        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
+    else:
+        logging.info("**** No Entries found in the sap_missing_store_log table. ***")
     return True   
 	
 def processQuery(query,query_file,email,environment,date_time):
@@ -142,7 +169,43 @@ def convertTimeZone(dt, tz1, tz2):
     tz1 = pytz.timezone(tz1)
     tz2 = pytz.timezone(tz2)
     dt = dt.astimezone(tz2)
-    return dt       
+    return dt
+
+
+def is_gsheet_valid(email,environment,date_time):    
+    try:
+        gsheet_status = True
+        rows = " "
+        client = bigquery.Client()
+        logging.info("executing sap_missing_store_log query")
+        query = """SELECT * FROM `{}.pdh_analytics_ds.sap_missing_store_log`\
+                   WHERE safe_cast(create_datetime as date) = current_date('Australia/Sydney')\
+                   AND create_by IN ('Validate_Store','Validate_Store_Mapping');"""\
+                 .format(project_id)
+        query_job = client.query(query)
+        rows = query_job.result()        
+        logging.info("Query executed inside sendAlert function")
+        return gsheet_status,rows
+    except Exception as e:
+        logging.info("Exception Raised:{}".format(e))
+        logging.info("email_to: {}".format(email))
+        complete_exception = str(e)
+        gsheet_status = False           
+        body_fail ="Exception raised while executing validate alert query "+query+":\n\n"+complete_exception
+        subject_fail ="Exception raised while executing validate_gsheet_store_data queries in "+environment+" at "+date_time
+        logging.info("email body text: {} ".format(body_fail))
+        pu.PDHUtils.send_email(email, subject_fail,body_fail)
+        event_message = "Exception raised while executing validate alert query "+query+":\n\n"+complete_exception
+        event = Event(
+            dag_name=dag_name,
+            event_status="failure",
+            event_message=event_message,
+            start_time=exec_time_aest,
+            )
+        publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))        
+        return gsheet_status,rows
+
+
         
 
        
