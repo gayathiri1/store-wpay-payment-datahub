@@ -42,7 +42,7 @@ if ifnull(store_list,"") <> "" then
      values(store_list,
             current_datetime("Australia/Sydney"),
            "Validate_Store",
-           "stores with duplicate records in store_details");
+           "stores with duplicate records in Merchant_Hierarchy google sheet");
   return;
 end if;
 --

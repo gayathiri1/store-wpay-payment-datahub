@@ -41,7 +41,7 @@ if ifnull(store_list,"") <> "" then
      values(store_list,
             current_datetime("Australia/Sydney"),
            "Validate_Store_Mapping",
-           "stores with duplicate records in store Mapping");
+           "stores with duplicate records in StoreToSAPCustomerMapping-PRD Google Sheet");
   return;
 end if;
 --

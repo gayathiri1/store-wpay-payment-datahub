@@ -184,18 +184,18 @@ def is_gsheet_valid(email,environment,date_time):
                  .format(project_id)
         query_job = client.query(query)
         rows = query_job.result()        
-        logging.info("Query executed inside sendAlert function")
+        logging.info("Query executed inside is_gsheet_valid function")
         return gsheet_status,rows
     except Exception as e:
         logging.info("Exception Raised:{}".format(e))
         logging.info("email_to: {}".format(email))
         complete_exception = str(e)
         gsheet_status = False           
-        body_fail ="Exception raised while executing validate alert query "+query+":\n\n"+complete_exception
+        body_fail ="Exception raised while executing validate is_gsheet_valid query "+query+":\n\n"+complete_exception
         subject_fail ="Exception raised while executing validate_gsheet_store_data queries in "+environment+" at "+date_time
         logging.info("email body text: {} ".format(body_fail))
         pu.PDHUtils.send_email(email, subject_fail,body_fail)
-        event_message = "Exception raised while executing validate alert query "+query+":\n\n"+complete_exception
+        event_message = "Exception raised while executing validate is_gsheet_valid query "+query+":\n\n"+complete_exception
         event = Event(
             dag_name=dag_name,
             event_status="failure",
