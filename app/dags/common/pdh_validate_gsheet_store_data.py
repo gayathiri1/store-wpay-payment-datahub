@@ -183,8 +183,7 @@ def is_gsheet_valid(email,environment,date_time):
                    AND create_by IN ('Validate_Store','Validate_Store_Mapping');"""\
                  .format(project_id)
         query_job = client.query(query)
-        rows = query_job.result()
-        gsheet_status = True
+        rows = query_job.result()        
         logging.info("Query executed inside sendAlert function")
         return gsheet_status,rows
     except Exception as e:
