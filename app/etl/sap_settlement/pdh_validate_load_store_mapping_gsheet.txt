@@ -19,10 +19,10 @@ if exists(
  --
  --Add Missing Store Details Validate store
    insert into `pdh_analytics_ds.sap_missing_store_log`
-       (create_datetime,create_by,comment )
-       values(current_datetime("Australia/Sydney"),
+       (store_id,create_datetime,create_by,comment )
+       values("Not Store Specific",current_datetime("Australia/Sydney"),
               "Validate_Store_Mapping",
-              "column name or data type changed in Store_Mapping Google Sheet");
+              "column name or data type changed in StoreToSAPCustomerMapping-PRD Google Sheet");
         return;
 end if; 
 set duplicate_stores = 
