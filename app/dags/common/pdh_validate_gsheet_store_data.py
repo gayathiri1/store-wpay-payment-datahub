@@ -172,9 +172,9 @@ def convertTimeZone(dt, tz1, tz2):
     return dt
 
 
-def is_gsheet_valid(email,environment,date_time):
-    gsheet_status=True
+def is_gsheet_valid(email,environment,date_time):    
     try:
+        gsheet_status = True
         rows = " "
         client = bigquery.Client()
         logging.info("executing sap_missing_store_log query")
