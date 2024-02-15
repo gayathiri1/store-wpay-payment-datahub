@@ -104,7 +104,6 @@ def readexecuteQuery(**kwargs):
             event_message=event_message,
             start_time=exec_time_aest,)
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
-
     #calling is_gsheet_valid functionality here.
     err_res,err_rows = is_gsheet_valid(email_to,environment,date_time)
     if err_res == True:
@@ -207,8 +206,6 @@ def is_gsheet_valid(email,environment,date_time):
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))        
         return gsheet_status,rows
 
-    
-    
 
         
 
