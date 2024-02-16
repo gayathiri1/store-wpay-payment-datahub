@@ -106,7 +106,7 @@ def readexecuteQuery(**kwargs):
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
     #calling is_gsheet_valid functionality here.
     err_res,err_rows = is_gsheet_valid(email_to,environment,date_time)
-    if err_res == True:
+    if err_res == True and err_rows.total_rows > 0:
         logging.info("**** Entries found in the sap_missing_store_log table. ***")
         store_id_list, error_msg, issue_list = [], [], []
         res_issue_dict = {}
