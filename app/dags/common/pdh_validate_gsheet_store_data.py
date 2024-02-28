@@ -74,13 +74,13 @@ topic_path = publisher.topic_path(project_id, topic_id)
 
 def readexecuteQuery(**kwargs):
 
-    bucket= Variable.get('validate_gsheet_store_data',deserialize_json=True)['bucket']
-    
+    bucket= Variable.get('validate_gsheet_store_data',deserialize_json=True)['bucket']    
     query_file=Variable.get('validate_gsheet_store_data',deserialize_json=True)['files']
     execTimeInAest = convertTimeZone(datetime.now(),"UTC","Australia/NSW")
     date_time=execTimeInAest.strftime("%Y-%m-%d %H:%M:%S")
     environment= Variable.get('validate_gsheet_store_data',deserialize_json=True)['environment']
     email_to = Variable.get("validate_gsheet_store_data", deserialize_json=True)['email_to']
+    validate_criteria = Variable.get("validate_gsheet_store_data", deserialize_json=True)['validate_criteria']
     Successfull_execution =[]
     for i in query_file:
         storage_client = storage.Client()
@@ -105,7 +105,7 @@ def readexecuteQuery(**kwargs):
             start_time=exec_time_aest,)
         publisher.publish(topic_path, data=json.dumps(asdict(event)).encode("utf-8"))
     #calling is_gsheet_valid functionality here.
-    err_res,err_rows = is_gsheet_valid(email_to,environment,date_time)
+    err_res,err_rows = is_gsheet_valid(email_to,environment,validate_criteria,date_time)
     if err_res == True and err_rows.total_rows > 0:
         logging.info("**** Entries found in the sap_missing_store_log table. ***")
         store_id_list, error_msg, issue_list = [], [], []
@@ -172,16 +172,25 @@ def convertTimeZone(dt, tz1, tz2):
     return dt
 
 
-def is_gsheet_valid(email,environment,date_time):    
+def is_gsheet_valid(email,environment,validate_criteria,date_time):    
     try:
         gsheet_status = True
         rows = " "
+        create_by_list = " "            
+        #Fetching the search criteria from airflow variable.
+        #Removing hardcoded condtional values.        
+        if len(validate_criteria) > 0:
+            validate_criteria = str(validate_criteria).replace('"',"")
+            create_by_list = validate_criteria[1:-1]
+        else:
+            create_by_list = "''"
+            
         client = bigquery.Client()
         logging.info("executing sap_missing_store_log query")
         query = """SELECT * FROM `{}.pdh_analytics_ds.sap_missing_store_log`\
                    WHERE safe_cast(create_datetime as date) = current_date('Australia/Sydney')\
-                   AND create_by IN ('Validate_Store','Validate_Store_Mapping');"""\
-                 .format(project_id)
+                   AND create_by IN ({});"""\
+                 .format(project_id,create_by_list)        
         query_job = client.query(query)
         rows = query_job.result()
         logging.info("Query executed inside is_gsheet_valid function")
