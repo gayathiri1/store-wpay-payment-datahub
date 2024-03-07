@@ -31,7 +31,7 @@ try:
     control_table = Variable.get("billing_engine_etl", deserialize_json=True)["control_table"]
     project_id = control_table.split(".")[0]
     if "PROD" in project_id.upper():
-        dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "00 09 * * *")
+        dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "30 08 * * *")
     else:
         dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "00 16 * * *")
 except Exception as e:
