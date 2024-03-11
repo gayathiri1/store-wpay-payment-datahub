@@ -170,11 +170,32 @@ FROM `temp_card_id` d
 LEFT JOIN `wpay_analytics.wpay_card_identity_model` cid
 ON d.card_id = cid.card_id;
 
+-- Update Card Ids, PAN Alias based on PAR/SCDRs
+UPDATE `wpay_analytics.wpay_card_identity_model`
+SET card_id = COALESCE('PAR'||NULLIF(TRIM(par),''),'SCDR'||scdr_token),
+	pan_alias = TO_BASE64(SHA256('SCDR'||scdr_token))
+WHERE NULLIF(TRIM(scdr_token),'') IS NOT NULL
+;
+
+-- Update PAR
+UPDATE `wpay_analytics.wpay_card_identity_model` c
+SET c.par = d.par
+FROM 
+(
+  SELECT DISTINCT scdr_token, par,card_id, pan_alias
+  FROM `wpay_analytics.wpay_card_identity_model`
+  WHERE par IS NOT NULL
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY scdr_token ) = 1
+) d
+WHERE c.scdr_token = d.scdr_token
+;
+
 -- Generate new pan aliases
 UPDATE `temp_pan_alias`
 SET pan_alias = TO_BASE64(SHA256(card_id))
 WHERE has_alias = 'N';
 
+/*
 -- Update missing PAN aliases
 UPDATE `wpay_analytics.wpay_card_identity_model` cid
 SET cid.pan_alias = d.pan_alias
@@ -192,6 +213,7 @@ AND known = 'Y'
 AND has_par = 'N'
 AND d.pymt_acct_ref IS NULL
 AND TRIM(d.pymt_acct_ref) <> "";
+*/
 
 -- Insert missing card IDs
 INSERT INTO `wpay_analytics.wpay_card_identity_model`
