@@ -55,7 +55,7 @@ with monthly as
   where
   (trans.calc_approval_flag = 'A' )
   and calc_card_type not in ('C','D','H','P','R')
-  and trans.switch_tran_date between DATE_SUB((DATE_TRUNC(trans.switch_tran_date, month)), INTERVAL 14 month) and current_Date()
+  and trans.switch_tran_date between DATE_SUB((DATE_TRUNC(trans.switch_tran_date, month)), INTERVAL 13 month) and current_Date()
 
   group by
   1,2,3,4,5,6,7,8,9,10,11,12
@@ -96,7 +96,7 @@ monthly_final as
   monthly_final
 
   where period between 
-    left(string(date_sub(current_date() , interval 14 month)), 7)
+    left(string(date_sub(current_date() , interval 13 month)), 7)
 
     and left(cast(current_date() as string),7)
 

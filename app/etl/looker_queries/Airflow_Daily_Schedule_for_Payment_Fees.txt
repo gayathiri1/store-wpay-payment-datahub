@@ -1,4 +1,3 @@
--- `wpay_analytics.vw_wpay_payment_fees_summary`
 
 create or replace table wpay_analytics.wpay_payment_fees_summary as (
 
@@ -17,7 +16,7 @@ from
     (
       select 
       "Weekly" as timeframe,
-      "Fiscal" as calendar_type,
+      "Retail" as calendar_type,
       -- "Null" transaction_date, 
       transaction_week period,
       transaction_week_start_date commencement_date,
@@ -55,6 +54,7 @@ from
       where trim(upper(approval_flag)) = "A"
       and transaction_date between
       date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`)  
+      --  -- or max_transaction_week_flag = "Y"
       group by transaction_week_start_date, transaction_date, transaction_week, fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
     )
 
@@ -64,7 +64,7 @@ from
     (
       select 
       "Weekly" as timeframe,
-      "Fiscal" as calendar_type,
+      "Retail" as calendar_type,
       -- "Null" transaction_date,
       transaction_week period,
       transaction_week_start_date commencement_date,
@@ -107,6 +107,8 @@ from
       and trim(upper(approval_flag)) = "A"
       and transaction_date between
       date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+     -- or max_transaction_week_flag = "Y"
+
       group by transaction_week_start_date,transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
     )
     , t3 
@@ -114,7 +116,7 @@ from
     (
       select 
       "Weekly" as timeframe,
-      "Fiscal" as calendar_type,
+      "Retail" as calendar_type,
       -- "Null" transaction_date,
       transaction_week period,
       transaction_week_start_date commencement_date,
@@ -155,6 +157,8 @@ from
       where trim(upper(approval_flag)) = "D"
       and transaction_date between
       date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+       -- or max_transaction_week_flag = "Y"
+
       group by transaction_week_start_date, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
     )
 
@@ -163,7 +167,7 @@ from
     (
       select 
       "Weekly" as timeframe,
-      "Fiscal" as calendar_type,
+      "Retail" as calendar_type,
       -- "Null" transaction_date,
       transaction_week period,
       transaction_week_start_date commencement_date,
@@ -205,6 +209,8 @@ from
       and trim(upper(approval_flag)) = "A"
       and transaction_date between
       date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+     -- or max_transaction_week_flag = "Y"
+
       group by transaction_week_start_date, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
     )
@@ -291,6 +297,8 @@ as
     where trim(upper(approval_flag)) = "A"
     and transaction_date between
     date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`)  
+           -- or max_transaction_week_flag = "Y"
+
     group by transaction_week_start_date, calendar_week, transaction_date, transaction_week, fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
   )
@@ -346,7 +354,9 @@ as
     where (upper(trim(tran_type_description)) in ('PURCHASE REVERSAL','REFUND', "CASHOUT REVERSAL", "PURCHASE WITH CASHOUT REVERSAL", "ACTIVATION")) 
     and trim(upper(approval_flag)) = "A"
     and transaction_date between
-    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`)
+           -- or max_transaction_week_flag = "Y"
+
     group by transaction_week_start_date, calendar_week, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
   )
@@ -398,7 +408,9 @@ as
     -- where transaction_date between "2023-07-01" and "2023-07-31" 
     where trim(upper(approval_flag)) = "D"
     and transaction_date between
-    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`)
+           -- or max_transaction_week_flag = "Y"
+ 
     group by  transaction_week_start_date, calendar_week, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group,merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
 
@@ -454,7 +466,9 @@ as
     where upper(trim(tran_type_description)) not in ('PURCHASE REVERSAL','REFUND', 'PRE-AUTH','PRE-AUTH REVERSAL', "CASHOUT REVERSAL", "PURCHASE WITH CASHOUT REVERSAL", "ACTIVATION")
     and trim(upper(approval_flag)) = "A"
     and transaction_date between
-    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 9 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`)
+           -- or max_transaction_week_flag = "Y"
+
     group by transaction_week_start_date, calendar_week, transaction_date, transaction_week,  fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
 
@@ -491,10 +505,10 @@ as
 
       select 
       "Monthly" as timeframe,
-      "Fiscal" as calendar_type,
+      "Retail" as calendar_type,
       -- concat(fp_start_date, " - ", fp_end_date) period,
       concat(format_date("%d %b", fp_start_date), " to ", format_date("%d %b", fp_end_date)) period,
-        fp_start_date commencement_date, 
+      fp_start_date commencement_date, 
 
       fee_indicator,
       company, 
@@ -545,11 +559,11 @@ as
       date_add(date_sub((select max(transaction_date) from(
       select * from 
       `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 7 month), interval 1 day) and (select max(transaction_date) from(
       select * from 
-      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
-
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
+     
+      -- or max_transaction_month_flag = "Y"
       group by  fp_start_date, fp_end_date, transaction_month_start_date , transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
     )
@@ -560,10 +574,10 @@ as
 
       select 
       "Monthly" as timeframe,
-      "Fiscal" as calendar_type,
+      "Retail" as calendar_type,
       --  concat(fp_start_date, " - ", fp_end_date) period, 
       concat(format_date("%d %b", fp_start_date), " to ", format_date("%d %b", fp_end_date)) period,
-        fp_start_date commencement_date, 
+      fp_start_date commencement_date, 
       fee_indicator,
       company, 
       invoice_group, 
@@ -613,11 +627,10 @@ as
       date_add(date_sub((select max(transaction_date) from(
       select * from 
       `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
+      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 7 month), interval 1 day) and (select max(transaction_date) from(
       select * from 
-      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
-
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
+-- or max_transaction_month_flag = "Y"
       group by  fp_start_date, fp_end_date, transaction_month_start_date , transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
   )
@@ -627,10 +640,10 @@ as
 
     select 
     "Monthly" as timeframe,
-    "Fiscal" as calendar_type,
+    "Retail" as calendar_type,
     --  concat(fp_start_date, " - ", fp_end_date) period,
     concat(format_date("%d %b", fp_start_date), " to ", format_date("%d %b", fp_end_date)) period,
-      fp_start_date commencement_date,   
+    fp_start_date commencement_date,   
     fee_indicator,
     company, 
     invoice_group, 
@@ -678,11 +691,10 @@ as
     date_add(date_sub((select max(transaction_date) from(
     select * from 
     `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
-    select * from 
-    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
-
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 7 month), interval 1 day) and (select max(transaction_date) from(
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
+-- or max_transaction_month_flag = "Y"
     group by  fp_start_date, fp_end_date, transaction_month_start_date , transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
 
@@ -693,10 +705,10 @@ as
 
     select 
     "Monthly" as timeframe,
-    "Fiscal" as calendar_type,
+    "Retail" as calendar_type,
     --  concat(fp_start_date, " - ", fp_end_date) period,
     concat(format_date("%d %b", fp_start_date), " to ", format_date("%d %b", fp_end_date)) period,
-      fp_start_date commencement_date,  
+    fp_start_date commencement_date,  
     fee_indicator,
     company, 
     invoice_group, 
@@ -745,11 +757,10 @@ as
     date_add(date_sub((select max(transaction_date) from(
     select * from 
     `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
-    select * from 
-    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
-
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 7 month), interval 1 day) and (select max(transaction_date) from(
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
+-- or max_transaction_month_flag = "Y"
     group by  fp_start_date, fp_end_date, transaction_month_start_date , transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
 
@@ -819,10 +830,9 @@ as
   select * from 
   `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
   WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
-  select * from 
-  `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-  WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
-
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
+-- or max_transaction_month_flag = "Y"
   group by transaction_month_start_date, clndr_date, transaction_month, transaction_date, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
   )
@@ -881,10 +891,9 @@ as
     select * from 
     `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
     WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
-    select * from 
-    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
-
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
+-- or max_transaction_month_flag = "Y"
     group by transaction_month_start_date, clndr_date, transaction_date, transaction_month, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
   )
@@ -939,10 +948,9 @@ as
     select * from 
     `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
     WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
-    select * from 
-    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
-
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
+-- or max_transaction_month_flag = "Y"
 
     group by transaction_month_start_date, clndr_date, transaction_date, transaction_month,  fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
@@ -1001,11 +1009,10 @@ as
     select * from 
     `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
     WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
-    select * from 
-    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+      select * from 
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
 
-
+-- or max_transaction_month_flag = "Y"
     group by transaction_month_start_date, clndr_date, transaction_date, transaction_month, fee_indicator, company, invoice_group, merchant_group, merchant_portal_mg, division, brand,store_id, site_name, scheme, scheme_card_type, approval_flag, tran_type_description,dom_int_ind
 
 
@@ -1056,21 +1063,54 @@ as
 
 create or replace table wpay_analytics.wpay_payment_fees_summary as(
 
-select *,
+select * ,
 
-case when (commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Fiscal")) then "max_month_retail"
-when (commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) then "max_month_calendar"
-when (commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly")) then "max_week"
-when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) then "min_month_calendar"
-when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Fiscal")) then "min_month_retail"
-when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Fiscal")) then "min_week_retail"
-when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Calendar")) then "min_week_calendar"
+case when (timeframe = "Monthly" and calendar_type = "Retail" and commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Retail")) then "max_month_retail"
 
-when (commencement_date = (select max(commencement_date) from(
+when (timeframe = "Monthly" and calendar_type = "Calendar" and commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) then "max_month_calendar"
+
+ 
+-- when (
+-- (commencement_date = (select max(commencement_date) from(
+-- select distinct commencement_date from wpay_analytics.wpay_payment_fees_summary 
+-- where timeframe = 'Monthly'
+-- and commencement_date <> (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary))
+
+-- ))
+-- and calendar_type = "Calendar"
+-- ) then "max_month_calendar"
+
+
+when
+(
+(commencement_date = (select max(commencement_date) from(
 select distinct commencement_date from wpay_analytics.wpay_payment_fees_summary 
 where timeframe = 'Weekly'
 and commencement_date <> (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary))
-)) then "table_week"
+
+))
+and calendar_type = "Retail"
+) then "max_week_fiscal"
+
+when
+(
+(commencement_date = (select max(commencement_date) from(
+select distinct commencement_date from wpay_analytics.wpay_payment_fees_summary 
+where timeframe = 'Weekly'
+and commencement_date <> (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary))
+
+))
+and calendar_type = "Calendar"
+) then "max_week_calendar"
+
+
+
+
+when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) then "min_month_calendar"
+when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Retail")) then "min_month_retail"
+when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Retail")) then "min_week_retail"
+when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Calendar")) then "min_week_calendar"
+
 
 else "null"
 end as max_flag
@@ -1078,5 +1118,9 @@ end as max_flag
 from wpay_analytics.wpay_payment_fees_summary
 
 
-)
+);
 
+create or replace view `wpay_analytics.vw_wpay_payment_fees_summary`
+as (
+  select * from wpay_analytics.wpay_payment_fees_summary
+)
