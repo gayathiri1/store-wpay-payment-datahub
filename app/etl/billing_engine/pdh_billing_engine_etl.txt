@@ -365,27 +365,7 @@ dn.scheme,
 trim(t.tran_type) tran_type_desc,
 trim(t.abbr) tran_type_abbr,
 IFNULL(trim(r.approval_flag), "N") approval_flag,
-case trim(proc_id_iss_b) 
-when 'AMEX' then 'AMEX'
-when 'EHB' then 'EFTPOS'
-when 'FDF' then 'FUEL CARDS'
-when 'FDI' then
-	if(trim(dn.issuer_institution_id) in ('060092425', '060092426', '060092427', '060092428'), 'UPI', 'DINERS')
-when 'RED' then 'GIFT CARDS'
-when 'ANZ' then
-	if(trim(dn.issuer_institution_id) ='056025433' or trim(dn.issuer_institution_id) = '056025434'or trim(dn.issuer_institution_id) =  '056025435'
-		or trim(dn.issuer_institution_id) = '056025436'or trim(dn.issuer_institution_id) =  '056025437'
-		or trim(dn.issuer_institution_id) = '056025438'or trim(dn.issuer_institution_id) =  '056025439' 
-		or trim(dn.issuer_institution_id) = '056025440'or trim(dn.issuer_institution_id) =  '83990554161'
-		or trim(dn.issuer_institution_id) = '83990554162'or trim(dn.issuer_institution_id) =  '83990554163'
-		or trim(dn.issuer_institution_id) = '83990554164',  'UPI' ,
-	if(t.account='CRD' ,'CRD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT')) )
-when 'FIS' then 'CRD'
-when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','VISA'))
-when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','MASTERCARD'))
-when 'VER' then  'VERIFONE'
-else proc_id_iss_b
-end link_route,
+`pdh_ref_ds.get_scheme_v2`(dn.proc_id_iss_b, dn.issuer_institution_id, t.account) link_route,
 msw.reporting_group merchant_group,
 s.ratecard_group rate_group,
 c.cur_symbol currency_code,
@@ -480,27 +460,7 @@ dn.scheme,
 trim(t.tran_type) tran_type_desc,
 trim(t.abbr) tran_type_abbr,
 IFNULL(trim(r.approval_flag), "N") approval_flag,
-case trim(proc_id_iss_b) 
-when 'AMEX' then 'AMEX'
-when 'EHB' then 'EFTPOS'
-when 'FDF' then 'FUEL CARDS'
-when 'FDI' then
-    if(trim(dn.issuer_institution_id) in ('060092425', '060092426', '060092427', '060092428'), 'UPI', 'DINERS')
-when 'RED' then 'GIFT CARDS'
-when 'ANZ' then
-    if(trim(dn.issuer_institution_id) ='056025433' or trim(dn.issuer_institution_id) = '056025434'or trim(dn.issuer_institution_id) =  '056025435'
-        or trim(dn.issuer_institution_id) = '056025436'or trim(dn.issuer_institution_id) =  '056025437'
-        or trim(dn.issuer_institution_id) = '056025438'or trim(dn.issuer_institution_id) =  '056025439' 
-        or trim(dn.issuer_institution_id) = '056025440'or trim(dn.issuer_institution_id) =  '83990554161'
-        or trim(dn.issuer_institution_id) = '83990554162'or trim(dn.issuer_institution_id) =  '83990554163'
-        or trim(dn.issuer_institution_id) = '83990554164',  'UPI' ,
-    if(t.account='CRD' ,'CRD', if(t.account='SAV' or t.account='CHQ','EFTPOS','DBT')) )
-when 'FIS' then 'CRD'
-when 'VDCS' then if(t.account='CRD' ,'VISA', if(t.account='SAV' or t.account='CHQ','EFTPOS','VISA'))
-when 'MC' then if(t.account='CRD' ,'MASTERCARD', if(t.account='SAV' or t.account='CHQ','EFTPOS','MASTERCARD'))
-when 'VER' then 'VERIFONE'
-else proc_id_iss_b
-end link_route,
+pdh_ref_ds.get_scheme_v2(dn.proc_id_iss_b, dn.issuer_institution_id, t.account) link_route,
 msw.reporting_group merchant_group,
 s.ratecard_group rate_group,
 c.cur_symbol currency_code,
@@ -1231,22 +1191,7 @@ SELECT
         when 'ALIPAY' then 'ALIPAY'
         else ''
     end calc_scheme,
-    case link_route
-        when 'AMEX' THEN 'CREDIT'
-        when 'DINERS' then 'CREDIT'
-        when 'VISA' Then if (trim(card_type)='C' or trim(card_type)='R' or trim(card_type)='H' ,'CREDIT',if(trim(card_type)='P'or trim(card_type)='D' , 'DEBIT',''))
-        when 'MASTERCARD' Then if (trim(card_type)='C' or trim(card_type)='R' or trim(card_type)='H' ,'CREDIT',if(trim(card_type)='P'or trim(card_type)='D' , 'DEBIT',''))
-        when 'FUEL CARDS' then 'DEBIT'
-        when 'GIFT CARDS' then 'DEBIT'
-        when 'EFTPOS' then IF(TRIM(bin_product_code) <> '', bin_product_code, 'MULTI-NETWORK')
-        when 'UPI' then 'CREDIT'
-        when 'CRD' then 'CREDIT'
-        when 'DBT' then 'DEBIT'
-		when 'VERIFONE' then 'DEBIT'
-        when 'PAYPAL' then 'OTHER'
-        when 'ALIPAY' then 'OTHER'
-        else if (trim(card_type) IN ('C', 'H', 'R') ,'CREDIT',if(trim(card_type) IN ('D','P') , 'DEBIT', card_type))
-    end calc_card_type,
+	`pdh_ref_ds.get_card_type`(link_route, card_type, bin_product_code) calc_card_type,
     from `pdh_staging_ds.tbl_temp_billing_all` dn;
 
 -- MISSING CARD TYPE CHECKS
@@ -1460,17 +1405,7 @@ SELECT
 	d.item_token,
 	d.schemeName,
 	d.qc_CardNumber,
-    pdh_ref_ds.get_card_id(
-        source_application,
-        d.pymt_acct_ref,
-        d.scdr_token,
-        d.customerRef,
-        d.userId,
-        d.containerId,
-        d.itemId,
-        d.qc_CardNumber,
-        d.masked_pan
-    ) card_id,
+	COALESCE('PAR'||NULLIF(TRIM(d.pymt_acct_ref),''),'SCDR'||d.scdr_token) card_id,
 	-- ADDITIONAL PRICING MODEL FIELDS
 	cc.pricing_model,
 	case

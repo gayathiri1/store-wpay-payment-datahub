@@ -1,0 +1,89 @@
+create or replace table `wpay_analytics.wpay_all_merchants_daily_fees_summary`
+as(
+
+with monthly as(
+select 
+"Monthly" timeframe,
+
+case when max_transaction_month_flag = "Y" then "Month to date" 
+else left(string(transaction_date), 7) end as period,
+company,
+merchant_group,
+invoice_group,
+tran_type_description,
+case when approval_flag = "A" then "Approved" when approval_flag = "D" then "Declined" else
+approval_flag end as approval_flag,
+scheme,
+scheme_card_type,
+merchant_portal_mg,
+transaction_count,
+transaction_amount,
+settlement_amount_inc_gst,
+interchange_fees_invoiced_ex_gst,
+processing_fees_ex_gst,
+interchange_fees_tran_count,
+processing_fees_tran_count
+
+from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary` 
+where 1=1
+
+and transaction_date between
+    date_add(date_sub((select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 3 month), interval 1 day) and (select max(transaction_date) from(
+    select * from 
+    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+
+or max_transaction_month_flag = "Y"
+
+
+)
+
+, weekly as(
+
+select 
+"Weekly" timeframe,
+
+case when max_transaction_week_flag = "Y" then "Week to date"
+else transaction_week end as period,
+company,
+merchant_group,
+invoice_group,
+tran_type_description,
+case when approval_flag = "A" then "Approved" when approval_flag = "D" then "Declined" else
+approval_flag end as approval_flag,
+scheme,
+scheme_card_type,
+merchant_portal_mg,
+transaction_count,
+transaction_amount,
+settlement_amount_inc_gst,
+interchange_fees_invoiced_ex_gst,
+processing_fees_ex_gst,
+interchange_fees_tran_count,
+processing_fees_tran_count
+
+from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary` 
+where 1=1
+
+and transaction_date between
+    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 12 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+    
+
+or max_transaction_week_flag = "Y"
+
+
+
+)
+
+select * from monthly
+union all
+select * from weekly
+);
+
+create or replace view wpay_analytics.vw_wpay_fee_statement_report as(
+select * from `wpay_analytics.wpay_all_merchants_daily_fees_summary`
+);
+
