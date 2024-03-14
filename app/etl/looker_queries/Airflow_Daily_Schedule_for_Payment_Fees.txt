@@ -1,4 +1,3 @@
-
 create or replace table wpay_analytics.wpay_payment_fees_summary as (
 
 select 
@@ -559,7 +558,7 @@ as
       date_add(date_sub((select max(transaction_date) from(
       select * from 
       `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 7 month), interval 1 day) and (select max(transaction_date) from(
+      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
       select * from 
       `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
      
@@ -627,7 +626,7 @@ as
       date_add(date_sub((select max(transaction_date) from(
       select * from 
       `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 7 month), interval 1 day) and (select max(transaction_date) from(
+      WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
       select * from 
       `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
 -- or max_transaction_month_flag = "Y"
@@ -691,7 +690,7 @@ as
     date_add(date_sub((select max(transaction_date) from(
     select * from 
     `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 7 month), interval 1 day) and (select max(transaction_date) from(
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
       select * from 
       `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
 -- or max_transaction_month_flag = "Y"
@@ -757,7 +756,7 @@ as
     date_add(date_sub((select max(transaction_date) from(
     select * from 
     `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 7 month), interval 1 day) and (select max(transaction_date) from(
+    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(transaction_date) from(
       select * from 
       `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`))
 -- or max_transaction_month_flag = "Y"
@@ -1065,21 +1064,11 @@ create or replace table wpay_analytics.wpay_payment_fees_summary as(
 
 select * ,
 
-case when (timeframe = "Monthly" and calendar_type = "Retail" and commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Retail")) then "max_month_retail"
+case when ((timeframe = "Monthly" and calendar_type = "Retail" and commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Retail")) and timeframe = "Monthly" and calendar_type = "Retail") then "max_month_retail"
 
-when (timeframe = "Monthly" and calendar_type = "Calendar" and commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) then "max_month_calendar"
+when ((timeframe = "Monthly" and calendar_type = "Calendar" and commencement_date = (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) and timeframe = "Monthly" and calendar_type = "Calendar") then "max_month_calendar"
 
  
--- when (
--- (commencement_date = (select max(commencement_date) from(
--- select distinct commencement_date from wpay_analytics.wpay_payment_fees_summary 
--- where timeframe = 'Monthly'
--- and commencement_date <> (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary))
-
--- ))
--- and calendar_type = "Calendar"
--- ) then "max_month_calendar"
-
 
 when
 (
@@ -1089,6 +1078,7 @@ where timeframe = 'Weekly'
 and commencement_date <> (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary))
 
 ))
+and timeframe = "Weekly"
 and calendar_type = "Retail"
 ) then "max_week_fiscal"
 
@@ -1100,16 +1090,17 @@ where timeframe = 'Weekly'
 and commencement_date <> (select max(commencement_date) from wpay_analytics.wpay_payment_fees_summary))
 
 ))
+and timeframe = "Weekly"
 and calendar_type = "Calendar"
 ) then "max_week_calendar"
 
 
 
 
-when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) then "min_month_calendar"
-when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Retail")) then "min_month_retail"
-when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Retail")) then "min_week_retail"
-when (commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Calendar")) then "min_week_calendar"
+when ((commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Calendar")) and timeframe = "Monthly" and calendar_type = "Calendar") then "min_month_calendar"
+when ((commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Monthly" and calendar_type = "Retail")) and timeframe = "Monthly" and calendar_type = "Retail") then "min_month_retail"
+when ((commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Retail")) and timeframe = "Weekly" and calendar_type = "Retail") then "min_week_retail"
+when ((commencement_date = (select min(commencement_date) from wpay_analytics.wpay_payment_fees_summary where timeframe = "Weekly" and calendar_type = "Calendar")) and timeframe = "Weekly" and calendar_type = "Calendar") then "min_week_calendar"
 
 
 else "null"
