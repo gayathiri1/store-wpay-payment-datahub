@@ -29,6 +29,7 @@
 --20231122 Enable order_number fron EDW text after CNPW in txn_desc
 --20231201 Get Order_number from Gravy if available
 --20240112 limit Gravy order number to non Metro pic
+--20240328 Activate cancelled for QC, Use function get_scheme_v2 
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default format_date("%Y-%m-%d",sys_date);
 declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
@@ -132,7 +133,8 @@ QCTran as (
                      else qct.invoicenumber
                   end as invoicenumber, --9
                   abs(ifnull(qct.amount_transacting_merchants_currency_or_points,0))
-                        * tt.settlement_factor trans_amt, --10
+                        * tt.settlement_factor
+                        * if(upper(trim(qct.transactionstatus)) = "CANCELLED",-1,1) trans_amt, --10
                   0 as discount_amt, --11
                   0 as surcharge_amt, --12
                   0 as tip_amt, --13,
@@ -180,7 +182,7 @@ join `pdh_ref_ds.ref_transaction_type_settlement_factor` tt
                            and upper(qct.Issuer) = "WPAY NEW ZEALAND LIMITED" then "WPAYNZ"
                           else ""
                        end)
-         where upper(trim(qct.transactionstatus)) =  "SUCCESS"
+         where upper(trim(qct.transactionstatus)) in ("CANCELLED","SUCCESS")
            and qct.amount_transacting_merchants_currency_or_points <> 0
            and upper(replace(qct.issuer," ",""))  not like  "%MARLEYSPOON%" --Exclude Marley Spoon
            and `pdh_ref_ds.trans_in_stlm_window`(
@@ -597,10 +599,10 @@ left join (select * from Gravy_seq where seq = 1) Gravy_chk
         case 
           when strpos(upper(trim(ifnull(scm.exclude__issuers,""))),
                        case
-                          when ifnull(pdh_ref_ds.get_scheme(dn.proc_id_iss_b,
-                                 dn.inst_id_recon_iss),"") = "" then "NONE"
-                          else upper(trim(pdh_ref_ds.get_scheme(dn.proc_id_iss_b,
-                                 dn.inst_id_recon_iss)))
+                          when ifnull(pdh_ref_ds.get_scheme_v2(dn.proc_id_iss_b,
+                                         dn.issuer_institution_id,""),"") = "" then "NONE"
+                          else upper(trim(pdh_ref_ds.get_scheme_v2(dn.proc_id_iss_b,
+                                         dn.issuer_institution_id,"")))
                        end) = 0 then cast(null as string)
           else "Excluded"
        end as setlmnt_result_file, --6

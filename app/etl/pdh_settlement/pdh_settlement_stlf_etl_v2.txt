@@ -19,6 +19,7 @@
 --20231030 update the logic of stlm_cofig for stlm version 3 parallel version - Ray M
 --20231106 Include/Exclude Excluded trans by configuration (DATPAY-3839)
 --20231201 Remove GR4vy coding
+--20240402 use function get_scheme_v2
 DECLARE inp_lookup STRING DEFAULT "EG Settlement";
 DECLARE batch string;
 DECLARE nullstr string;
@@ -507,8 +508,8 @@ set batch_end_yyyy_mm_dd_hh_mm_ss_1 = datetime_add(batch_end_yyyy_mm_dd_hh_mm_ss
                    dn.purchase_total * 0.01 as sale_amt,
                    dn.cashout_total * 0.01 as cashout_amt,
                    upper(trim(ifnull(ds.description,t.abbr))) as transactiontype,
-                   pdh_ref_ds.get_scheme(dn.proc_id_iss_b,
-                                         dn.inst_id_recon_iss) scheme,
+                   pdh_ref_ds.get_scheme_v2(dn.proc_id_iss_b,
+                                         dn.issuer_institution_id,"") scheme,
                    cast(null as string) as card_type,
                    cast(null as string) as card_subtype,
                    st5.posting_date as settlement_date,

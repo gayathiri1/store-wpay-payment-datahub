@@ -31,7 +31,7 @@ try:
     if "PROD" in project_id.upper():
         dag = DAG('pdh_looker_queries', catchup=False, default_args=default_args,schedule_interval= "00 22 * * *")
     else:
-        dag = DAG('pdh_looker_queries', catchup=False, default_args=default_args,schedule_interval= "00 17 * * *")
+        dag = DAG('pdh_looker_queries', catchup=False, default_args=default_args,schedule_interval= "00 20 * * *")
 except Exception as e:
     logging.info("Exception in setting DAG schedule:{}".format(e))
 

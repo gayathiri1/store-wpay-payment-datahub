@@ -1,6 +1,7 @@
 
 truncate table pdh_analytics_ds.visa_cyber_fee_analysis_rpt ;
 insert into pdh_analytics_ds.visa_cyber_fee_analysis_rpt  
+
 														  
 SELECT
   i.file_date AS file_date,
@@ -50,8 +51,8 @@ SELECT
 FROM  pdh_rd_data_navigator.isg_wpay_tran i
     left JOIN (  
     SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM (SELECT DISTINCT pdh_load_time, interchange_fee_atm, txn_id, txn_code_of_fin_txn, samt FROM pdh_rd_data_navigator.tc33_visa) v) s  
-  ON   cast(i.tran_uid as string) = CAST(s.txn_id AS STRING)
-and ( (i.transaction_type = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.transaction_type = 'REFUND' and s.txn_code_of_fin_txn = '06') )
+  ON   upper(cast(i.tran_uid as string)) =upper( CAST(s.txn_id AS STRING))
+and ( (upper(i.transaction_type) = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (upper(i.transaction_type) = 'REFUND' and s.txn_code_of_fin_txn = '06') )
 and i.transaction_amount = s.samt and s.rank=1 and
    ( case 
       when transaction_approval_status is null then 'Y'
@@ -62,7 +63,7 @@ and i.transaction_amount = s.samt and s.rank=1 and
 LEFT JOIN
   `pdh_ref_ds.ref_store_details` ref_store_details
 ON
-  ref_store_details.store_id = LEFT(i.terminal_id,5)
+  upper(ref_store_details.store_id) = Upper(LEFT(i.terminal_id,5))
   
 LEFT JOIN
   `pdh_ref_ds.ref_rate_card` ref_rate_card
@@ -74,4 +75,4 @@ ON
    BETWEEN ref_rate_card.from_date  AND IFNULL(ref_rate_card.to_date, '2999-12-31')
   AND UPPER(ref_rate_card.scheme) = "VISA"
 
-  Where  i.scheme ="VISA"
+  Where  upper(i.scheme) ="VISA"

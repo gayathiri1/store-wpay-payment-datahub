@@ -1,0 +1,100 @@
+
+create or replace table `wpay_analytics.wpay_customer_behaviour` as
+
+(
+
+ with base_tbl as(
+
+select 
+  curr.*,
+  prev.w_cust_beh_cust_total w_cust_beh_cust_total_LM,
+  prev.w_cust_beh_once_off_cust w_cust_beh_once_off_cust_LM,
+  prev.w_cust_beh_repeat_cust w_cust_beh_repeat_cust_LM,
+  prev.w_cust_beh_once_off_amount w_cust_beh_once_off_amount_LM,
+  prev.w_cust_beh_repeat_amount w_cust_beh_repeat_amount_LM,
+  prev.w_cust_beh_once_off_count w_cust_beh_once_off_count_LM,
+  prev.w_cust_beh_repeat_count w_cust_beh_repeat_count_LM,
+  prev.w_cust_beh_new_cust w_cust_beh_new_cust_LM,
+  prev.w_cust_beh_returning_cust w_cust_beh_returning_cust_LM,
+  prev.w_cust_beh_new_amount w_cust_beh_new_amount_LM,
+  prev.w_cust_beh_returning_amount w_cust_beh_returning_amount_LM,
+  prev.w_cust_beh_new_count w_cust_beh_new_count_LM,
+  prev.w_cust_beh_returning_count w_cust_beh_returning_count_LM,
+  prev.w_cust_beh_online_cust w_cust_beh_online_cust_LM,
+  prev.w_cust_beh_in_store_cust w_cust_beh_in_store_cust_LM,
+  prev.w_cust_beh_cross_channel_cust w_cust_beh_cross_channel_cust_LM,
+  prev.w_cust_beh_online_amount w_cust_beh_online_amount_LM,
+  prev.w_cust_beh_in_store_amount w_cust_beh_in_store_amount_LM,
+  prev.w_cust_beh_cross_channel_amount w_cust_beh_cross_channel_amount_LM,
+  prev.w_cust_beh_online_count w_cust_beh_online_count_LM,
+  prev.w_cust_beh_in_store_count w_cust_beh_in_store_count_LM,
+  prev.w_cust_beh_cross_channel_count w_cust_beh_cross_channel_count_LM
+from 
+  wpay_analytics.wpay_all_merchants_performance_metrics curr
+left join 
+  wpay_analytics.wpay_all_merchants_performance_metrics prev
+on
+  curr.Aggregation_Level = prev.Aggregation_Level
+  and curr.Benchmark_lvl = prev.Benchmark_lvl
+  and curr.Benchmark = prev.Benchmark
+  and curr.Benchmark_Location = prev.Benchmark_Location
+  and curr.store_status = prev.store_status
+  and curr.is_online = prev.is_online
+  and curr.scheme = prev.scheme
+  and curr.card_type = prev.card_type
+  and curr.brand = prev.brand
+  and curr.store_id = prev.store_id
+  and left(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),4) = cast(prev.Year as string)
+  and substring(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),6,2)  = prev.Month
+
+
+ )
+ 
+ 
+ , cardholders_view as (
+  
+  select *, "Cardholders" Metric, w_cust_beh_online_cust online_channel_value, w_cust_beh_in_store_cust instore_channel_value, w_cust_beh_cross_channel_cust cross_shop_channel_value
+          , w_cust_beh_once_off_cust once_off_loyalty_value  , w_cust_beh_repeat_cust repeat_loyalty_value
+          , w_cust_beh_new_cust new_cutomer_value , w_cust_beh_returning_cust returning_customer_value
+
+          ,w_cust_beh_online_cust_LM online_channel_value_LM, w_cust_beh_in_store_cust_LM instore_channel_value_LM, w_cust_beh_cross_channel_cust_LM cross_shop_channel_value_LM
+          , w_cust_beh_once_off_cust_LM once_off_loyalty_value_LM  , w_cust_beh_repeat_cust_LM repeat_loyalty_value_LM
+          , w_cust_beh_new_cust_LM new_cutomer_value_LM , w_cust_beh_returning_cust_LM returning_customer_value_LM
+
+          
+
+  from base_tbl 
+
+ where date(concat(period,'-01')) between date_sub(date(concat( (select max(period) from pdh_rd_external.mmi_area_industry), "-01" )), interval 5 month)
+and date(concat( (select max(period) from pdh_rd_external.mmi_area_industry), "-01" ))
+
+)
+
+, sales_view as (
+
+ select *,  "Sales" Metric,  w_cust_beh_online_amount online_channel_value, w_cust_beh_in_store_amount instore_channel_value, w_cust_beh_cross_channel_amount cross_shop_channel_value
+          , w_cust_beh_once_off_amount once_off_loyalty_value  , w_cust_beh_repeat_amount repeat_loyalty_value
+          , w_cust_beh_new_amount new_cutomer_value , w_cust_beh_returning_amount returning_customer_value 
+
+          , w_cust_beh_online_amount_LM online_channel_value_LM, w_cust_beh_in_store_amount_LM instore_channel_value_LM, w_cust_beh_cross_channel_amount_LM cross_shop_channel_value_LM
+          , w_cust_beh_once_off_amount_LM once_off_loyalty_value_LM  , w_cust_beh_repeat_amount_LM repeat_loyalty_value_LM
+          , w_cust_beh_new_amount_LM new_cutomer_value_LM , w_cust_beh_returning_amount_LM returning_customer_value_LM
+
+ from base_tbl 
+
+ where date(concat(period,'-01')) between date_sub(date(concat( (select max(period) from pdh_rd_external.mmi_area_industry), "-01" )), interval 5 month)
+and date(concat( (select max(period) from pdh_rd_external.mmi_area_industry), "-01" ))
+
+)
+
+
+select * from cardholders_view
+union all
+select * from sales_view
+
+);
+
+create or replace view `wpay_analytics.vw_wpay_customer_behaviour` as (
+select * from `wpay_analytics.wpay_customer_behaviour`
+
+)

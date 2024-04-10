@@ -1,0 +1,30 @@
+create or replace table `wpay_analytics.wpay_business_performance` as
+
+(
+
+with sales_view as(
+select *,  "Sales" Metric,  w_trans_amount value from `wpay_analytics.wpay_all_merchants_performance_metrics` 
+
+where date(concat(period,'-01')) between date_sub(date(concat( (select max(period) from pdh_rd_external.mmi_area_industry), "-01" )), interval 12 month)
+and date(concat( (select max(period) from pdh_rd_external.mmi_area_industry), "-01" ))
+
+)
+
+, variance_view as(
+select *,  "Variance" Metric,  ((w_trans_amount) - (w_trans_amount_LM)) value from `wpay_analytics.wpay_all_merchants_performance_metrics` 
+
+where date(concat(period,'-01')) between date_sub(date(concat( (select max(period) from pdh_rd_external.mmi_area_industry), "-01" )), interval 12 month)
+and date(concat( (select max(period) from pdh_rd_external.mmi_area_industry), "-01" ))
+)
+
+
+select * from sales_view
+union all
+select * from variance_view
+
+);
+
+create or replace view `wpay_analytics.vw_wpay_business_performance` as(
+select *, case when period = (select max(period) from `wpay_analytics.wpay_business_performance`) then "reporting_month" else null end as reporting_flag from `wpay_analytics.wpay_business_performance`
+
+);
