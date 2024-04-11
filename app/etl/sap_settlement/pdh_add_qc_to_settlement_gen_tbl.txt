@@ -133,8 +133,7 @@ QCTran as (
                      else qct.invoicenumber
                   end as invoicenumber, --9
                   abs(ifnull(qct.amount_transacting_merchants_currency_or_points,0))
-                        * tt.settlement_factor
-                        * if(upper(trim(qct.transactionstatus)) = "CANCELLED",-1,1) trans_amt, --10
+                        * tt.settlement_factor trans_amt, --10
                   0 as discount_amt, --11
                   0 as surcharge_amt, --12
                   0 as tip_amt, --13,
