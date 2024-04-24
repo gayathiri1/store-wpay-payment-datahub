@@ -87,7 +87,7 @@ t.Channels_T3,
 Txn.*
 from sales_txn txn  
 LEFT JOIN 
-pdh_ref_ds.gc_sales_channel_hierarchy as t
+pdh_ref_ds.ref_gc_sales_channel_hierarchy as t
 on Txn.Sales_Merchant = t.Merchant
 ;
 
