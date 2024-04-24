@@ -1854,18 +1854,18 @@ and i.approval_flag = 'Y';
 
 --ISG UPDATE FOR VISA
 
-Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
+UPDATE `pdh_analytics_ds.tbl_fees_all` i
+SET interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
 i.fee_indicator = 'A'
-from (SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM (SELECT DISTINCT pdh_load_time, interchange_fee_atm, txn_id, txn_code_of_fin_txn, samt FROM `pdh_rd_data_navigator.tc33_visa`) v) s
-where i.adtnl_response_data = CAST(s.txn_id AS STRING)
+FROM (SELECT txn_code_of_fin_txn, samt, term_id, an, MIN(interchange_fee_atm) interchange_fee_atm FROM `pdh_rd_data_navigator.tc33_visa` WHERE file_date >= (start_date - 1)
+GROUP BY 1,2,3,4) s
+WHERE i.net_term_id = s.term_id
+AND i.masked_pan = s.an
 and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
 and i.amt_recon_net = s.samt
 and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
-and s.rank = 1
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and i.approval_flag = 'Y';
-
 
 --ISG UPDATE FOR MC
 
@@ -2034,17 +2034,17 @@ and i.approval_flag = 'Y';
 --ISG UPDATE FOR VISA
 
 Update `wpay_analytics.wpay_billing_engine_tran_dtl` i
-set interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
+SET interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
 i.fee_indicator = 'A'
-from (SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM (SELECT DISTINCT pdh_load_time, interchange_fee_atm, txn_id, txn_code_of_fin_txn, samt FROM `pdh_rd_data_navigator.tc33_visa`) v) s
-where i.adtnl_response_data = CAST(s.txn_id AS STRING)
+FROM (SELECT txn_code_of_fin_txn, samt, term_id, an, MIN(interchange_fee_atm) interchange_fee_atm FROM `pdh_rd_data_navigator.tc33_visa` WHERE file_date >= (start_date - 1)
+GROUP BY 1,2,3,4) s
+WHERE i.net_term_id = s.term_id
+AND i.masked_pan = s.an
 and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
 and i.amt_recon_net = s.samt
 and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
-and s.rank = 1
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and i.approval_flag = 'Y';
-
 
 --ISG UPDATE FOR MC
 
