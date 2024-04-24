@@ -1,5 +1,4 @@
 -------------------------------------------------------------------------------------
--------------------------------------------------------------------------------------
 
 -- FINAL: NRT
 
@@ -300,7 +299,7 @@ select
   *, 
   concat(cast(settle_date as string),' ',payout_time_only) as payout_time,
   FORMAT_DATE('%A', settle_date) AS weekday_name,
-  case when (datetime( concat(cast(settle_date as string),' ',payout_time_only,':00')) < current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag 
+  case when (datetime(cast(settle_date as string)) <= current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag 
 from 
   output_included
 union all
@@ -308,7 +307,7 @@ select
   *, 
   concat(cast(settle_date as string),' ',payout_time_only) as payout_time,
   FORMAT_DATE('%A', settle_date) AS weekday_name,
-  case when (datetime( concat(cast(settle_date as string),' ',payout_time_only,':00')) < current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag 
+  case when (datetime(cast(settle_date as string)) <= current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag 
 from 
   output_excluded
 
@@ -319,4 +318,4 @@ as select * from wpay_analytics.wpay_payouts_all_merchants
 ;
 
 -------------------------------------------------------------------------------------------------------
--------------------------------------------------------------------------------------------------------
+------------------

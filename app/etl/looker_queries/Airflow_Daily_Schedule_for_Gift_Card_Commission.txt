@@ -1,337 +1,419 @@
-create or replace view pdh_ref_ds.ref_qc_redemption_charges_rate
+--GC Model 1: Gift Card Order Detail
+
+create or replace table pdh_da_giftcards.gc_sales_order_dtl
+as 
+
+with Cards as 
+-- Pulls a complete list of Gift Card Numbers and their Activation Date and location. Along with relevant data to join to Hybris data
+(
+	select distinct
+	qc.CardNumber,
+	qc.Merchant as Sales_Merchant,
+	CASE																									
+	WHEN qc.Merchant = 'Big W' THEN qc.Merchant																									
+	WHEN qc.Merchant = 'Countdown' THEN qc.Merchant																									
+	WHEN qc.Merchant = 'Dan Murphys' THEN 'EDV'																									
+	WHEN qc.Merchant = 'ALH' THEN 'EDV'																									
+	WHEN qc.Merchant = 'Shortys Liquor' THEN 'EDV'																									
+	WHEN qc.Merchant = 'BWS' THEN 'EDV'																									
+	WHEN qc.Merchant = 'EG APAC' THEN 'EG'																									
+	WHEN qc.Merchant = 'EG Group' THEN 'EG'																									
+	WHEN qc.Merchant = 'Supermarkets' THEN qc.Merchant																									
+	WHEN qc.Merchant = 'BWS' THEN 'EDV'																									
+	ELSE 'WPAY'																									
+	END as Sales_Outlet,	  
+	qc.Amount_Transacting_Merchants_Currency_Or_Points as Card_FV,
+	qc.notes,
+	qc.InvoiceNumber,
+	qc.Descriptive_Outlet_Name as Activation_Location,
+	qc.ProgramGroup,
+	qc.DesignCode,
+	MAX(qc.TransactionDate) as Activation_Date  
+	FROM `pdh_rd_quickcilver.qc_detail_transactions` as qc
+	where TransactionType in ('GIFT CARD ACTIVATE','GIFT CARD REISSUE')
+	group by 1,2,3,4,5,6,7,8,9
+)
+,hybris as
+--Calculates AVG Discount per Hybris Order and Pulls relevant Sales Partner Information to join to card list
+(
+  SELECT
+  h.Order_No,
+  h.Payment_Method,
+  h.Order_Date,
+  h.B2B_Unit,
+  h.Usertype,
+  h.Email as Customer_ID,
+  h.sales_application,
+  SUM(CAST(h.Number_Of_Cards as INT)) as Cards_In_Order,
+  SUM(h.Face_Value) as Order_Face_Value,
+  SUM(h.Discount) as Order_Discount,
+  ROUND( SUM(h.Discount) / SUM(CAST(h.Number_Of_Cards as INT)),3) as Card_AVG_Discount 
+  from `pdh_rd_quickcilver.sap_hybris_sales_report` as h
+  group by 1,2,3,4,5,6,7
+)
+, sales_txn as 
+(
+  --Creates a comprehensive list Gift Card Numbers joining all relevant Sales channel information along with AVG Order discount to each card
+  select distinct
+  Cards.CardNumber,
+  Cards.Sales_Outlet,
+  Cards.Activation_Date,
+  Cards.Card_FV,
+  if(if (Cards.Activation_Location = 'SAP Hybris',hybris.B2B_Unit , Cards.Sales_Merchant )  IS NULL, 'D2C', if (Cards.Activation_Location = 'SAP Hybris',hybris.B2B_Unit , Cards.Sales_Merchant )) as Sales_Merchant,
+  Cards.Activation_Location,
+  Cards.ProgramGroup,
+  Cards.DesignCode,
+  hybris.Order_No,
+  hybris.Payment_Method,
+  hybris.Order_Date,
+  hybris.Usertype,
+  hybris.Customer_ID,
+  hybris.sales_application,
+  (IFNULL(hybris.Card_AVG_Discount,0) + (-1* IFNULL(disc.DiscountValue,0))) as Card_Discount
+  FROM 
+  Cards
+  left outer join 
+  hybris
+  on SUBSTR(Cards.Notes , 9, 8) = CAST(hybris.Order_No as STRING)
+  left outer join 
+  `pdh_rd_quickcilver.qc_partner_detail` as disc
+  on cards.InvoiceNumber = disc.InvoiceNumber
+)
+SELECT 
+t.Channels_T0,
+t.Channels_T1,
+t.Channels_T2,
+t.Channels_T3,
+Txn.*
+from sales_txn txn  
+LEFT JOIN 
+pdh_ref_ds.gc_sales_channel_hierarchy as t
+on Txn.Sales_Merchant = t.Merchant
+;
+
+--GC Model 2: Gift Card Sales and Redemptions Summary
+
+
+create or replace table pdh_da_giftcards.gc_sales_and_redemptions_dtl
+as
+with Txn as 
+(
+	SELECT 
+	dd.fy as Retail_Year,
+	dd.pofy as Retail_Month,
+	dd.wofy as Retail_Week,
+	CAST(EXTRACT (Year from TransactionDate) AS integer) as Calendar_Year,
+	cast(CAST(EXTRACT (Year from TransactionDate) AS string)||'-'||lpad(cast(EXTRACT (Month from TransactionDate) as string),2,'0') as string) Calendar_Month,
+	cast(CAST(EXTRACT (Year from TransactionDate) AS string)||lpad(cast(EXTRACT (Month from TransactionDate) as string),2,'0') as integer) Calendar_Month_Nbr,
+	CAST(EXTRACT (Week from TransactionDate) AS integer) as Calendar_Week,
+	card.Channels_T0,
+	card.Channels_T1,
+	card.Channels_T2,
+	card.Channels_T3,
+	card.Sales_Merchant,
+	coalesce(card.Sales_Outlet,case when s.Sales_Outlet is null then 'WPAY' else s.Sales_Outlet end) Sales_Outlet,
+	card.Activation_Date,
+	card.Card_FV,
+	card.Activation_Location,  
+	card.ProgramGroup Sales_Order_ProgramGroup,
+	card.DesignCode Sales_Order_DesignCode,
+	card.Order_No,
+	card.Payment_Method,
+	card.Order_Date,
+	card.Usertype,
+	card.Customer_ID,
+	card.sales_application,
+	card.Card_Discount,
+	qc.*,
+	qc.Merchant as Outlet_Merchant,
+	CASE																									
+	WHEN Merchant = 'Big W' THEN Merchant																									
+	WHEN Merchant = 'Countdown' THEN Merchant																									
+	WHEN Merchant = 'Dan Murphys' THEN 'EDV'																									
+	WHEN Merchant = 'ALH' THEN 'EDV'																									
+	WHEN Merchant = 'Shortys Liquor' THEN 'EDV'																									
+	WHEN Merchant = 'BWS' THEN 'EDV'																									
+	WHEN Merchant = 'EG APAC' THEN 'EG'																									
+	WHEN Merchant = 'EG Group' THEN 'EG'																									
+	WHEN Merchant = 'Supermarkets' THEN Merchant																									
+	WHEN Merchant = 'BWS' THEN 'EDV'																									
+	ELSE 'WPAY'																									
+	END as Redemption_Outlet,
+	qc.OutletCode||' | '||qc.Descriptive_Outlet_Name Outlet_Name, 
+	case 
+	when outletgroup = 'ALH-BWS' then 'AU'
+	when outletgroup = 'ALH-Dan Murphys' then 'AU'
+	when outletgroup = 'ALV - (ALH Venues)' then 'AU'    
+	when outletgroup = 'BIG W' then 'AU'
+	when outletgroup = 'BWS' then 'AU'
+	when outletgroup = 'Blackhawk-AUS' then 'AU'
+	when outletgroup = 'Countdown' then 'NZ'
+	when outletgroup = 'Digital Glue-AUS' then 'AU'
+	when outletgroup = 'EG APAC' then 'AU'
+	when outletgroup = 'EG Group' then 'AU'
+	when outletgroup = 'Endeavour-BWS' then 'AU'
+	when outletgroup = 'Endeavour-Dan Murphys' then 'AU'
+	when outletgroup = 'Liquor' then 'AU'
+	when outletgroup = 'Pitstop-AUS' then 'AU'
+	when outletgroup = 'Prezzee-AUS' then 'AU'
+	when outletgroup = 'RACV-Store' then 'AU'
+	when outletgroup = 'Supermarkets' then 'AU'
+	when outletgroup = 'WW Metro' then 'AU'
+	when outletgroup = 'Woolworths' then 'AU'
+	when outletgroup = 'Woolworths Group Ltd' then 'AU'
+	else 'AU'
+	end country,
+	case 
+	when outletgroup = 'ALH-BWS' then 'EDG'
+	when outletgroup = 'ALH-Dan Murphys' then 'EDG'
+	when outletgroup = 'ALV - (ALH Venues)' then 'EDG'    
+	when outletgroup = 'BIG W' then 'BIG W'
+	when outletgroup = 'BWS' then 'EDG'
+	when outletgroup = 'Blackhawk-AUS' then 'Bulk GC AU'
+	when outletgroup = 'Countdown' then 'Countdown'
+	when outletgroup = 'Digital Glue-AUS' then 'Bulk GC AU'
+	when outletgroup = 'EG APAC' then 'EG Fuel'
+	when outletgroup = 'EG Group' then 'EG Fuel'
+	when outletgroup = 'Endeavour-BWS' then 'EDG'
+	when outletgroup = 'Endeavour-Dan Murphys' then 'EDG'
+	when outletgroup = 'Liquor' then 'EDG'
+	when outletgroup = 'Pitstop-AUS' then 'Bulk GC AU'
+	when outletgroup = 'Prezzee-AUS' then 'Bulk GC AU'
+	when outletgroup = 'RACV-Store' then 'Bulk GC AU'
+	when outletgroup = 'Supermarkets' then 'Supermarkets'
+	when outletgroup = 'WW Metro' then 'Metro'
+	when outletgroup = 'Woolworths' then 'Supermarkets'
+	when outletgroup = 'Woolworths Group Ltd' then 'Supermarkets' -- 45% of Sales
+	else outletgroup
+	end banner,
+	case 
+	when OutletGroup = 'ALH-BWS' then 'ALH BWS'
+	when OutletGroup = 'ALH-Dan Murphys' then "ALH Dan Murphy's"
+	when OutletGroup = 'ALV - (ALH Venues)' then 'ALV'
+	when OutletGroup = 'BIG W' then 'Big W'
+	when OutletGroup = 'Countdown' then 'Countdown'
+	when OutletGroup = 'Digital Glue-AUS' then 'Digital Glue'
+	when OutletGroup = 'EG APAC' then 'EG Fuel'
+	when OutletGroup = 'EG Group' then 'EG Fuel'
+	when OutletGroup = 'Endeavour-BWS' then 'Endeavour BWS'
+	when OutletGroup = 'Endeavour-Dan Murphys' then 'Endeavour Dan Murphy'
+	when OutletGroup = 'Epay-AUS' then 'Everyday Pay'
+	when OutletGroup = 'iGoDirect-AUS' then 'IGoDirectAcq'
+	when OutletGroup = 'Liquor' then 'ALH Liquor'
+	when OutletGroup = 'Pitstop-AUS' then 'PitStop'
+	when OutletGroup = 'Prezzee-AUS' then 'Prezzee-AUS'
+	when OutletGroup = 'Supermarkets' then 'Supermarkets'
+	when OutletGroup = 'WW Metro' then 'METRO'
+	end merchant_portal_mg,   
+	--SUM(qc.Amount_Transacting_Merchants_Currency_Or_Points) as Amount_Transacting_Merchants_Currency_Or_Points,
+	case 
+	when TransactionType = 'GIFT CARD ACTIVATE' then 1
+	when TransactionType = 'GIFT CARD CANCEL ACTIVATE' then -1
+	end Net_Sales_Count,
+	case 
+	when TransactionType = 'GIFT CARD ACTIVATE' then IFNULL(Amount_Transacting_Merchants_Currency_Or_Points,1000) + IFNULL(AdjustmentAmount_Transacting_Merchants_Currency_Or_Points,0)
+	when TransactionType = 'GIFT CARD REISSUE' then IFNULL(CardBalance_BaseCurrency_Or_Points,0)
+	when TransactionType = 'GIFT CARD CANCEL ACTIVATE' then IFNULL(Amount_Transacting_Merchants_Currency_Or_Points,-1000) + IFNULL(AdjustmentAmount_Transacting_Merchants_Currency_Or_Points,0)
+	end Net_Sales_Amt,
+	case 
+	when TransactionType = 'GIFT CARD REDEEM' then 1
+	when TransactionType = 'GIFT CARD CANCEL REDEEM' then -1
+	when TransactionType = 'GIFT CARD RELOAD' then 1
+	end Net_Redemptions_Count,
+	-1*(case 
+	when TransactionType = 'GIFT CARD REDEEM' then IFNULL(Amount_Transacting_Merchants_Currency_Or_Points,-1000)
+	when TransactionType = 'GIFT CARD CANCEL REDEEM' then IFNULL(Amount_Transacting_Merchants_Currency_Or_Points,1000)
+	when TransactionType = 'GIFT CARD RELOAD' then IFNULL(Amount_Transacting_Merchants_Currency_Or_Points,1000)
+	end) Net_Redemptions_Amt
+  FROM 
+  pdh_da_giftcards.vw_qc_detail_transactions_incl_wex as qc
+  left outer join
+  (
+	  select * from pdh_da_giftcards.gc_sales_order_dtl
+	  qualify row_number() over (partition by cardnumber order by activation_Date desc) = 1
+  )
+  as card
+  on qc.CardNumber = card.CardNumber
+	left outer join
+	(
+		select 
+		store_id
+		,case 
+		when company = 'Woolworths' then 'Supermarkets'
+		when company = 'EG Fuel' then 'EG'
+		when company = 'Big W' then 'Big W'
+		when company = 'Endeavour' then 'EDV'
+		when company = 'Countdown' then 'Countdown'
+		else 'Any'
+		end Sales_Outlet
+		from pdh_ref_ds.ref_store_details
+	 ) s 
+	on substr(qc.ActivationOutlet,1,5) = s.store_id 
+
+  left outer join `pdh_ref_ds.dim_date` as dd
+  on dd.clndr_date = qc.TransactionDate
+)
+,rnk as
+(
+ select Calendar_Month_Nbr, row_number() over (order by Calendar_Month_Nbr desc) as Calendar_Month_Nbr_rnk
+ from (select distinct Calendar_Month_Nbr from Txn)
+)
+SELECT 
+Txn.*
+,case when Calendar_Month_Nbr_rnk <= 1 then 'Y' end Calender_Latest_Month_Flag
+,case when Calendar_Month_Nbr_rnk <= 12 then 'Y' end Calender_Last_12_Months_Flag
+,cast(rc.Sales_Outlet_Commission_Rate as numeric) * cast(Net_Redemptions_Amt as numeric) Net_Sales_Outlet_Commission_Amt	
+,cast(rc.Redemption_Outlet_Commission_Rate as numeric) * cast(Net_Redemptions_Amt as numeric) Net_Redemption_Outlet_Commission_Amt	
+from Txn 
+left outer join
+rnk 
+on rnk.Calendar_Month_Nbr = Txn.Calendar_Month_Nbr
+left outer join
+pdh_ref_ds.ref_gc_commission_rates rc
+
+on
+ coalesce (case when rc.Sales_Outlet not in ('Big W','EDV','EG','Supermarkets','WPAY') then 'Any' else rc.Sales_Outlet end,'Any') 
+ 			= coalesce (case when Txn.Sales_Outlet not in ('Big W','EDV','EG','Supermarkets','WPAY') then 'Any' else Txn.Sales_Outlet end,'Any') 
+and			
+ coalesce(case when rc.Redemption_Outlet not in ('Big W','EDV','EG','Supermarkets','WPAY') then 'Any' else rc.Redemption_Outlet end ,'Any') 
+ 			= coalesce(case when Txn.Redemption_Outlet not in ('Big W','EDV','EG','Supermarkets','WPAY') then 'Any' else Txn.Redemption_Outlet end,'Any') 
+;
+
+
+-- Commissions --
+create or replace table pdh_da_giftcards.wpay_monthly_giftcard_variable_rate_commission_summary
 as
 select 
-distinct 
-merchant
-,case
-when s.division IN ('EG Group','EG APAC') then cast(-0.03 as numeric)
-when qc.OutletGroup IN ('EG Group','EG APAC')  then cast(-0.03 as numeric)
-when  merchant = 'BWS' then cast(-0.053 as numeric)
-when  merchant = 'Big W' then cast(-0.052 as numeric)
---when  merchant = 'Blackhawk Network' then 'Blackhawk-AUS'
-when  merchant = 'Countdown' then cast(-0.025 as numeric)
-when  merchant = 'Dan Murphys' then cast(-0.053 as numeric)
-when  merchant = 'Digital Glue' then  cast(-0.053 as numeric)
-when  merchant = 'EG Group' then  cast(-0.03 as numeric)
---when  merchant = 'Pitstop' then 
---when  merchant = 'Prezzee-AUS' then 
---when  merchant = 'Prezzee-NZ' then 
---when  merchant = 'RACV' then 
-when  merchant = 'Supermarkets' then cast(-0.048 as numeric)
-when  merchant = 'Shortys Liquor' then cast(-0.053 as numeric)
-when  merchant = 'Woolworths Group Ltd' then cast(-0.048 as numeric)
---when  merchant = 'iGoDirect' then 
-else cast(-0.053 as numeric)
-end  charge_rate
-from pdh_rd_quickcilver.qc_detail_transactions qc
-left outer join
-pdh_ref_ds.ref_store_details s
-on s.store_id = left(qc.Outlet,5)
+"Merchant Activated and Redeemed" as Scenario  
+,Calendar_Year
+,Calendar_Month 
+,Calendar_Month_Nbr
+,Channels_T0
+,Channels_T1
+,Channels_T2
+,Channels_T3
+,Sales_Outlet Sales_Merchant
+,Redemption_Outlet outlet_merchant
+,Redemption_Outlet  merchant
+,Outlet_Name
+,OutletGroup
+,ProgramGroup
+,merchant_portal_mg
+,Calender_Latest_Month_Flag
+,Calender_Last_12_Months_Flag
+-- Redemption & Commission
+,sum(Net_Redemptions_Count) Net_Redemptions_Count
+,sum(Net_Redemptions_Amt) Net_Redemptions_Amt
+,sum(Net_Sales_Outlet_Commission_Amt + Net_Redemption_Outlet_Commission_Amt) Net_Commission_Amt
+from pdh_da_giftcards.gc_sales_and_redemptions_dtl
+where 
+Sales_Outlet = Redemption_Outlet
+and TransactionType IN ('GIFT CARD REDEEM','GIFT CARD CANCEL REDEEM','GIFT CARD RELOAD')
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+union all 
+select 
+"Merchant Activated and Partner Redeemed" as Scenario  
+,Calendar_Year
+,Calendar_Month 
+,Calendar_Month_Nbr
+,Channels_T0
+,Channels_T1
+,Channels_T2
+,Channels_T3
+,Sales_Outlet Sales_Merchant
+,Redemption_Outlet outlet_merchant
+,Sales_Outlet  merchant
+,Outlet_Name
+,OutletGroup
+,ProgramGroup
+,merchant_portal_mg
+,Calender_Latest_Month_Flag
+,Calender_Last_12_Months_Flag
+-- Redemption & Commission
+,sum(Net_Redemptions_Count) Net_Redemptions_Count
+,sum(Net_Redemptions_Amt) Net_Redemptions_Amt
+,sum(Net_Sales_Outlet_Commission_Amt) Net_Commission_Amt
+from pdh_da_giftcards.gc_sales_and_redemptions_dtl
+where
+Sales_Outlet <> Redemption_Outlet
+and TransactionType IN ('GIFT CARD REDEEM','GIFT CARD CANCEL REDEEM','GIFT CARD RELOAD')
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
+union all 
+select 
+"Partner Activated and Merchant Redeemed" as Scenario  
+,Calendar_Year
+,Calendar_Month 
+,Calendar_Month_Nbr
+,Channels_T0
+,Channels_T1
+,Channels_T2
+,Channels_T3
+,Sales_Outlet Sales_Merchant
+,Redemption_Outlet outlet_merchant
+,Redemption_Outlet  merchant
+,Outlet_Name
+,OutletGroup
+,ProgramGroup
+,merchant_portal_mg
+,Calender_Latest_Month_Flag
+,Calender_Last_12_Months_Flag
+-- Redemption & Commission
+,sum(Net_Redemptions_Count) Net_Redemptions_Count
+,sum(Net_Redemptions_Amt) Net_Redemptions_Amt
+,sum( Net_Redemption_Outlet_Commission_Amt) Net_Commission_Amt
+from pdh_da_giftcards.gc_sales_and_redemptions_dtl
+where 
+Sales_Outlet <> Redemption_Outlet
+and TransactionType IN ('GIFT CARD REDEEM','GIFT CARD CANCEL REDEEM','GIFT CARD RELOAD')
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17
 ;
 
-create or replace table wpay_analytics.qc_redemption_charges
+create or replace view pdh_da_giftcards.vw_wpay_monthly_giftcard_variable_rate_commission_summary
+as select * from pdh_da_giftcards.wpay_monthly_giftcard_variable_rate_commission_summary
+;
+
+create or replace view wpay_analytics.vw_wpay_monthly_giftcard_variable_rate_commission_summary
+as select * from pdh_da_giftcards.wpay_monthly_giftcard_variable_rate_commission_summary
+;
+
+
+--- Sales ---
+
+
+create or replace table pdh_da_giftcards.wpay_monthly_giftcard_sales_summary
 as
-with 
-qc as 
-(
-	select 
-	qc.*
-	,rc.charge_rate
-	,s.company
-	,s.merchant_group
-	,s.merchant_portal_mg
-	,s.merchant_portal_cg
-	,s.division
-	,s.brand
-	,s.site_name
-	,s.invoice_group
-	,case when TransactionType IN ('GIFT CARD REDEEM','GIFT CARD CANCEL REDEEM','GIFT CARD RELOAD')
-			then Amount_Transacting_Merchants_Currency_Or_Points 
-	end redemption_Amount_Transacting_Merchants_Currency_Or_Points
-	,case when TransactionType IN ('GIFT CARD REDEEM','GIFT CARD CANCEL REDEEM','GIFT CARD RELOAD')
-			then 1 
-	end redemption_count
-	from pdh_rd_quickcilver.qc_detail_transactions qc
-	inner join
-	pdh_ref_ds.ref_qc_redemption_charges_rate rc
-	on rc.merchant = qc.merchant
-	left outer join
-	pdh_ref_ds.ref_store_details s
-	on s.store_id = left(qc.Outlet,5)
-)
-,qc_redemption_charges as 
-(
-	select 
-	CAST(EXTRACT (Year from TransactionDate) AS integer) as Calendar_Year
-	,CAST(EXTRACT (Month from TransactionDate) AS integer) as Calendar_Month
-	,cast(CAST(EXTRACT (Year from TransactionDate) AS string)||lpad(cast(EXTRACT (Month from TransactionDate) as string),2,'0') as integer) Calendar_Month_Nbr
-	,cast('FY '||dd.fy as string) Fiscal_Year
-	,cast(CAST(dd.fy AS string)||lpad(cast(dd.pofy as string),2,'0') as integer) Fiscal_Month_Nbr
-	,case 
-	when dd.pofy  = 1 then cast('FY '||dd.fy as string)||'-'||cast('01' as string)
-	when dd.pofy  = 2 then cast('FY '||dd.fy as string)||'-'||cast('02' as string)
-	when dd.pofy  = 3 then cast('FY '||dd.fy as string)||'-'||cast('03' as string)
-	when dd.pofy  = 4 then cast('FY '||dd.fy as string)||'-'||cast('04' as string)
-	when dd.pofy  = 5 then cast('FY '||dd.fy as string)||'-'||cast('05' as string)
-	when dd.pofy  = 6 then cast('FY '||dd.fy as string)||'-'||cast('06' as string)
-	when dd.pofy  = 7 then cast('FY '||dd.fy as string)||'-'||cast('07' as string)
-	when dd.pofy  = 8 then cast('FY '||dd.fy as string)||'-'||cast('08' as string)
-	when dd.pofy  = 9 then cast('FY '||dd.fy as string)||'-'||cast('09' as string)
-	when dd.pofy  = 10 then cast('FY '||dd.fy as string)||'-'||cast('10' as string)
-	when dd.pofy  = 11 then cast('FY '||dd.fy as string)||'-'||cast('11' as string)
-	when dd.pofy  = 12 then cast('FY '||dd.fy as string)||'-'||cast('12' as string)
-  end as Fiscal_Month 
-	,cast('WK '||dd.wofy||' : '||fw_start_date as string) Fiscal_Week
-	,*
-	,charge_rate * Redemption_Amount_Transacting_Merchants_Currency_Or_Points charge_amount 
-	from qc
-	Inner JOIN `pdh_ref_ds.dim_date` as dd
-	on dd.clndr_date = qc.TransactionDate
-)
-select *
-from qc_redemption_charges
+select 
+Calendar_Year
+,Calendar_Month 
+,Calendar_Month_Nbr
+,Channels_T0
+,Channels_T1
+,Channels_T2
+,Channels_T3
+,Sales_Merchant
+,outlet_merchant
+,Sales_Outlet  merchant
+,Outlet_Name
+,OutletGroup
+,ProgramGroup
+,merchant_portal_mg
+,Calender_Latest_Month_Flag
+,Calender_Last_12_Months_Flag
+-- Sales & Discounts
+,sum(Net_Sales_Count) Net_Sales_Count
+,sum(Net_Sales_Amt) Net_Sales_Amt
+,sum(Card_Discount) Net_Card_Discount
+,sum(Card_FV) Net_Card_FV
+from pdh_da_giftcards.gc_sales_and_redemptions_dtl
+where 
+TransactionType IN ('GIFT CARD ACTIVATE','GIFT CARD REISSUE','GIFT CARD CANCEL ACTIVATE')
+group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16
 ;
 
-
-create or replace table wpay_analytics.qc_monthly_redemption_charges_summary														
-as			
-with qc as 
-(											
-	(
-		SELECT
-		'Calendar' Calendar_or_Fiscal_Period
-		,cast(Calendar_Year as string) Yr
-		,cast(case
-		when Calendar_Month = 1 then cast(Calendar_Year as string)||'-01'
-		when Calendar_Month = 2 then cast(Calendar_Year as string)||'-02'
-		when Calendar_Month = 3 then cast(Calendar_Year as string)||'-03'
-		when Calendar_Month = 4 then cast(Calendar_Year as string)||'-04'
-		when Calendar_Month = 5 then cast(Calendar_Year as string)||'-05'
-		when Calendar_Month = 6 then cast(Calendar_Year as string)||'-06'
-		when Calendar_Month = 7 then cast(Calendar_Year as string)||'-07'
-		when Calendar_Month = 8 then cast(Calendar_Year as string)||'-08'
-		when Calendar_Month = 9 then cast(Calendar_Year as string)||'-09'
-		when Calendar_Month = 10 then cast(Calendar_Year as string)||'-10'
-		when Calendar_Month = 11 then cast(Calendar_Year as string)||'-11'
-		when Calendar_Month = 12 then cast(Calendar_Year as string)||'-12'
-		end as string)  Mnth
-		,cast(Calendar_Month_Nbr as integer) Mnth_Nbr
-		,case 
-		when outletgroup = 'ALH-BWS' then 'AU'
-		when outletgroup = 'ALH-Dan Murphys' then 'AU'
-		when outletgroup = 'ALV - (ALH Venues)' then 'AU'    
-		when outletgroup = 'BIG W' then 'AU'
-		when outletgroup = 'BWS' then 'AU'
-		when outletgroup = 'Blackhawk-AUS' then 'AU'
-		when outletgroup = 'Countdown' then 'NZ'
-		when outletgroup = 'Digital Glue-AUS' then 'AU'
-		when outletgroup = 'EG APAC' then 'AU'
-		when outletgroup = 'EG Group' then 'AU'
-		when outletgroup = 'Endeavour-BWS' then 'AU'
-		when outletgroup = 'Endeavour-Dan Murphys' then 'AU'
-		when outletgroup = 'Liquor' then 'AU'
-		when outletgroup = 'Pitstop-AUS' then 'AU'
-		when outletgroup = 'Prezzee-AUS' then 'AU'
-		when outletgroup = 'RACV-Store' then 'AU'
-		when outletgroup = 'Supermarkets' then 'AU'
-		when outletgroup = 'WW Metro' then 'AU'
-		when outletgroup = 'Woolworths' then 'AU'
-		when outletgroup = 'Woolworths Group Ltd' then 'AU'
-		else 'AU'
-		end country
-		,case 
-		when outletgroup = 'ALH-BWS' then 'EDG'
-		when outletgroup = 'ALH-Dan Murphys' then 'EDG'
-		when outletgroup = 'ALV - (ALH Venues)' then 'EDG'    
-		when outletgroup = 'BIG W' then 'BIG W'
-		when outletgroup = 'BWS' then 'EDG'
-		when outletgroup = 'Blackhawk-AUS' then 'Bulk GC AU'
-		when outletgroup = 'Countdown' then 'Countdown'
-		when outletgroup = 'Digital Glue-AUS' then 'Bulk GC AU'
-		when outletgroup = 'EG APAC' then 'EG Fuel'
-		when outletgroup = 'EG Group' then 'EG Fuel'
-		when outletgroup = 'Endeavour-BWS' then 'EDG'
-		when outletgroup = 'Endeavour-Dan Murphys' then 'EDG'
-		when outletgroup = 'Liquor' then 'EDG'
-		when outletgroup = 'Pitstop-AUS' then 'Bulk GC AU'
-		when outletgroup = 'Prezzee-AUS' then 'Bulk GC AU'
-		when outletgroup = 'RACV-Store' then 'Bulk GC AU'
-		when outletgroup = 'Supermarkets' then 'Supermarkets'
-		when outletgroup = 'WW Metro' then 'Metro'
-		when outletgroup = 'Woolworths' then 'Supermarkets'
-		when outletgroup = 'Woolworths Group Ltd' then 'Supermarkets'
-		else outletgroup
-		end banner
-		,Merchant														
-		,OutletGroup														
-		,OutletCode
-		--,merchant_portal_mg
-		,coalesce( 
-			nullif(trim(merchant_portal_mg),'')
-			,case 
-				when OutletGroup = 'ALH-BWS' then 'ALH BWS'
-				when OutletGroup = 'ALH-Dan Murphys' then "ALH Dan Murphy's"
-				when OutletGroup = 'ALV - (ALH Venues)' then 'ALV'
-				when OutletGroup = 'BIG W' then 'Big W'
-				when OutletGroup = 'Countdown' then 'Countdown'
-				when OutletGroup = 'Digital Glue-AUS' then 'Digital Glue'
-				when OutletGroup = 'EG APAC' then 'EG Fuel'
-				when OutletGroup = 'EG Group' then 'EG Fuel'
-				when OutletGroup = 'Endeavour-BWS' then 'Endeavour BWS'
-				when OutletGroup = 'Endeavour-Dan Murphys' then 'Endeavour Dan Murphy'
-				when OutletGroup = 'Epay-AUS' then 'Everyday Pay'
-				when OutletGroup = 'iGoDirect-AUS' then 'IGoDirectAcq'
-				when OutletGroup = 'Liquor' then 'ALH Liquor'
-				when OutletGroup = 'Pitstop-AUS' then 'PitStop'
-				when OutletGroup = 'Prezzee-AUS' then 'Prezzee-AUS'
-				when OutletGroup = 'Supermarkets' then 'Supermarkets'
-				when OutletGroup = 'WW Metro' then 'METRO'
-				end
-		) merchant_portal_mg 
-		,merchant_portal_cg
-		,Count(If(TransactionType = 'GIFT CARD ACTIVATE', CardNumber , null)) - Count(If(TransactionType = 'GIFT CARD CANCEL ACTIVATE', CardNumber, null))As Net_Sales_Count
-		,Sum(If(TransactionType = 'GIFT CARD ACTIVATE' , IFNULL(Amount_Transacting_Merchants_Currency_Or_Points,1000) + IFNULL(AdjustmentAmount_Transacting_Merchants_Currency_Or_Points,0),0)) 
-		+ Sum(If(TransactionType = 'GIFT CARD REISSUE' , CardBalance_BaseCurrency_Or_Points,0)) 
-		--+ Sum(If(TransactionType = 'GIFT CARD DEACTIVATE' , CardBalance_BaseCurrency_Or_Points,0)) 
-		+ Sum(If(TransactionType = 'GIFT CARD CANCEL ACTIVATE' , IFNULL(Amount_Transacting_Merchants_Currency_Or_Points,-1000) + IFNULL(AdjustmentAmount_Transacting_Merchants_Currency_Or_Points,0),0))
-		As Net_Sales
-		,	Count(If(TransactionType = 'GIFT CARD CANCEL REDEEM', CardNumber , null)) +  
-		Count(If(TransactionType = 'GIFT CARD REDEEM', CardNumber , null)) +  
-		Count(If(TransactionType = 'GIFT CARD RELOAD', CardNumber, null))
-		As Net_Redemptions_Count
-		, Sum(If(TransactionType = 'GIFT CARD CANCEL REDEEM', IFNULL(Redemption_Amount_Transacting_Merchants_Currency_Or_Points,1000),0)) + 
-		Sum(If(TransactionType = 'GIFT CARD REDEEM', IFNULL(Redemption_Amount_Transacting_Merchants_Currency_Or_Points,-1000),0))  + 
-		Sum(If(TransactionType = 'GIFT CARD RELOAD', IFNULL(Redemption_Amount_Transacting_Merchants_Currency_Or_Points,1000),0))  
-		As Net_Redemptions 
-		,min(charge_rate) charge_rate
-		,sum(charge_amount) charge_amount					
-		FROM wpay_analytics.qc_redemption_charges														
-		group by 1,2,3,4,5,6,7,8,9,10,11	
-	)
-	union all							
-	(														
-		SELECT														
-		'Fiscal' Calendar_or_Fiscal_Period 														
-		,cast(Fiscal_Year as string) Yr		
-		,cast(Fiscal_Month as string) Mnth
-		,cast(Fiscal_Month_Nbr as integer) Mnth_Nbr												
-		,case 
-		when outletgroup = 'ALH-BWS' then 'AU'
-		when outletgroup = 'ALH-Dan Murphys' then 'AU'
-		when outletgroup = 'ALV - (ALH Venues)' then 'AU'    
-		when outletgroup = 'BIG W' then 'AU'
-		when outletgroup = 'BWS' then 'AU'
-		when outletgroup = 'Blackhawk-AUS' then 'AU'
-		when outletgroup = 'Countdown' then 'NZ'
-		when outletgroup = 'Digital Glue-AUS' then 'AU'
-		when outletgroup = 'EG APAC' then 'AU'
-		when outletgroup = 'EG Group' then 'AU'
-		when outletgroup = 'Endeavour-BWS' then 'AU'
-		when outletgroup = 'Endeavour-Dan Murphys' then 'AU'
-		when outletgroup = 'Liquor' then 'AU'
-		when outletgroup = 'Pitstop-AUS' then 'AU'
-		when outletgroup = 'Prezzee-AUS' then 'AU'
-		when outletgroup = 'RACV-Store' then 'AU'
-		when outletgroup = 'Supermarkets' then 'AU'
-		when outletgroup = 'WW Metro' then 'AU'
-		when outletgroup = 'Woolworths' then 'AU'
-		when outletgroup = 'Woolworths Group Ltd' then 'AU'
-		else 'AU'
-		end country
-		,case 
-		when outletgroup = 'ALH-BWS' then 'EDG'
-		when outletgroup = 'ALH-Dan Murphys' then 'EDG'
-		when outletgroup = 'ALV - (ALH Venues)' then 'EDG'    
-		when outletgroup = 'BIG W' then 'BIG W'
-		when outletgroup = 'BWS' then 'EDG'
-		when outletgroup = 'Blackhawk-AUS' then 'Bulk GC AU'
-		when outletgroup = 'Countdown' then 'Countdown'
-		when outletgroup = 'Digital Glue-AUS' then 'Bulk GC AU'
-		when outletgroup = 'EG APAC' then 'EG Fuel'
-		when outletgroup = 'EG Group' then 'EG Fuel'
-		when outletgroup = 'Endeavour-BWS' then 'EDG'
-		when outletgroup = 'Endeavour-Dan Murphys' then 'EDG'
-		when outletgroup = 'Liquor' then 'EDG'
-		when outletgroup = 'Pitstop-AUS' then 'Bulk GC AU'
-		when outletgroup = 'Prezzee-AUS' then 'Bulk GC AU'
-		when outletgroup = 'RACV-Store' then 'Bulk GC AU'
-		when outletgroup = 'Supermarkets' then 'Supermarkets'
-		when outletgroup = 'WW Metro' then 'Metro'
-		when outletgroup = 'Woolworths' then 'Supermarkets'
-		when outletgroup = 'Woolworths Group Ltd' then 'Supermarkets'
-		else outletgroup
-		end banner
-		,Merchant														
-		,OutletGroup														
-		,OutletCode
-		--,merchant_portal_mg
-		,coalesce( 
-			nullif(trim(merchant_portal_mg),'')
-			,case 
-				when OutletGroup = 'ALH-BWS' then 'ALH BWS'
-				when OutletGroup = 'ALH-Dan Murphys' then "ALH Dan Murphy's"
-				when OutletGroup = 'ALV - (ALH Venues)' then 'ALV'
-				when OutletGroup = 'BIG W' then 'Big W'
-				when OutletGroup = 'Countdown' then 'Countdown'
-				when OutletGroup = 'Digital Glue-AUS' then 'Digital Glue'
-				when OutletGroup = 'EG APAC' then 'EG Fuel'
-				when OutletGroup = 'EG Group' then 'EG Fuel'
-				when OutletGroup = 'Endeavour-BWS' then 'Endeavour BWS'
-				when OutletGroup = 'Endeavour-Dan Murphys' then 'Endeavour Dan Murphy'
-				when OutletGroup = 'Epay-AUS' then 'Everyday Pay'
-				when OutletGroup = 'iGoDirect-AUS' then 'IGoDirectAcq'
-				when OutletGroup = 'Liquor' then 'ALH Liquor'
-				when OutletGroup = 'Pitstop-AUS' then 'PitStop'
-				when OutletGroup = 'Prezzee-AUS' then 'Prezzee-AUS'
-				when OutletGroup = 'Supermarkets' then 'Supermarkets'
-				when OutletGroup = 'WW Metro' then 'METRO'
-				end
-		) merchant_portal_mg 		
-		,merchant_portal_cg
-		,Count(If(TransactionType = 'GIFT CARD ACTIVATE', CardNumber , null)) - Count(If(TransactionType = 'GIFT CARD CANCEL ACTIVATE', CardNumber, null))As Net_Sales_Count
-		,Sum(If(TransactionType = 'GIFT CARD ACTIVATE' , IFNULL(Amount_Transacting_Merchants_Currency_Or_Points,1000) + IFNULL(AdjustmentAmount_Transacting_Merchants_Currency_Or_Points,0),0)) 
-		+ Sum(If(TransactionType = 'GIFT CARD REISSUE' , CardBalance_BaseCurrency_Or_Points,0)) 
-		--+ Sum(If(TransactionType = 'GIFT CARD DEACTIVATE' , CardBalance_BaseCurrency_Or_Points,0)) 
-		+ Sum(If(TransactionType = 'GIFT CARD CANCEL ACTIVATE' , IFNULL(Amount_Transacting_Merchants_Currency_Or_Points,-1000) + IFNULL(AdjustmentAmount_Transacting_Merchants_Currency_Or_Points,0),0))
-		As Net_Sales
-		,	Count(If(TransactionType = 'GIFT CARD CANCEL REDEEM', CardNumber , null)) +  
-		Count(If(TransactionType = 'GIFT CARD REDEEM', CardNumber , null)) +  
-		Count(If(TransactionType = 'GIFT CARD RELOAD', CardNumber, null))
-		As Net_Redemptions_Count
-		, Sum(If(TransactionType = 'GIFT CARD CANCEL REDEEM', IFNULL(Redemption_Amount_Transacting_Merchants_Currency_Or_Points,1000),0)) + 
-		Sum(If(TransactionType = 'GIFT CARD REDEEM', IFNULL(Redemption_Amount_Transacting_Merchants_Currency_Or_Points,-1000),0))  + 
-		Sum(If(TransactionType = 'GIFT CARD RELOAD', IFNULL(Redemption_Amount_Transacting_Merchants_Currency_Or_Points,1000),0))  
-		As Net_Redemptions 
-		,min(charge_rate) charge_rate
-		,sum(charge_amount) charge_amount					
-		FROM wpay_analytics.qc_redemption_charges														
-		group by 1,2,3,4,5,6,7,8,9,10,11										
-	)
-)
-, rnk as 
-(
-	select 
-	*
-	,row_number() over (partition by Calendar_or_Fiscal_Period order by mnth_nbr desc) as mnth_rnk
-	from
-	( 
-		select distinct 
-		Calendar_or_Fiscal_Period
-		,mnth_nbr
-		from qc
-	)
-	order by 1,3
-)
-select qc.*
-from 
-qc 
-inner join 
-rnk 
-on qc.Calendar_or_Fiscal_Period = rnk.Calendar_or_Fiscal_Period
-and qc.mnth_nbr = rnk.mnth_nbr
-and rnk.mnth_rnk <= 12
+create or replace view pdh_da_giftcards.vw_wpay_monthly_giftcard_sales_summary
+as select * from pdh_da_giftcards.wpay_monthly_giftcard_sales_summary
 ;
 
-create or replace view wpay_analytics.vw_qc_monthly_redemption_charges_summary
-as select * from wpay_analytics.qc_monthly_redemption_charges_summary
+create or replace view wpay_analytics.vw_wpay_monthly_giftcard_sales_summary
+as select * from pdh_da_giftcards.wpay_monthly_giftcard_sales_summary
 ;
