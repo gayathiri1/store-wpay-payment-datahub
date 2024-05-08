@@ -1,0 +1,141 @@
+
+Declare datetime_created Datetime DEFAULT Current_Datetime("Australia/Sydney");
+Insert into `pdh_risk_analytics_s.fact_chargeback`
+
+(
+
+with chargeback as 
+(SELECT
+Case When store_name like '%BIG W ONLINE%' Then 'Big W'
+When store_name  like '%BWS Online%' Then 'BWS Online'
+When store_name  like '%DMURPHY%' Then 'Dan Murphy'
+When store_name  like '%GCARD%' Then 'Gift Cards'
+When store_name  like '%WOW Online%' Then 'Woolworths Online'
+When store_name  like '%Connect%' Then 'WOW Mobile'
+When store_name  like '%Langtons%' Then 'Langtons'
+When store_name  like '%Countdown%' Then 'Countdown Online'
+Else 'Unknown' -- do not process unknown Merchants
+end as Merchant_ID
+ ,store_name 
+,Store_Regions
+, date_rec_d_at_tpc as
+Date_Received_at_TPC
+,Case_Number_Ref_Number
+,Store_No
+,Cast(trans_date as Date) as Original_Transaction_Date
+, Value_of_request --CAST(REPLACE(REPLACE(IsNULL([Value of request],0),',',''),'$','') AS float) as [Value of request]
+, Bank_Code
+, Trans_No_RRN
+, Status
+, Date_Request_Was_Sent_To_Store
+, Date_response_received_from_store
+, Keyed_or_Swiped
+, Date_response_received_for_2nd_Request
+, date(date_charged) as Order_Transaction_Date
+,Reason
+, Comments
+,Date_Diff(date(trans_date),date(date_charged),day) as Days_for_ChargeBack
+,'CBack' as FactType
+,FILE_NAME
+, m.file_date as LOAD_DATE
+,cybersource_order as Order_Number
+
+FROM pdh_risk_analytics_s.ecomm_chargebacks m
+ ---
+ Left join  `pdh_ref_ds.ref_store_details` r
+ ON  UPPER(Store_No)=upper(r.store_id)
+
+where  ( (select max(DW_EFFECTIVEDATE)  from pdh_risk_analytics_s.fact_chargeback) is null or  file_date >(select max(DW_EFFECTIVEDATE) as max_date from pdh_risk_analytics_s.fact_chargeback) )
+------
+ and  store_name  is not null   
+
+),
+MerchantCleaning as
+(
+select
+
+Merchant_ID
+,Store_Name
+,Store_Regions
+,Date_Received_at_TPC
+,Case_Number_Ref_Number
+,Store_no
+,Original_Transaction_Date
+,Value_of_request
+,Bank_Code
+,Trans_No_RRN
+,Status
+,Date_Request_Was_Sent_To_Store
+,Date_response_received_from_store
+,Keyed_or_Swiped
+,Date_response_received_for_2nd_Request
+,(Case 
+  when extract(year from Order_Transaction_Date) = 1900 
+  then date(Original_Transaction_Date)
+   else date(Order_Transaction_Date) end) as Order_Transaction_Date
+,Reason
+,Comments
+,abs(Date_Diff(date(Original_Transaction_Date),date(Case when extract(year from Order_Transaction_Date) = 1900 then date(Original_Transaction_Date) else date(Order_Transaction_Date) end),day)) as Days_for_ChargeBack
+,FactType
+,FILE_NAME
+,Order_Number
+,LOAD_DATE AS DW_EFFECTIVEDATE
+,NULL AS DW_EXPIRATIONDATE
+,1 AS CURRENT_DW
+,
+ROW_NUMBER() over (Partition by Merchant_ID, Store_no,
+date(Original_Transaction_Date), date(Order_Transaction_Date), Case_Number_Ref_Number,
+Trans_No_RRN, Value_of_request, Order_Number order by Original_Transaction_Date) as nrank
+
+from chargeback
+where Merchant_ID <> 'Unknown' 
+)
+ 
+select
+datetime_created,
+Null as SK_CHARGEBACK_NO,
+m.Merchant_ID
+,m.Store_Name
+,m.Store_Regions
+,cast(m.Date_Received_at_TPC as Datetime) as Date_Received_at_TPC
+,m.Case_Number_Ref_Number as Case_Number_Ref_Number
+,m.Store_no
+,m.Original_Transaction_Date
+,m.Value_of_request
+,m.Bank_Code
+,m.Trans_No_RRN
+,m.Status
+,cast(m.Date_Request_Was_Sent_To_Store as Datetime) as Date_Request_Was_Sent_To_Store
+,cast(m.Date_response_received_from_store as string) as Date_response_received_from_store
+,m.Keyed_or_Swiped
+," " as second_req
+,cast(m.Date_response_received_for_2nd_Request as string) as Date_response_received_for_2nd_Request 
+,m.Order_Transaction_Date
+,m.Reason
+,m.Comments
+,m.Days_for_ChargeBack
+,m.FactType
+,nrank
+,DATE(m.DW_EFFECTIVEDATE) DW_EFFECTIVEDATE
+,Date(null) AS DW_EXPIRATIONDATE
+,cast(1 as Boolean) AS CURRENT_DW
+,m.FILE_NAME
+,m.Order_Number as Merchant_Reference_Number
+,NULL as Order_Request_ID
+from MerchantCleaning m
+where not exists
+(
+select 
+Order_Transaction_Date
+from `pdh_risk_analytics_s.fact_chargeback` c where
+c.Merchant_ID = m.Merchant_ID and
+c.Store_no = m.Store_no and
+c.Original_Transaction_Date = m.Original_Transaction_Date and
+c.Order_Transaction_Date = m.Order_Transaction_Date and
+c.Case_Number_Ref_Number = m.Case_Number_Ref_Number and
+c.Trans_No_RRN = m.Trans_No_RRN and
+c.Value_of_request = m.Value_of_request and
+c.Bank_Code = m.Bank_Code and
+c.Merchant_Reference_Number = m.Order_Number
+) -- and m.nrank =1
+)

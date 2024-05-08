@@ -1,0 +1,116 @@
+
+CREATE OR REPLACE TABLE
+  `wpay_analytics.wpay_fee_insights` AS(
+  WITH
+    monthly AS(
+    SELECT
+      -- "Monthly" timeframe,
+      -- left(string(transaction_date), 4) Month,
+
+      transaction_month_start_date commencement_date,
+      LEFT(STRING(transaction_date), 7) Period,
+      approval_flag,
+      scheme,
+      scheme_card_type,
+      card_type,
+      case when dom_int_ind = " " then "D"
+           when dom_int_ind is null then "D"
+          else dom_int_ind
+          end as dom_int_ind,
+      -- dom_int_ind,
+      tran_type_description,
+      fee_indicator,
+      company,
+      invoice_group,
+      merchant_group,
+      merchant_portal_mg,
+      division,
+      is_online,
+      SUM(transaction_count) transaction_count,
+      SUM(transaction_amount) transaction_amount,
+      SUM(settlement_amount_inc_gst) settlement_amount_inc_gst,
+      SUM(interchange_fees_invoiced_ex_gst) interchange_fees_invoiced_ex_gst,
+      SUM(interchange_fees_tran_count) interchange_fees_tran_count,
+      SUM(processing_fees_ex_gst) processing_fees_ex_gst,
+      SUM(processing_fees_tran_count) processing_fees_tran_count,
+      SUM(fraud_fees_ex_gst) fraud_fees_ex_gst
+    FROM
+      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+    WHERE
+
+    string(transaction_date) between 
+    left(string(date_sub(current_date() , interval 13 month)), 7)
+    and left(cast(current_date() as string),7)
+
+
+    GROUP BY
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15 
+      )
+   
+  SELECT
+
+  curr.*
+  -- , prev.Period period_LM
+  , prev.transaction_count transaction_count_LP
+  , prev.transaction_amount transaction_amount_LP
+  , prev.settlement_amount_inc_gst settlement_amount_inc_gst_LP
+  , prev.interchange_fees_invoiced_ex_gst interchange_fees_invoiced_ex_gst_LP
+  , prev.interchange_fees_tran_count interchange_fees_tran_count_LP
+  , prev.processing_fees_ex_gst processing_fees_ex_gst_LP
+  , prev.processing_fees_tran_count processing_fees_tran_count_LP
+  , prev.fraud_fees_ex_gst fraud_fees_ex_gst_LP
+
+from 
+  Monthly  curr
+left join 
+  Monthly  prev
+on
+  curr.approval_flag = prev.approval_flag
+  and curr.scheme = prev.scheme
+  and curr.scheme_card_type = prev.scheme_card_type
+  and curr.card_type = prev.card_type
+  and curr.tran_type_description = prev.tran_type_description
+  and curr.dom_int_ind = prev.dom_int_ind
+  and curr.is_online = prev.is_online
+  and curr.company = prev.company
+  and curr.invoice_group = prev.invoice_group
+  and curr.merchant_group = prev.merchant_group
+  and curr.merchant_portal_mg = prev.merchant_portal_mg
+  and curr.division = prev.division
+  and curr.fee_indicator = prev.fee_indicator
+  and date_sub(curr.commencement_date, interval 1 month) = prev.commencement_date
+
+
+    );
+CREATE OR REPLACE VIEW
+  `wpay_analytics.vw_wpay_fee_insights` AS(
+  SELECT
+    *,
+    CASE
+      WHEN ( period = ( SELECT MAX(period) FROM `wpay_analytics.wpay_fee_insights` ) ) THEN "max_month"
+      
+    ELSE
+    NULL
+  END
+    AS max_flag
+  FROM
+    `wpay_analytics.wpay_fee_insights` )
+
+
+
+
+

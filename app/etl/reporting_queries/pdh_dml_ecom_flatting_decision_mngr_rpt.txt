@@ -1,0 +1,315 @@
+
+
+Declare Sys_load_Datetime Datetime DEFAULT Current_Datetime("Australia/Sydney");	
+Insert into `pdh_risk_analytics_s.cyberscr_ap_tx`
+
+
+with  max_date_cte as ( 
+  select OrganizationID ,max(file_date)  as max_date 
+   from `pdh_risk_analytics_s.cyberscr_ap_tx`
+   group by 1
+ ),
+ 
+s1 as (
+SELECT 
+file_date as file_date,
+Report.OrganizationID as OrganizationID,
+Report.ReportStartDate as start_date,
+Report.ReportEndDate as end_date,
+Report.Name as name,
+Report.`Transaction`.`Order`.MerchantID as Order_MerchantID,
+Report.`Transaction`.`Order`.RequestID as Order_RequestID,
+
+Report.`Transaction`.`Order`.TransactionDate as Order_TransactionDate,
+Report.`Transaction`.`Order`.MerchantReferenceNumber as Order_MerchantReferenceNumber,
+Report.`Transaction`.`Order`.ConnectionMethod as Order_ConnectionMethod,
+Report.`Transaction`.`Order`.Reply.ReasonCode as Order_Reply_ReasonCode,
+Report.`Transaction`.`Order`.Reply.ReplyCode as Order_Reply_ReplyCode,
+Report.`Transaction`.`Order`.Reply.ReplyFlag as Order_Reply_ReplyFlag,
+Report.`Transaction`.`Order`.Reply.ReplyMessage as Order_Reply_ReplyMessage,
+Report.`Transaction`.`Order`.`LineItem` as Order_LineItem_Records,
+Report.`Transaction`.Customer.BillTo.FirstName as Customer_BillTo_FirstName_scrambled,
+Report.`Transaction`.Customer.BillTo.LastName as Customer_BillTo_LastName_scrambled,
+Report.`Transaction`.Customer.BillTo.Address1 as Customer_BillTo_Address1_scrambled,
+Report.`Transaction`.Customer.BillTo.City as Customer_BillTo_City,
+Report.`Transaction`.Customer.BillTo.State as Customer_BillTo_State,
+Report.`Transaction`.Customer.BillTo.PostalCode as Customer_BillTo_PostalCode,
+Report.`Transaction`.Customer.BillTo.Country as Customer_BillTo_Country,
+Report.`Transaction`.Customer.BillTo.Phone as Customer_BillTo_Phone_scrambled,
+Report.`Transaction`.Customer.BillTo.Email as Customer_BillTo_Email_scrambled,
+Report.`Transaction`.Customer.BillTo.CustomerID as Customer_BillTo_CustomerID_scrambled,
+Report.`Transaction`.Customer.ShipTo.FirstName as Customer_ShipTo_FirstName_scrambled,
+Report.`Transaction`.Customer.ShipTo.LastName as Customer_ShipTo_LastName_scrambled,
+Report.`Transaction`.Customer.ShipTo.Address1 as Customer_ShipTo_Address1_scrambled,
+Report.`Transaction`.Customer.ShipTo.Address2 as Customer_ShipTo_Address2_scrambled,
+Report.`Transaction`.Customer.ShipTo.City as Customer_ShipTo_City,
+Report.`Transaction`.Customer.ShipTo.State as Customer_ShipTo_State,
+Report.`Transaction`.Customer.ShipTo.PostalCode as Customer_ShipTo_PostalCode,
+Report.`Transaction`.Customer.ShipTo.Country as Customer_ShipTo_Country,
+Report.`Transaction`.Customer.ShipTo.Phone as Customer_ShipTo_Phone_scrambled,
+Report.`Transaction`.Payment.AccountSuffix as Payment_AccountSuffix,
+Report.`Transaction`.Payment.CardType as Payment_CardType,
+Report.`Transaction`.Payment.CardScheme as Payment_CardScheme,
+Report.`Transaction`.Payment.CardIssuer as Payment_CardIssuer,
+Report.`Transaction`.Payment.CardBINNumber as Payment_CardBIN,
+Report.`Transaction`.Payment.CardBINCountry as Payment_CardBINCountry,
+Report.`Transaction`.Payment.OrderAmount as Payment_OrderAmount,
+Report.`Transaction`.Payment.CurrencyCode as Payment_OrderCurrency,
+Report.`Transaction`.Payment.LocalOrderAmount as Payment_LocalOrderAmount,
+Report.`Transaction`.Payment.LocalCurrencyCode as Payment_LocalOrderCurrency,
+Report.`Transaction`.AFSInformation.Score as AFSInformation_Score,
+Report.`Transaction`.AFSInformation.`Model` as AFSInformation_Model,
+Report.`Transaction`.AFSInformation.Factors as AFSInformation_Factors,
+Report.`Transaction`.AFSInformation.InfoCodeString as AFSInformation_InfoCodeString,
+Report.`Transaction`.AFSInformation.HostSeverity as AFSInformation_HostSeverity,
+Report.`Transaction`.AFSInformation.IPInformation.IPAddress as AFSInformation_IPInformation_IPAddress,
+Report.`Transaction`.AFSInformation.IPInformation.IPCountry as AFSInformation_IPInformation_IPCountry,
+Report.`Transaction`.AFSInformation.IPInformation.IPState as AFSInformation_IPInformation_IPState,
+Report.`Transaction`.AFSInformation.IPInformation.IPCity as AFSInformation_IPInformation_IPCity,
+Report.`Transaction`.MarkedSuspect.Date as MarkedSuspect_Date,
+Report.`Transaction`.MarkedSuspect.UserName as MarkedSuspect_UserName,
+Report.`Transaction`.MarkedSuspect.Reason as MarkedSuspect_Reason,
+Report.`Transaction`.MarkedSuspect.Notes as MarkedSuspect_Notes,
+Report.`Transaction`.CaseManagement.Profile.Active.Name as CaseManagement_Profile_Active_Name,
+Report.`Transaction`.CaseManagement.Profile.Active.Decision as CaseManagement_Profile_Active_Decision,
+Report.`Transaction`.CaseManagement.Profile.Active.NumberofRules as CaseManagement_Profile_Active_NumberOfRules,
+Report.`Transaction`.CaseManagement.Profile.Active.`Rule`  as CaseManagement_Profile_Active_Rule_XML,
+Report.`Transaction`.CaseManagement.Profile.Passive.Name as CaseManagement_Profile_Passive_Name,
+Report.`Transaction`.CaseManagement.Profile.Passive.Decision as CaseManagement_Profile_Passive_Decision,
+Report.`Transaction`.CaseManagement.Profile.Passive.`NumberofRules` as CaseManagement_Profile_Passive_NumberOfRules,
+Report.`Transaction`.CaseManagement.Owner.`Organization` as CaseManagement_Owner_Organization,
+Report.`Transaction`.CaseManagement.Owner.Username as CaseManagement_Owner_UserName,
+Report.`Transaction`.CaseManagement.Priority as CaseManagement_Priority,
+Report.`Transaction`.CaseManagement.QueueName as CaseManagement_Queue,
+Report.`Transaction`.CaseManagement.ReviewResult.Decision as CaseManagement_ReviewResult_Decision,
+Report.`Transaction`.CaseManagement.ReviewResult.ReviewComment as CaseManagement_ReviewResult_Notes,
+Report.`Transaction`.CaseManagement.ReviewResult.Date as CaseManagement_ReviewResult_Date,
+FROM 
+`pdh_risk_analytics_s.decision_manager_ingest` t
+
+left join max_date_cte md on   t.Report.OrganizationID= md.OrganizationID
+ where
+ (md.max_date is null or t.file_date> md.max_date) 
+
+
+  ),
+
+ s2 as (  select 
+ file_date as s2_file_date,
+Report.OrganizationID as s2_OrganizationID,
+Report.ReportStartDate as s2_start_date,
+Report.ReportEndDate as s2_end_date,
+Report.Name as s2_name,
+Report.`Transaction`.`Order`.MerchantID as s2_Order_MerchantID,
+Report.`Transaction`.`Order`.RequestID as s2_Order_RequestID,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Order Review SLA") as MerchantDefinedData_OrderReviewSLA,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Delivery state") as MerchantDefinedData_DeliveryState,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Store Suburb") as MerchantDefinedData_StoreSuburb,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Unattended Delivery") as MerchantDefinedData_UnattendedDelivery,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name like "EDR Card%") as MerchantDefinedData_EdrCard_scrambled,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Staff Card Flag") as MerchantDefinedData_StaffCardFlag,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Collection Person First name") as MerchantDefinedData_CollectionPersonFirstName_scrambled,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Collection Person Last Name") as MerchantDefinedData_CollectionPersonLastName_scrambled,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Collection Person mobile num") as MerchantDefinedData_CollectionPersonMobileNum_scrambled,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Age of account") as MerchantDefinedData_AgeOfAccount,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name like "Local Date%") as MerchantDefinedData_LocalDateTime,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name like "Order Date%") as MerchantDefinedData_OrderDateTimeAEST,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Shipping Method") as MerchantDefinedData_ShippingMethod,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Order channel") as MerchantDefinedData_OrderChannel,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Gift bag order") as MerchantDefinedData_GiftBagOrder,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Est. delivery date of order") as MerchantDefinedData_EstDeliveryDate,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "CARD BIN") as MerchantDefinedData_CardBIN,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Pre-auth status") as MerchantDefinedData_PreAuthStatus,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "Customer Type") as MerchantDefinedData_CustomerType,
+(select Value FROM UNNEST(Report.Transaction.MerchantDefinedData.Field)where Name = "PayPal Pre-Auth status") as MerchantDefinedData_PayPalPreAuthStatus,
+FROM 
+`pdh_risk_analytics_s.decision_manager_ingest` t
+
+ left join max_date_cte md on   t.Report.OrganizationID= md.OrganizationID
+ where
+( md.max_date is null or
+ t.file_date> md.max_date)
+
+
+ ),
+
+s3 as (
+   
+  
+   select 
+     file_date as s3_file_date,
+Report.OrganizationID as s3_OrganizationID,
+Report.ReportStartDate as s3_start_date,
+Report.ReportEndDate as s3_end_date,
+Report.Name as s3_name,
+Report.`Transaction`.`Order`.MerchantID as s3_Order_MerchantID,
+Report.`Transaction`.`Order`.RequestID as s3_Order_RequestID,
+(select Value FROM UNNEST(p.Field) where Name = "Device Fingerprint") as DeviceFingerprint_Fingerprint,
+(select Value FROM UNNEST(p.Field) where Name = "Device Smart ID") as DeviceFingerprint_SmartID,
+(select Value FROM UNNEST(p.Field) where Name = "Device Smart ID Confidence") as DeviceFingerprint_SmartIDConfidenceLevel,
+(select Value FROM UNNEST(p.Field) where Name = "Screen Resolution") as DeviceFingerprint_ScreenResolution,
+(select Value FROM UNNEST(p.Field) where Name = "Browser Language") as DeviceFingerprint_BrowserLanguage,
+(select Value FROM UNNEST(p.Field) where Name = "Javascript Enabled") as DeviceFingerprint_JavaScriptEnabled,
+(select Value FROM UNNEST(p.Field) where Name = "Flash Enabled") as DeviceFingerprint_FlashEnabled,
+(select Value FROM UNNEST(p.Field) where Name = "Cookies Enabled") as DeviceFingerprint_CookiesEnabled,
+(select Value FROM UNNEST(p.Field) where Name = "Images Enabled") as DeviceFingerprint_ImagesEnabled,
+(select Value FROM UNNEST(p.Field) where Name = "True IPAddress") as DeviceFingerprint_TrueIPAddress_Address,
+(select Value FROM UNNEST(p.Field) where Name = "True IPaddress Country") as DeviceFingerprint_TrueIPAddress_Country,
+(select Value FROM UNNEST(p.Field) where Name = "True IPaddress City") as DeviceFingerprint_TrueIPAddress_City,
+(select Value FROM unnest(p.Field) where Name = "Application Type") as DeviceFingerprint_ApplicationType,
+(select Value FROM UNNEST(p.Field) where Name = "Profiling Date/Time") as DeviceFingerprint_ProfilingDateTime,
+(select Value FROM UNNEST(p.Field) where Name = "Profiling Duration") as DeviceFingerprint_ProfilingDuration,
+(select Value FROM UNNEST(p.Field) where Name = "Profiled URL") as DeviceFingerprint_ProfiledURL,
+(select Value FROM UNNEST(p.Field) where Name = "Time On Page") as DeviceFingerprint_TimeOnPage,
+(select Value FROM UNNEST(p.Field) where Name = "Device Matched") as DeviceFingerprint_DeviceMatched,
+(select Value FROM UNNEST(p.Field) where Name = "Date Device First Seen") as DeviceFingerprint_DateDeviceFirstSeen
+
+
+FROM 
+`pdh_risk_analytics_s.decision_manager_ingest` t left join
+UNNEST(Report.`Transaction`.Providers.Provider) p on ((Report.`Transaction`.Providers.Provider is null )or name ='DeviceFingerprint' )
+ left join max_date_cte md on   t.Report.OrganizationID= md.OrganizationID
+ where (md.max_date is null or t.file_date> md.max_date)
+
+
+
+ 
+ )
+ 
+  
+
+select 
+s1.file_date ,
+ Sys_load_Datetime as Datetime_created ,
+s1.OrganizationID ,
+s1.start_date,
+s1.end_date,
+s1.name ,
+s1.Order_MerchantID,
+s1.Order_RequestID,
+s1.Order_TransactionDate,
+s1.Order_MerchantReferenceNumber,
+s1.Order_ConnectionMethod,
+s1.Order_Reply_ReasonCode,
+s1.Order_Reply_ReplyCode,
+s1.Order_Reply_ReplyFlag,
+s1.Order_Reply_ReplyMessage,
+s1.Order_LineItem_Records,
+s1.Customer_BillTo_FirstName_scrambled,
+s1.Customer_BillTo_LastName_scrambled,
+s1.Customer_BillTo_Address1_scrambled,
+s1.Customer_BillTo_City,
+s1.Customer_BillTo_State,
+s1.Customer_BillTo_PostalCode,
+s1.Customer_BillTo_Country,
+s1.Customer_BillTo_Phone_scrambled,
+s1.Customer_BillTo_Email_scrambled,
+s1.Customer_BillTo_CustomerID_scrambled,
+s1.Customer_ShipTo_FirstName_scrambled,
+s1.Customer_ShipTo_LastName_scrambled,
+s1.Customer_ShipTo_Address1_scrambled,
+s1.Customer_ShipTo_Address2_scrambled,
+s1.Customer_ShipTo_City,
+s1.Customer_ShipTo_State,
+s1.Customer_ShipTo_PostalCode,
+s1.Customer_ShipTo_Country,
+s1.Customer_ShipTo_Phone_scrambled,
+s1.Payment_AccountSuffix,
+s1.Payment_CardType,
+s1.Payment_CardScheme,
+s1.Payment_CardIssuer,
+s1.Payment_CardBIN,
+s1.Payment_CardBINCountry,
+s1.Payment_OrderAmount,
+s1.Payment_OrderCurrency,
+s1.Payment_LocalOrderAmount,
+s1.Payment_LocalOrderCurrency,
+s1.AFSInformation_Score,
+s1.AFSInformation_Model,
+s1.AFSInformation_Factors,
+s1.AFSInformation_InfoCodeString,
+s1.AFSInformation_HostSeverity,
+s1.AFSInformation_IPInformation_IPAddress,
+s1.AFSInformation_IPInformation_IPCountry,
+s1.AFSInformation_IPInformation_IPState,
+s1.AFSInformation_IPInformation_IPCity,
+s1.MarkedSuspect_Date,
+s1.MarkedSuspect_UserName,
+s1.MarkedSuspect_Reason,
+s1.MarkedSuspect_Notes,
+s2.MerchantDefinedData_OrderReviewSLA,
+s2.MerchantDefinedData_DeliveryState,
+s2.MerchantDefinedData_StoreSuburb,
+s2.MerchantDefinedData_UnattendedDelivery,
+s2.MerchantDefinedData_EdrCard_scrambled,
+s2.MerchantDefinedData_StaffCardFlag,
+s2.MerchantDefinedData_CollectionPersonFirstName_scrambled,
+s2.MerchantDefinedData_CollectionPersonLastName_scrambled,
+s2.MerchantDefinedData_CollectionPersonMobileNum_scrambled,
+s2.MerchantDefinedData_AgeOfAccount,
+s2.MerchantDefinedData_LocalDateTime,
+s2.MerchantDefinedData_OrderDateTimeAEST,
+s2.MerchantDefinedData_ShippingMethod,
+s2.MerchantDefinedData_OrderChannel,
+s2.MerchantDefinedData_GiftBagOrder,
+s2.MerchantDefinedData_EstDeliveryDate,
+s2.MerchantDefinedData_CardBIN,
+s2.MerchantDefinedData_PreAuthStatus,
+s2.MerchantDefinedData_CustomerType,
+s2.MerchantDefinedData_PayPalPreAuthStatus,
+s1.CaseManagement_Profile_Active_Name,
+s1.CaseManagement_Profile_Active_Decision,
+s1.CaseManagement_Profile_Active_NumberOfRules,
+--s1.CaseManagement_Profile_Active_Rule_XML,
+s1.CaseManagement_Profile_Passive_Name,
+s1.CaseManagement_Profile_Passive_Decision,
+s1.CaseManagement_Profile_Passive_NumberOfRules,
+s1.CaseManagement_Owner_Organization,
+s1.CaseManagement_Owner_UserName,
+s1.CaseManagement_Priority,
+s1.CaseManagement_Queue,
+s1.CaseManagement_ReviewResult_Decision,
+s1.CaseManagement_ReviewResult_Notes,
+s1.CaseManagement_ReviewResult_Date,
+s3.DeviceFingerprint_Fingerprint,
+s3.DeviceFingerprint_SmartID,
+s3.DeviceFingerprint_SmartIDConfidenceLevel,
+s3.DeviceFingerprint_ScreenResolution,
+s3.DeviceFingerprint_BrowserLanguage,
+s3.DeviceFingerprint_JavaScriptEnabled,
+s3.DeviceFingerprint_FlashEnabled,
+s3.DeviceFingerprint_CookiesEnabled,
+s3.DeviceFingerprint_ImagesEnabled,
+s3.DeviceFingerprint_TrueIPAddress_Address,
+s3.DeviceFingerprint_TrueIPAddress_Country,
+s3.DeviceFingerprint_TrueIPAddress_City,
+s3.DeviceFingerprint_ApplicationType,
+s3.DeviceFingerprint_ProfilingDateTime,
+s3.DeviceFingerprint_ProfilingDuration,
+s3.DeviceFingerprint_ProfiledURL,
+s3.DeviceFingerprint_TimeOnPage,
+s3.DeviceFingerprint_DeviceMatched,
+s3.DeviceFingerprint_DateDeviceFirstSeen,
+
+
+
+from  s1   join s2 on Start_Date =s2_Start_Date
+                 and End_Date = s2_End_Date
+                 and  Name = s2_Name 
+                 and Order_RequestID=s2_Order_RequestID
+                 and Order_MerchantID= s2_Order_MerchantID
+                 and file_date= s2_file_date
+                 and OrganizationID= s2_OrganizationID
+          Join s3   on Start_Date =s3_Start_Date
+                 and End_Date = s3_End_Date
+                 and  Name = s3_Name 
+                 and Order_RequestID=s3_Order_RequestID
+                 and Order_MerchantID= s3_Order_MerchantID
+                 and file_date= s3_file_date
+                 and OrganizationID= s3_OrganizationID   
+
+
+
+
+
+ 
