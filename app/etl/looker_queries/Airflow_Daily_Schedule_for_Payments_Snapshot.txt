@@ -1,0 +1,221 @@
+
+create or replace table `wpay_analytics.wpay_payments_snapshot` as
+(
+
+with monthly as
+(
+  select
+  'Monthly' as Timeframe,
+
+  left(cast(trans.tstamp_trans as string),7) as Period,
+  stores.invoice_group invoice_group,
+  stores.company company,
+  stores.merchant_group as Merchant_group,
+  stores.merchant_portal_mg as merchant_portal_mg,
+  stores.brand as Brand,
+  stores.site_name,
+  case when stores.is_online = "Online" then "Online" when stores.is_online = "Not Online" then "In store" end as channel,
+  left(trans.net_term_id,5) as Store_ID,
+  calc_scheme as Scheme,
+  calc_card_type as Card_type,
+  (sum(case when trans.calc_tran_type_description in
+  ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then 1 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
+  ) as Purchase_count,
+  (sum(case when trans.calc_tran_type_description in
+  ('REFUND') then 1 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('REFUND REVERSAL') then 1 else 0 end)
+  ) as Refund_count,
+
+
+  (sum(case when trans.calc_tran_type_description in
+  ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then transaction_total/100 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then transaction_total/100 else 0 end)
+  ) as Purchase_amount,
+  (sum(case when trans.calc_tran_type_description in
+  ('REFUND') then transaction_total/100 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('REFUND REVERSAL') then transaction_total/100 else 0 end)
+  ) as Refund_amount,
+  from
+  wpay_analytics.wpay_billing_engine_tran_dtl trans
+  left join
+  pdh_ref_ds.ref_store_details stores
+  on
+  left(trans.net_term_id,5) = stores.store_id
+  where
+  (trans.calc_approval_flag = 'A' )
+  and calc_card_type not in ('C','D','H','P','R')
+  -- and trans.tstamp_trans between date_sub((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl), interval )
+
+   and left(cast(trans.tstamp_trans as string),7) between 
+    left(string(date_sub(current_date() , interval 7 month)), 7)
+    and left(cast(current_date() as string),7)
+
+  group by
+  1,2,3,4,5,6,7,8,9,10,11,12
+)
+
+-------------------------
+-- WEEKLY
+-------------------------
+
+, weekly as
+(
+  select
+  'Weekly' as Timeframe,
+
+  -- concat('Wk-',right(format_date('%Y%W', dates.clndr_date), 2),' : ', format_date('%d-%b', dates.fw_start_date), ' to ', format_date('%d-%b', dates.fw_end_date)) as Period,
+  concat(format_date('%d-%b', dates.fw_start_date), ' to ', format_date('%d-%b', dates.fw_end_date)) as Period,
+  stores.invoice_group invoice_group,
+  stores.company company,
+  stores.merchant_group as Merchant_group,
+  stores.merchant_portal_mg as merchant_portal_mg,
+  stores.brand as Brand,
+  stores.site_name,
+  case when stores.is_online = "Online" then "Online" when stores.is_online = "Not Online" then "In store" end as channel,
+  left(trans.net_term_id,5) as Store_ID,
+  calc_scheme as Scheme,
+  calc_card_type as Card_type,
+  (sum(case when trans.calc_tran_type_description in
+  ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then 1 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
+  ) as Purchase_count,
+  (sum(case when trans.calc_tran_type_description in
+  ('REFUND') then 1 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('REFUND REVERSAL') then 1 else 0 end)
+  ) as Refund_count,
+
+
+  (sum(case when trans.calc_tran_type_description in
+  ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then transaction_total/100 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then transaction_total/100 else 0 end)
+  ) as Purchase_amount,
+  (sum(case when trans.calc_tran_type_description in
+  ('REFUND') then transaction_total/100 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('REFUND REVERSAL') then transaction_total/100 else 0 end)
+  ) as Refund_amount,
+  from
+  wpay_analytics.wpay_billing_engine_tran_dtl trans
+  left join
+  pdh_ref_ds.ref_store_details stores
+  on
+  left(trans.net_term_id,5) = stores.store_id
+  left join
+  `pdh_ref_ds.dim_date` dates
+  on left(cast(trans.tstamp_trans as string),10) = string(dates.clndr_date)
+  where
+  (trans.calc_approval_flag = 'A' )
+  and calc_card_type not in ('C','D','H','P','R')
+
+   and left(cast(trans.tstamp_trans as string),10) between 
+    left(string(date_sub(current_date() , interval 8 week)), 10)
+    and left(cast(current_date() as string),10)
+
+  group by
+  1,2,3,4,5,6,7,8,9,10,11,12
+)
+
+
+
+-------------------------
+-- DAILY
+-------------------------
+
+, daily as
+(
+  select
+  'Daily' as Timeframe,
+
+  left(cast(trans.tstamp_trans as string),10) as Period,
+  stores.invoice_group invoice_group,
+  stores.company company,
+  stores.merchant_group as Merchant_group,
+  stores.merchant_portal_mg as merchant_portal_mg,
+  stores.brand as Brand,
+  stores.site_name,
+  case when stores.is_online = "Online" then "Online" when stores.is_online = "Not Online" then "In store" end as channel,
+  left(trans.net_term_id,5) as Store_ID,
+  calc_scheme as Scheme,
+  calc_card_type as Card_type,
+  (sum(case when trans.calc_tran_type_description in
+  ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then 1 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then 1 else 0 end)
+  ) as Purchase_count,
+  (sum(case when trans.calc_tran_type_description in
+  ('REFUND') then 1 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('REFUND REVERSAL') then 1 else 0 end)
+  ) as Refund_count,
+
+
+  (sum(case when trans.calc_tran_type_description in
+  ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION') then transaction_total/100 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION REVERSAL') then transaction_total/100 else 0 end)
+  ) as Purchase_amount,
+  (sum(case when trans.calc_tran_type_description in
+  ('REFUND') then transaction_total/100 else 0 end)
+  -
+  sum(case when trans.calc_tran_type_description in
+  ('REFUND REVERSAL') then transaction_total/100 else 0 end)
+  ) as Refund_amount,
+  from
+  wpay_analytics.wpay_billing_engine_tran_dtl trans
+  left join
+  pdh_ref_ds.ref_store_details stores
+  on
+  left(trans.net_term_id,5) = stores.store_id
+  left join
+  `pdh_ref_ds.dim_date` dates
+  on left(cast(trans.tstamp_trans as string),10) = string(dates.clndr_date)
+  where
+  (trans.calc_approval_flag = 'A' )
+  and calc_card_type not in ('C','D','H','P','R')
+  
+  and left(cast(trans.tstamp_trans as string),10) between 
+    left(string(date_sub(current_date() , interval 32 day)), 10)
+    and left(cast(current_date() as string),10)
+
+
+  group by
+  1,2,3,4,5,6,7,8,9,10,11,12
+)
+
+
+
+
+select *, case when (monthly.period = (select min(period) from monthly) and timeframe = "Monthly") then "min_month" else null end as min_flag from monthly
+
+union all
+
+select *, case when (weekly.period = (select min(period) from weekly) and timeframe = "Weekly") then "min_week" else null end as min_flag from weekly
+union all
+
+select *, case when (daily.period = (select min(period) from daily) and timeframe = "Daily") then "min_day" else null end as min_flag from daily
+
+);
+
+create or replace view `wpay_analytics.vw_wpay_payments_snapshot`
+as
+select * from `wpay_analytics.wpay_payments_snapshot`
+;

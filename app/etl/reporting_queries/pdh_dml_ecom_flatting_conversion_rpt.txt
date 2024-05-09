@@ -1,0 +1,37 @@
+Declare sys_load_Datetime Datetime DEFAULT Current_Datetime("Australia/Sydney");	
+
+Insert into `pdh_risk_analytics_s.fact_cybersrc_ap_conversions`
+
+
+with  max_date_cte as ( 
+  select merchantID ,max(file_date)  as max_date 
+   from `pdh_risk_analytics_s.fact_cybersrc_ap_conversions`
+   group by 1
+ )
+
+ SELECT 
+ 
+file_date as file_date,
+sys_load_Datetime ,
+Report.MerchantID as MerchantID,
+Report.ReportStartDate as start_date,
+Report.ReportEndDate as end_date,
+Report.Name as name,
+c.ConversionDate,
+c.MerchantReferenceNumber,
+c.RequestID,
+c.OriginalDecision,
+c.NewDecision,
+c.Reviewer,
+c.ReviewerComments,
+c.Queue,
+c.Profile,
+
+from pdh_risk_analytics_s.conversion_detail_ingest t    left join
+unnest(Report.Conversion) c --on file_date>'2024-03-21'
+left join max_date_cte md on  t.report.MerchantID= md.MerchantID 
+ 
+ where  md.max_date is null or
+ t.file_date> md.max_date
+
+

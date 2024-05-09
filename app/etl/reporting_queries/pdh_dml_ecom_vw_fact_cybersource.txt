@@ -1,0 +1,685 @@
+/*
+------------------------------------------------------
+--Author: RB
+--Date: 2021 May 24
+--Description: Fact_CyberSource
+--Version: 01
+--
+--Date: 2021 September 23
+--Description: Include the PayPal Pre Authentications
+-- Remove records if BWS, If MerchantDefinedData_CardBIN is null and MerchantDefinedData_PreAuthStatus is null
+--Version: 02
+--
+--Date: 2021 November 25
+--Description: Unscramble the scramble PII elements
+-- PIA has been raised and approved by Tim and Haydar
+--Version: 03
+------------------------------------------------------
+
+With sKey as
+(
+SELECT value, key FROM `gcp-wow-risk-de-data-prod.ECom_sec.scrambleValueKey`
+--WHERE KEY = 'B4F7AF48-6991-417E-A149-F2ECA56EBF14'
+)
+--- These CNP slipper data is not used in the Reports
+,Fact_CNP
+as
+(
+select
+FraudType
+,Order_RequestID
+,Customer_ChargeBack_Count
+,Customer_Transaction_Count
+,this_banner_purchases_before
+,this_banner_purchases_after
+,this_banner_value_before
+,this_banner_value_after
+,other_banner_purchases_before
+,other_banner_purchases_after
+,other_banner_value_before
+,other_banner_value_after
+,row_number() over (partition by Order_RequestID order by Customer_ChargeBack_Count desc) as nrank
+from
+`gcp-wow-risk-de-data-prod.ECom.vw_Fact_CNP`
+)
+
+*/
+
+insert into `pdh_risk_analytics_s.fact_cybersource`
+(
+with
+max_date_cte as ( 
+  select OrganizationID ,max(file_date_decision_mng)  as max_date 
+   from `pdh_risk_analytics_s.fact_cybersource`
+   group by 1
+ ),
+
+
+ Conversions
+as
+(
+
+SELECT
+file_date as file_date_conversion,
+--ID_NUM
+--cast(JobStepLogId as string) as JobStepLogId
+--,MerchantReferenceNumber
+--,ConversionDate
+DATETIME(ConversionDate,"Australia/Sydney") AS ConversionDate
+,RequestID
+--,OriginalDecision
+,NewDecision
+,Reviewer
+,ReviewerComments
+--,Queue
+--Profile
+FROM `pdh_risk_analytics_s.fact_cybersrc_ap_conversions`
+where (select max(file_date_conversion) from `pdh_risk_analytics_s.fact_cybersource`) is null or
+ file_date> (select max(file_date_conversion) from `pdh_risk_analytics_s.fact_cybersource`)
+)
+
+,CardBin
+as
+(
+SELECT distinct
+--ID_NUM as CardBinID
+CARD_BIN_NUMBER as Payment_CardBIN
+--,LOAD_TIME, DATA_SOURCE
+,scheme
+--,number_length, number_prefix
+,type
+--,brand,prepaid
+,bank_name
+--,bank_logo,bank_url,bank_city,bank_phone,country_alpha2
+,country_name
+--,country_numeric,country_latitude,country_longitude
+FROM `pdh_risk_analytics_s.dim_card_bin_details`
+)
+
+,Reviewer
+as
+(
+SELECT REGEXP_REPLACE(Reviewer_ID, r'([\'\"])', '') as Reviewer_ID,
+Reviewer_First_Name,
+Reviewer_Last_Name,
+Case When Reviewer_First_Name is null or Reviewer_Last_Name is null then Reviewer_First_Name else CONCAT(Reviewer_First_Name, ' ' , Reviewer_Last_Name) End as Reviewer_Name,
+Case When Shift is null or Shift = '' or Shift = '-' then 'Unknown' Else Shift End as Shift
+,Row_Number() Over (Partition By REGEXP_REPLACE(Reviewer_ID, r'([\'\"])', '') order by Shift desc) as nrank
+FROM `pdh_risk_analytics_s.dim_reviewer`
+)
+
+
+,PostCode_Lat_Long
+as
+(
+Select distinct cast(PostCode as string) as PostCode, Suburb, State, --DC, Type,
+Latitude, Longitude
+,(Latitude * (ACOS(-1)/180)) as PostCodeLatitude
+,(Longitude * (ACOS(-1)/180)) as PostCodeLongitude
+FROM `pdh_risk_analytics_s.vw_dim_australia_geo`
+
+)
+
+,Store_Locations
+as
+(
+SELECT distinct IA_Team, Geographic_State, Business_Unit, Region_State,
+Area_Zone_Group, Site_Number, Site_Name, Suburb, PostCode,
+State, Latitude, Longitude, Country, Size_Based_On_Sales,
+Mon_Hours_Value, Tues_Hours_Value, Wed_Hours_Value, Thur_Hours_Value,
+Fri_Hours_Value, Sat_Hours_Value, Sun_Hours_Value,
+TOTAL_HOURS, Average_Trading_Hours, Building_Area
+FROM `pdh_risk_analytics_s.dim_costcentre_ecom`
+)
+
+,Stg_1_Fact_CyberSource
+as
+(
+
+
+SELECT
+
+'CSource' as FactType,
+file_date as file_date_decision_mng,
+c.organizationID,
+AFSInformation_Factors,
+AFSInformation_HostSeverity,
+AFSInformation_InfoCodeString,
+AFSInformation_IPInformation_IPAddress,
+AFSInformation_IPInformation_IPCity,
+AFSInformation_IPInformation_IPCountry,
+AFSInformation_IPInformation_IPState,
+AFSInformation_Model,
+AFSInformation_Score,
+CaseManagement_Owner_UserName,
+CaseManagement_Profile_Active_Decision,
+CaseManagement_Profile_Active_NumberOfRules,
+CaseManagement_Profile_Passive_Decision,
+CaseManagement_Profile_Passive_Name,
+CaseManagement_Profile_Active_Name,
+--CaseManagement_ReviewResult_Date,
+DATETIME(CaseManagement_ReviewResult_Date, "Australia/Sydney") AS CaseManagement_ReviewResult_Date,
+--CaseManagement_ReviewResult_Date as CaseManagement_ReviewResult_Date1,
+DATETIME(CaseManagement_ReviewResult_Date, "Australia/Sydney") AS CaseManagement_ReviewResult_Date1,
+CaseManagement_ReviewResult_Decision,
+Customer_BillTo_Address1_scrambled as Customer_BillTo_Address1,
+--Customer_BillTo_Address1.Value as Customer_BillTo_Address1,
+Customer_BillTo_City,
+Customer_BillTo_Country,
+
+Customer_BillTo_CustomerID_scrambled as Customer_BillTo_CustomerID,
+--BillTo_CustomerID.Value as Customer_BillTo_CustomerID,
+Customer_BillTo_Email_scrambled as Customer_BillTo_Email,
+--Customer_BillTo_Email.Value as Customer_BillTo_Email,
+Customer_BillTo_FirstName_scrambled as Customer_BillTo_FirstName,
+--Customer_BillTo_FirstName.Value as Customer_BillTo_FirstName,
+Customer_BillTo_LastName_scrambled as Customer_BillTo_LastName,
+--Customer_BillTo_LastName.Value as Customer_BillTo_LastName,
+Customer_BillTo_Phone_scrambled as Customer_BillTo_Phone,
+--Customer_BillTo_Phone.Value as Customer_BillTo_Phone,
+
+
+Customer_BillTo_PostalCode,
+Customer_BillTo_State,
+Customer_ShipTo_Address1_scrambled as Customer_ShipTo_Address1,
+--Customer_ShipTo_Address1.Value as Customer_ShipTo_Address1,
+Customer_ShipTo_Address2_scrambled as Customer_ShipTo_Address2,
+--Customer_ShipTo_Address2.Value as Customer_ShipTo_Address2,
+Customer_ShipTo_City,
+Customer_ShipTo_Country,
+Customer_ShipTo_FirstName_scrambled as Customer_ShipTo_FirstName,
+--Customer_ShipTo_FirstName.Value as Customer_ShipTo_FirstName,
+Customer_ShipTo_LastName_scrambled as Customer_ShipTo_LastName,
+--Customer_ShipTo_LastName.Value as Customer_ShipTo_LastName,
+Customer_ShipTo_Phone_scrambled as Customer_ShipTo_Phone,
+--Customer_ShipTo_Phone.Value as Customer_ShipTo_Phone,
+Customer_ShipTo_PostalCode,
+Customer_ShipTo_State,
+DeviceFingerprint_ApplicationType,
+DeviceFingerprint_DateDeviceFirstSeen,
+DeviceFingerprint_DeviceMatched,
+DeviceFingerprint_ProfilingDuration,
+DeviceFingerprint_SmartID,
+DeviceFingerprint_SmartIDConfidenceLevel,
+DeviceFingerprint_TimeOnPage,
+DeviceFingerprint_TrueIPAddress_Address,
+DeviceFingerprint_TrueIPAddress_City,
+DeviceFingerprint_TrueIPAddress_Country,
+--ID_NUM,
+--JobStepLogId,
+--MarkedSuspect_Date,
+DATETIME(TIMESTAMP(MarkedSuspect_Date),"Australia/Sydney") as MarkedSuspect_Date,
+
+UPPER(MarkedSuspect_Notes) as MarkedSuspect_Notes,
+
+MarkedSuspect_Reason,
+MarkedSuspect_UserName,
+MerchantDefinedData_AgeOfAccount,
+MerchantDefinedData_CardBIN,
+MerchantDefinedData_CollectionPersonFirstName_scrambled as MerchantDefinedData_CollectionPersonFirstName,
+--MerchantDefinedData_CollectionPersonFirstName.Value as MerchantDefinedData_CollectionPersonFirstName,
+MerchantDefinedData_CollectionPersonLastName_scrambled as MerchantDefinedData_CollectionPersonLastName,
+--MerchantDefinedData_CollectionPersonLastName.Value as MerchantDefinedData_CollectionPersonLastName,
+MerchantDefinedData_CollectionPersonMobileNum_scrambled as MerchantDefinedData_CollectionPersonMobileNum,
+--MerchantDefinedData_CollectionPersonMobileNum.Value as MerchantDefinedData_CollectionPersonMobileNum,
+MerchantDefinedData_CustomerType,
+MerchantDefinedData_DeliveryState,
+MerchantDefinedData_EdrCard_scrambled as MerchantDefinedData_EdrCard,
+--MerchantDefinedData_EdrCard.Value as MerchantDefinedData_EdrCard,
+MerchantDefinedData_EstDeliveryDate,
+MerchantDefinedData_GiftBagOrder,
+MerchantDefinedData_LocalDateTime,
+MerchantDefinedData_OrderChannel,
+MerchantDefinedData_OrderDateTimeAEST,
+MerchantDefinedData_OrderReviewSLA,
+MerchantDefinedData_PreAuthStatus,
+MerchantDefinedData_ShippingMethod,
+MerchantDefinedData_StaffCardFlag,
+MerchantDefinedData_StoreSuburb,
+MerchantDefinedData_UnattendedDelivery,
+Order_MerchantID,
+Case when Order_MerchantID like '%bigw_online%' then 'Big W'
+when Order_MerchantID like '%bws_online%' then 'BWS Online'
+when Order_MerchantID like '%dan_murphys%' then 'Dan Murphy'
+when Order_MerchantID like '%gfs_giftcards%' then 'Gift Cards'
+when Order_MerchantID like '%woolworths_online%' then 'Woolworths Online'
+when Order_MerchantID like '%wow_connect%' then 'WOW Mobile'
+when Order_MerchantID like '%langtons%' then 'Langtons'
+when Order_MerchantID like '%countdown_online%' then 'Countdown Online'
+when Order_MerchantID like '%shortys_liquor%' then 'Shortys Liquor'
+end as Merchant_ID,
+
+Order_MerchantReferenceNumber,
+Order_Reply_ReasonCode,
+Order_Reply_ReplyCode,
+Order_Reply_ReplyFlag,
+Order_Reply_ReplyMessage,
+Order_RequestID,
+
+--Extract(Date from Order_TransactionDate) as Order_Transaction_Date,
+Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) as Order_Transaction_Date,
+--Order_TransactionDate as Order_Transaction_DateTime,
+DATETIME(Order_TransactionDate, "Australia/Sydney") as Order_Transaction_DateTime,
+Payment_AccountSuffix,
+Payment_AccountSuffix as Card_Last_4_Digits,
+
+c.Payment_CardBIN,
+Payment_CardBINCountry,
+Case when b.Payment_CardBIN is null then 'No Country Found' else b.country_name end as CardBinCountry,
+Payment_CardIssuer,
+Payment_CardScheme,
+Payment_CardType,
+Case When Order_MerchantID like '%countdown_online%' then Payment_OrderAmount else Payment_LocalOrderAmount end as Payment_LocalOrderAmount,
+--Payment_LocalOrderAmount,
+
+Payment_LocalOrderCurrency,
+Payment_OrderAmount,
+Payment_OrderCurrency
+
+,Case When MerchantDefinedData_StoreSuburb like 'Woooolworths%' then concat('Woolworths', substr(MerchantDefinedData_StoreSuburb, 13))
+Else MerchantDefinedData_StoreSuburb end StoreSuburb
+
+,substr(MerchantDefinedData_StoreSuburb, STRPOS(Ltrim(MerchantDefinedData_StoreSuburb),',')+1) as Suburb
+
+--,l.ProductName
+--,l.Price as ProductPrice
+--,l.Quantity as ProductQuantity
+
+,MerchantDefinedData_PayPalPreAuthStatus
+
+
+FROM `pdh_risk_analytics_s.cyberscr_ap_tx` c --, unnest(Order_LineItem_Records) as l
+
+
+left join CardBin b on b.Payment_CardBIN = cast(c.Payment_CardBIN as string)
+--- Scrambled key is omitted in the etl
+ left join max_date_cte md on   c.OrganizationID= md.OrganizationID
+ where
+( md.max_date is null or
+ c.file_date> md.max_date)
+)
+
+
+
+
+,stg_2_Fact_CyberSource
+as
+(
+
+--below are the qlikview transformation fields
+
+Select *
+
+
+,Case When (EXTRACT(HOUR FROM Order_Transaction_DateTime)>19 or EXTRACT(HOUR FROM Order_Transaction_DateTime)<9) and
+Merchant_ID='Dan Murphy' and MerchantDefinedData_ShippingMethod='CLC_2HRS' then 1
+When (EXTRACT(HOUR FROM Order_Transaction_DateTime)<19 or EXTRACT(HOUR FROM Order_Transaction_DateTime)>9)
+and Merchant_ID='Dan Murphy' and MerchantDefinedData_ShippingMethod='CLC_2HRS' then 0
+End as _FlagOmitReviewTimeDanMurphyCLC2HRS
+
+,Case When (EXTRACT(HOUR FROM Order_Transaction_DateTime)>19 or EXTRACT(HOUR FROM Order_Transaction_DateTime)<9) and
+Merchant_ID='BWS Online' and (MerchantDefinedData_ShippingMethod='Pickup' or MerchantDefinedData_ShippingMethod='BWS_Express_Delivery') then 1
+When (EXTRACT(HOUR FROM Order_Transaction_DateTime)<19 or EXTRACT(HOUR FROM Order_Transaction_DateTime)>9)
+and Merchant_ID='BWS Online' and (MerchantDefinedData_ShippingMethod='Pickup' or MerchantDefinedData_ShippingMethod='BWS_Express_Delivery') then 0
+End as _FlagOmitReviewTimeBWS
+
+
+,Case When (EXTRACT(HOUR FROM Order_Transaction_DateTime)>16 or EXTRACT(HOUR FROM Order_Transaction_DateTime)<7) and
+Merchant_ID='Big W' and MerchantDefinedData_ShippingMethod='CLC_STD' then 1
+When (EXTRACT(HOUR FROM Order_Transaction_DateTime)<16 or EXTRACT(HOUR FROM Order_Transaction_DateTime)>7)
+and Merchant_ID='Big W' and MerchantDefinedData_ShippingMethod='CLC_STD' then 0
+End as _FlagOmitReviewTimeBigW
+
+,Case When ((EXTRACT(HOUR FROM Order_Transaction_DateTime)>18 or EXTRACT(HOUR FROM Order_Transaction_DateTime)<7) and
+Merchant_ID='Dan Murphy' and MerchantDefinedData_ShippingMethod='CLC_2HRS') or
+((EXTRACT(HOUR FROM Order_Transaction_DateTime)>18 or EXTRACT(HOUR FROM Order_Transaction_DateTime)<7)
+and Merchant_ID='BWS Online' and (MerchantDefinedData_ShippingMethod='Pickup' or MerchantDefinedData_ShippingMethod='BWS_Express_Delivery')) or
+(EXTRACT(HOUR FROM Order_Transaction_DateTime)>21 or EXTRACT(HOUR FROM Order_Transaction_DateTime)<5)
+then 1 Else 0
+End as _FlagOmitReviewTimeAll
+
+,if(STRPOS(Ltrim(StoreSuburb),'-') = 11 or STRPOS(Ltrim(StoreSuburb),'-') = 12,substr(StoreSuburb, STRPOS(Ltrim(StoreSuburb),'-') +1,
+STRPOS(Ltrim(StoreSuburb),',') - STRPOS(Ltrim(StoreSuburb),'-') -1),
+substr(Ltrim(StoreSuburb), 11, STRPOS(Ltrim(StoreSuburb),',') - 11))
+as Store_Suburb
+
+from Stg_1_Fact_CyberSource
+
+)
+
+--select * from Stg_2_Fact_CyberSource
+
+,Stg_3_Fact_CyberSource
+as
+(
+select
+file_date_decision_mng,
+organizationID,
+AFSInformation_Factors,
+AFSInformation_HostSeverity,
+AFSInformation_InfoCodeString,
+AFSInformation_IPInformation_IPAddress,
+AFSInformation_IPInformation_IPCity,
+AFSInformation_IPInformation_IPCountry,
+AFSInformation_IPInformation_IPState,
+AFSInformation_Model,
+AFSInformation_Score,
+Case When CaseManagement_Owner_UserName is null then v.Reviewer else CaseManagement_Owner_UserName end as CaseManagement_Owner_UserName,
+CaseManagement_Profile_Active_Decision,
+CaseManagement_Profile_Active_NumberOfRules,
+CaseManagement_Profile_Passive_Decision,
+CaseManagement_Profile_Passive_Name,
+CaseManagement_Profile_Active_Name,
+--Extract(Date from CaseManagement_ReviewResult_Date) as Review_Result_Date,
+
+--CaseManagement_ReviewResult_Date as Review_Result_DateTime,
+
+--EXTRACT(HOUR FROM CaseManagement_ReviewResult_Date) as Review_Result_HOUR,
+
+Case When CaseManagement_ReviewResult_Date is Null Then v.ConversionDate Else CaseManagement_ReviewResult_Date End as CaseManagement_ReviewResult_Date,
+
+--Case When r.Reviewer_Name is null then 'NA' else r.Reviewer_Name end as Reviewer_Name,
+If(r.Reviewer_Name is not null, r.Reviewer_Name,
+if(CaseManagement_Owner_UserName is null, 'NA', CaseManagement_Owner_UserName)
+) as Reviewer_Name,
+Case When CaseManagement_ReviewResult_Date1 is null then CaseManagement_Owner_UserName else '' end as CaseManagement_Owner_UserName_Previous,
+
+Case When CaseManagement_ReviewResult_Decision is null then v.NewDecision else CaseManagement_ReviewResult_Decision end as CaseManagement_ReviewResult_Decision,
+
+Customer_BillTo_Address1,
+Customer_BillTo_City,
+Customer_BillTo_Country,
+Customer_BillTo_CustomerID,
+Customer_BillTo_Email,
+Customer_BillTo_Email as Email_Domain, --this need to de-scrambled
+Customer_BillTo_FirstName,
+Customer_BillTo_LastName,
+Customer_BillTo_Phone,
+Customer_BillTo_PostalCode,
+
+Customer_BillTo_State,
+Customer_ShipTo_Address1,
+Customer_ShipTo_Address2,
+Customer_ShipTo_City,
+Customer_ShipTo_Country,
+Customer_ShipTo_FirstName,
+Customer_ShipTo_LastName,
+Customer_ShipTo_Phone,
+Customer_ShipTo_PostalCode,
+Customer_ShipTo_State,
+DeviceFingerprint_ApplicationType,
+DeviceFingerprint_DateDeviceFirstSeen,
+DeviceFingerprint_DeviceMatched,
+DeviceFingerprint_ProfilingDuration,
+DeviceFingerprint_SmartID,
+DeviceFingerprint_SmartIDConfidenceLevel,
+DeviceFingerprint_TimeOnPage,
+DeviceFingerprint_TrueIPAddress_Address,
+DeviceFingerprint_TrueIPAddress_City,
+DeviceFingerprint_TrueIPAddress_Country,
+--ID_NUM,
+--c.JobStepLogId,
+MarkedSuspect_Date,
+MarkedSuspect_Notes,
+Case When MarkedSuspect_Notes like '%ETHI%' or MarkedSuspect_Notes like '%ETHO%' or MarkedSuspect_Notes like '%ETHJ%' then 1 else 0 end _FlagEthicalAlert,
+MarkedSuspect_Reason,
+MarkedSuspect_UserName,
+MerchantDefinedData_AgeOfAccount,
+MerchantDefinedData_CardBIN,
+MerchantDefinedData_CollectionPersonFirstName,
+MerchantDefinedData_CollectionPersonLastName,
+MerchantDefinedData_CollectionPersonMobileNum,
+MerchantDefinedData_CustomerType,
+MerchantDefinedData_DeliveryState,
+MerchantDefinedData_EdrCard,
+Case When MerchantDefinedData_EdrCard is null then 0 else 1 end as _FlagRegisteredCustomer,
+MerchantDefinedData_EstDeliveryDate,
+MerchantDefinedData_GiftBagOrder,
+MerchantDefinedData_LocalDateTime,
+MerchantDefinedData_OrderChannel,
+MerchantDefinedData_OrderDateTimeAEST,
+MerchantDefinedData_OrderReviewSLA,
+MerchantDefinedData_PreAuthStatus,
+MerchantDefinedData_ShippingMethod,
+MerchantDefinedData_StaffCardFlag,
+MerchantDefinedData_StoreSuburb,
+MerchantDefinedData_UnattendedDelivery,
+Order_MerchantID,
+Order_MerchantReferenceNumber,
+Order_Reply_ReasonCode,
+Order_Reply_ReplyCode,
+Order_Reply_ReplyFlag,
+Order_Reply_ReplyMessage,
+c.Order_RequestID,
+--Case When v.RequestID is null then 'No Job Found' else v.JobStepLogId end as JobStepLogIDCon,
+EXTRACT(HOUR FROM Order_Transaction_DateTime) as Order_Transaction_HOUR,
+Order_Transaction_Date,
+Order_Transaction_DateTime,
+
+Payment_AccountSuffix,
+Payment_CardBIN,
+Payment_CardBINCountry,
+CardBinCountry,
+Payment_CardIssuer,
+Payment_CardScheme,
+Payment_CardType,
+Payment_LocalOrderAmount,
+Payment_LocalOrderCurrency,
+Payment_OrderAmount,
+Payment_OrderCurrency
+
+--Transformed fields
+,Merchant_ID
+,StoreSuburb
+,Case When StoreSuburb LIKE 'Woolworths%' Then Store_Suburb Else StoreSuburb end as Store_Suburb
+,c.Suburb
+
+,s.Latitude as Suburb_Latitude
+,s.Longitude as Suburb_Longitude
+
+,p.Latitude as Customer_Latitude
+,p.Longitude as Customer_Longitude
+,p.PostCodeLatitude as Customer_PostCode_Latitude
+,p.PostCodeLongitude as Customer_PostCode_Longitude
+
+,acos(sin(s.Latitude)*sin(p.PostCodeLatitude)+cos(s.Latitude)*cos(p.PostCodeLatitude)*cos(p.PostCodeLongitude-s.Longitude))*6371 as Pickup_Distance
+,_FlagOmitReviewTimeDanMurphyCLC2HRS
+,_FlagOmitReviewTimeBWS
+,_FlagOmitReviewTimeBigW
+,_FlagOmitReviewTimeAll
+,Case When Extract(Month from CaseManagement_ReviewResult_Date) = Extract(Month from Order_Transaction_Date) Then 1 else 0 End as _flagReviewMonth
+,MerchantDefinedData_PayPalPreAuthStatus
+
+,v.ReviewerComments
+,v.file_date_conversion
+
+--PayPall transactions and rejections
+,Case When CaseManagement_Profile_Active_Decision = 'REJECT'
+--and CaseManagement_Profile_Passive_Name not in ('Pre-Auth failed orders')
+and CaseManagement_Profile_Active_Name not in ('Pre-Auth failed orders')
+and MerchantDefinedData_PreAuthStatus is null
+and MerchantDefinedData_CardBIN is null
+Then 1 else 0 end as PayPall_Transaction
+
+,Case When CaseManagement_Profile_Active_Decision = 'REJECT'
+--and CaseManagement_Profile_Passive_Name not in ('Pre-Auth failed orders')
+and CaseManagement_Profile_Active_Name not in ('Pre-Auth failed orders')
+and MerchantDefinedData_PreAuthStatus is null
+and MerchantDefinedData_CardBIN is null
+Then Payment_LocalOrderAmount else 0 end as PayPall_Transaction_Dollar
+
+from stg_2_Fact_CyberSource c
+
+left join PostCode_Lat_Long p on p.PostCode = c.Customer_BillTo_PostalCode and p.Suburb = c.Customer_BillTo_City
+left join Store_Locations s on c.Suburb = s.Suburb
+left join Conversions v on v.RequestID = c.Order_RequestID
+left Join Reviewer r on UPPER(r.Reviewer_ID) = UPPER(c.CaseManagement_Owner_UserName) and r.nrank = 1
+)
+
+--select * from Stg_3_Fact_CyberSource
+
+select
+file_date_decision_mng
+,organizationID
+,file_date_conversion
+,AFSInformation_Factors
+,AFSInformation_HostSeverity
+,AFSInformation_InfoCodeString
+,AFSInformation_IPInformation_IPAddress
+,AFSInformation_IPInformation_IPCity
+,AFSInformation_IPInformation_IPCountry
+,AFSInformation_IPInformation_IPState
+,AFSInformation_Model
+,AFSInformation_Score
+,CaseManagement_Owner_UserName
+,CaseManagement_Profile_Active_Decision
+,CaseManagement_Profile_Active_NumberOfRules
+,CaseManagement_Profile_Passive_Decision
+,CaseManagement_Profile_Passive_Name
+,CaseManagement_Profile_Active_Name
+
+,EXTRACT(DATE FROM CaseManagement_ReviewResult_Date) AS Review_Result_Date
+,CaseManagement_ReviewResult_Date AS Review_Result_DateTime
+,EXTRACT(HOUR FROM CaseManagement_ReviewResult_Date) AS Review_Result_HOUR
+,DATE_TRUNC(extract(DATE FROM CaseManagement_ReviewResult_Date), month) AS Review_Result_MONTH
+
+,CaseManagement_ReviewResult_Date
+
+,Reviewer_Name
+,CaseManagement_Owner_UserName_Previous
+,CaseManagement_ReviewResult_Decision
+,Customer_BillTo_Address1
+,Customer_BillTo_City
+,Customer_BillTo_Country
+,Customer_BillTo_CustomerID
+,Customer_BillTo_Email
+,Email_Domain
+,Customer_BillTo_FirstName
+,Customer_BillTo_LastName
+,Customer_BillTo_Phone
+,Customer_BillTo_PostalCode
+,Customer_BillTo_State
+,Customer_ShipTo_Address1
+,Customer_ShipTo_Address2
+,Customer_ShipTo_City
+,Customer_ShipTo_Country
+,Customer_ShipTo_FirstName
+,Customer_ShipTo_LastName
+,Customer_ShipTo_Phone
+,Customer_ShipTo_PostalCode
+,Customer_ShipTo_State
+,DeviceFingerprint_ApplicationType
+,DeviceFingerprint_DateDeviceFirstSeen
+,DeviceFingerprint_DeviceMatched
+,DeviceFingerprint_ProfilingDuration
+,DeviceFingerprint_SmartID
+,DeviceFingerprint_SmartIDConfidenceLevel
+,DeviceFingerprint_TimeOnPage
+,DeviceFingerprint_TrueIPAddress_Address
+,DeviceFingerprint_TrueIPAddress_City
+,DeviceFingerprint_TrueIPAddress_Country
+--,ID_NUM
+--,JobStepLogId
+,MarkedSuspect_Date
+,MarkedSuspect_Notes
+,_FlagEthicalAlert
+,MarkedSuspect_Reason
+,MarkedSuspect_UserName
+,MerchantDefinedData_AgeOfAccount
+,MerchantDefinedData_CardBIN
+,MerchantDefinedData_CollectionPersonFirstName
+,MerchantDefinedData_CollectionPersonLastName
+,MerchantDefinedData_CollectionPersonMobileNum
+,MerchantDefinedData_CustomerType
+,MerchantDefinedData_DeliveryState
+,MerchantDefinedData_EdrCard
+,_FlagRegisteredCustomer
+,MerchantDefinedData_EstDeliveryDate
+,MerchantDefinedData_GiftBagOrder
+,MerchantDefinedData_LocalDateTime
+,MerchantDefinedData_OrderChannel
+,MerchantDefinedData_OrderDateTimeAEST
+,MerchantDefinedData_OrderReviewSLA
+,MerchantDefinedData_PreAuthStatus
+,MerchantDefinedData_ShippingMethod
+,MerchantDefinedData_StaffCardFlag
+,MerchantDefinedData_StoreSuburb
+,MerchantDefinedData_UnattendedDelivery
+,Order_MerchantReferenceNumber
+,Order_Reply_ReasonCode
+,Order_Reply_ReplyCode
+,Order_Reply_ReplyFlag
+,Order_Reply_ReplyMessage
+,c.Order_RequestID
+--,JobStepLogIDCon
+,Order_Transaction_HOUR
+,Order_Transaction_Date
+,Order_Transaction_DateTime
+,DATE_TRUNC(Order_Transaction_Date, month) as Order_Transaction_Month
+,Payment_AccountSuffix
+,Payment_CardBIN
+,Payment_CardBINCountry
+,CardBinCountry
+,Payment_CardIssuer
+,Payment_CardScheme
+,Payment_CardType
+,Payment_LocalOrderAmount
+,Payment_LocalOrderCurrency
+,Payment_OrderAmount
+,Payment_OrderCurrency
+,Merchant_ID
+,StoreSuburb
+,Store_Suburb
+,Suburb
+,Suburb_Latitude
+,Suburb_Longitude
+
+,Customer_Latitude
+,Customer_Longitude
+,Customer_PostCode_Latitude
+,Customer_PostCode_Longitude
+
+,Pickup_Distance
+,_FlagOmitReviewTimeDanMurphyCLC2HRS
+,_FlagOmitReviewTimeBWS
+,_FlagOmitReviewTimeBigW
+,_FlagOmitReviewTimeAll
+,_flagReviewMonth
+,Case When Store_Suburb is not null Then
+Case When Pickup_Distance < 10 Then '<10'
+When Pickup_Distance > 10 and Pickup_Distance < 50 Then '10-50'
+When Pickup_Distance > 50 and Pickup_Distance < 100 Then '50-100'
+Else '>100'
+End
+else 'NA' end as Pickup_Distance_Bucket
+
+--,FraudType
+--,Customer_ChargeBack_Count
+--,Customer_Transaction_Count
+--,this_banner_purchases_before
+--,this_banner_purchases_after
+--,this_banner_value_before
+--,this_banner_value_after
+--,other_banner_purchases_before
+--,other_banner_purchases_after
+--,other_banner_value_before
+--,other_banner_value_after
+
+,MerchantDefinedData_PayPalPreAuthStatus
+
+,ReviewerComments
+
+--02, start
+,PayPall_Transaction
+,PayPall_Transaction_Dollar
+--02, end
+
+from Stg_3_Fact_CyberSource c
+--left join Fact_CNP n on n.Order_RequestID = c.Order_RequestID and n.nrank = 1
+--and Reviewer_Name <> 'NA'
+--LIMIT 1000
+--where Pickup_Distance > 0
+--as of 20210606, 39,468,888 -- last 13 months
+--as of 20210606, 39,468,888 -- all records
+
+)

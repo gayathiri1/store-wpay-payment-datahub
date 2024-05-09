@@ -30,6 +30,7 @@
 --20231201 Get Order_number from Gravy if available
 --20240112 limit Gravy order number to non Metro pic
 --20240328 Activate cancelled for QC, Use function get_scheme_v2 
+--20240430 Use date_recon_acq for settlement
 declare sys_date date default current_date("Australia/Sydney");
 declare str_sysdate string default format_date("%Y-%m-%d",sys_date);
 declare syd_hour INT64 default (select extract(hour from current_time("Australia/Sydney")));
@@ -593,7 +594,8 @@ left join (select * from Gravy_seq where seq = 1) Gravy_chk
                                 0) as tran_uid, --1
         dn.dn_insert_tstamp as pdh_load_time, --2 
         concat("NRT-",str_sysdate) file_name, --3
-        DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second)  as transaction_timestamp, --4
+        if(rkd.value = "date_recon_acq",safe_cast(dn.date_recon_acq as datetime),
+         DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second)) as transaction_timestamp,--4
         Upper(trim(tt.tran_type_desc)) as transactiontype, --5.
         case 
           when strpos(upper(trim(ifnull(scm.exclude__issuers,""))),
@@ -648,9 +650,13 @@ join `pdh_ref_ds.ref_stlm_tlf_config` tlf
 left join `pdh_ref_ds.ref_merchant_settlement_window_by_store` wbs
         on wbs.store_id = upper(trim(rsd.store_id))
        and wbs.is_active = "Y"
+left join pdh_ref_ds.ref_key_value rkd 
+           on rkd.attribute = "division mapping"
+          and upper(trim(rkd.key)) = msw.division 
 WHERE upper(trim(r.approval_flag)) = 'Y'
   and ifnull(dn.transaction_total,0) <> 0 
-  and SAFE_CAST(dn.tstamp_trans AS DATETIME) is not NULL
+  and if(rkd.value = "date_recon_acq",safe_cast(dn.date_recon_acq as datetime),
+                                          SAFE_CAST(dn.tstamp_trans AS DATETIME)) is not NULL
   and (Case
           when msw.settle_by_store = "N" then "Y"
           when wbs.store_id is not NULL then "Y"
@@ -658,17 +664,18 @@ WHERE upper(trim(r.approval_flag)) = 'Y'
        end) = "Y" --restrict EG GROUP & LIVE GROUP from minitaf by settle_by store table
   and `pdh_ref_ds.trans_in_stlm_window`(msw.settle_by_store,
                                         wbs.store_id,
-             DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second), 
+             if(rkd.value = "date_recon_acq",safe_cast(dn.date_recon_acq as datetime),
+                DATETIME_TRUNC(SAFE_CAST(dn.tstamp_trans AS DATETIME),second)), 
                                         msw.last_execution_time,       
                                         wbs.last_execution_time, 
                                         msw.days_lookback,
                                         wbs.days_lookback,
                                         msw.earliest_date,
                                         wbs.earliest_date,
-                                        msw.day_lag,
-                                        wbs.day_lag,
-                                        msw.settlement_cutoff,
-                                        wbs.settlement_cutoff) = "Y" ),
+                                       if(rkd.value = "date_recon_acq",0,msw.day_lag),
+                                       if(rkd.value = "date_recon_acq",0,wbs.day_lag),
+                                       if(rkd.value = "date_recon_acq",0,msw.settlement_cutoff),
+                                       if(rkd.value = "date_recon_acq",0,wbs.settlement_cutoff)) = "Y" ),
    tran_combined as (         select * from QCTran where ifnull(store_id,"") <> ""
                     Union all Select * from DPTran where ifnull(store_id,"") <> ""
                     union all Select * from LKTran where ifnull(store_id,"") <> ""

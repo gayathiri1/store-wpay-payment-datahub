@@ -235,6 +235,11 @@ class PDHUtils:
             df = pd.read_csv('gs://' + src_file, sep=',', dtype=str, skiprows=1, encoding='ISO-8859-1', header=None)            
             df.drop(df.tail(1).index, inplace=True)
             df.to_csv('gs://'+trgt_file,sep=',', index=False, header=None)
+        elif 'ecomm_chargebacks' in src_file:
+            df = pd.read_csv('gs://' + src_file, sep=',', dtype=str, encoding='ISO-8859-1', header=None)
+            for col in df:
+                df[col] = df[col].str.strip()        
+            df.to_csv('gs://'+trgt_file,sep=',', index=False, header=None)
         else:
             df = pd.read_csv('gs://'+src_file,dtype=str,encoding='unicode_escape',header=header)
             df.drop(df.tail(1).index, inplace=True)

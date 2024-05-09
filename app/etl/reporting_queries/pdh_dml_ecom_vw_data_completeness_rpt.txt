@@ -1,0 +1,67 @@
+------------------------------------------------------
+--Author:       RB
+--Date:         2021 July 07
+--Description:  Daily Transactions Order
+--Version:      01
+------------------------------------------------------
+truncate table pdh_risk_analytics_s.fact_cybersource_daily_orders;
+insert into   pdh_risk_analytics_s.fact_cybersource_daily_orders (
+
+ with fact_cybersource as (
+  select
+    DATE(Order_TransactionDate,"Australia/Sydney") as Order_TransactionDate 
+    , Order_LineItem_Records
+    ,Case when Order_MerchantID like '%bigw_online%' then 'Big W'
+         when Order_MerchantID like '%bws_online%' then 'BWS Online'
+         when Order_MerchantID like '%dan_murphys%' then 'Dan Murphy'
+         when Order_MerchantID like '%gfs_giftcards%' then 'Gift Cards'
+         when Order_MerchantID like '%woolworths_online%' then 'Woolworths Online'
+         when Order_MerchantID like '%wow_connect%' then 'WOW Mobile'
+         when Order_MerchantID like '%langtons%' then 'Langtons'
+         when Order_MerchantID like '%countdown_online%' then 'Countdown Online'    
+         when Order_MerchantID like '%shortys_liquor%' then 'Shortys Liquor'  
+    end as Merchant_ID
+    , Customer_BillTo_CustomerID_scrambled as CustomerID
+    --, Order_RequestID
+  from pdh_risk_analytics_s.cyberscr_ap_tx t
+)
+
+, cte_main as (
+	select
+		t.Merchant_ID
+        ,t.Order_TransactionDate
+        ,lag(Order_TransactionDate ) over (Partition by Merchant_ID order by Order_TransactionDate ) Last_Order_TransactionDate
+		--, li.ProductName
+		, count(*) as TotalOrders
+        --, count(distinct Order_RequestID ) as TotalOrders  --too slow to check duplications
+        , count(t.CustomerID) as TotalCustomers
+        , count(Distinct t.CustomerID) as TotalUniqueCustomers
+        , count(distinct li.ProductName) as TotalUniqueProducts
+        , count(li.ProductName) as TotalProducts
+        , sum(li.price * li.quantity) as TotalPrice
+		
+	from
+   fact_cybersource t
+    , unnest(t.Order_LineItem_Records) as li
+	group by	
+        t.Merchant_ID
+	    	,t.Order_TransactionDate        
+
+)
+select 
+Merchant_ID	
+,Order_TransactionDate	
+,Last_Order_TransactionDate	
+,TotalOrders	
+,TotalCustomers	
+,TotalUniqueCustomers	
+,TotalUniqueProducts	
+,TotalProducts	 
+,TotalPrice	
+,Date_Diff(Order_TransactionDate , Last_Order_TransactionDate, day) - 1 as GapDays 
+--,max(Order_TransactionDate) as MaxOrderTransactionDate
+from cte_main
+--where Date_Diff(Order_TransactionDate , Last_Order_TransactionDate, day) > 1
+--group by Merchant_ID,	Order_TransactionDate,	Last_Order_TransactionDate
+order by Merchant_ID, Order_TransactionDate --desc
+ )

@@ -1,0 +1,23 @@
+
+
+create or replace view pdh_risk_analytics_s.vw_fact_chargeBack as(
+SELECT 
+cast(format_date('%Y%m%d',Order_Transaction_Date) as string) as Order_RequestID,
+Merchant_ID,
+Order_Transaction_Date,
+Original_Transaction_Date,
+Bank_Code as Bank,
+DATE_TRUNC(Order_Transaction_Date, month) as Order_Transaction_Month,
+sum(Value_of_request) as ChargeBack,
+Count(*) as ChargeBackCount,
+sum(Days_for_ChargeBack) as ChargeBackDays
+FROM `pdh_risk_analytics_s.fact_chargeback` 
+
+Where nrank = 1 
+--and DATE_TRUNC(Order_Transaction_Date, month) BETWEEN DATE_SUB((select maxdate from max_date), INTERVAL 37 MONTH) AND (select maxdate from max_date)
+--and Merchant_ID = 'BWS Online'
+Group by Merchant_ID, 
+         Order_Transaction_Date, 
+         Order_Transaction_Month, 
+         Bank, 
+         Original_Transaction_Date)

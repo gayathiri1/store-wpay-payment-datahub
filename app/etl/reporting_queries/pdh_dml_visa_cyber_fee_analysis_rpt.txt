@@ -1,4 +1,3 @@
-
 truncate table pdh_analytics_ds.visa_cyber_fee_analysis_rpt ;
 insert into pdh_analytics_ds.visa_cyber_fee_analysis_rpt  
 
@@ -7,6 +6,7 @@ SELECT
   i.file_date AS file_date,
   PARSE_DATE("%Y%m%d", LEFT(CAST(i.transaction_timestamp AS STRING), 8))	 as transaction_date,	
   LEFT(i.terminal_id,5)AS card_acpt_term_id,
+  
    i.domesitic_international_ind AS domestic_or_international,
   i.card_type,
     i.transaction_type,
@@ -18,11 +18,11 @@ SELECT
     end AS tran_amt, 
      Case 
   when i.transaction_type = 'PURCHASE'
-   then CAST(s.interchange_fee_atm/1000000/1.1 AS FLOAT64)
+   then CAST(COALESCE(s.interchange_fee_atm,s1.interchange_fee_atm)/1000000/1.1 AS FLOAT64)
     when i.transaction_type = 'REFUND'
-    then CAST(s.interchange_fee_atm/1000000/1.1 AS FLOAT64)*-1 
+    then CAST(COALESCE(s.interchange_fee_atm,s1.interchange_fee_atm)/1000000/1.1 AS FLOAT64)*-1 
     end  AS interchange_fee, 
-   CAST(s.interchange_fee_atm/1000000 AS FLOAT64)/ CAST(i.transaction_amount/100 AS FLOAT64) AS calc_interchange_fee,
+   CAST(COALESCE(s.interchange_fee_atm,s1.interchange_fee_atm)/1000000 AS FLOAT64)/ CAST(i.transaction_amount/100 AS FLOAT64) AS calc_interchange_fee,
     i.transaction_timestamp AS tstamp_trans,
   PARSE_DATE("%Y%m%d", LEFT(CAST(transaction_timestamp AS STRING), 8)) AS tran_date,
   i.transaction_local_timestamp AS tstamp_local,
@@ -50,7 +50,7 @@ SELECT
   
 FROM  pdh_rd_data_navigator.isg_wpay_tran i
     left JOIN (  
-    SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM (SELECT DISTINCT pdh_load_time, interchange_fee_atm, txn_id, txn_code_of_fin_txn, samt FROM pdh_rd_data_navigator.tc33_visa) v) s  
+    SELECT *, RANK() OVER (PARTITION BY txn_id, txn_code_of_fin_txn, samt ORDER BY pdh_load_time DESC) rank FROM (SELECT DISTINCT pdh_load_time, interchange_fee_atm, txn_id, txn_code_of_fin_txn, samt FROM pdh_rd_data_navigator.tc33_visa where file_date<='2024-04-08') v) s  
   ON   upper(cast(i.tran_uid as string)) =upper( CAST(s.txn_id AS STRING))
 and ( (upper(i.transaction_type) = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (upper(i.transaction_type) = 'REFUND' and s.txn_code_of_fin_txn = '06') )
 and i.transaction_amount = s.samt and s.rank=1 and
@@ -60,6 +60,23 @@ and i.transaction_amount = s.samt and s.rank=1 and
       when transaction_approval_status = 1 then 'N'
 	  else 'N'
 	end ) ="Y"
+
+
+  left JOIN (  
+    SELECT txn_code_of_fin_txn, samt, term_id, an, MIN(interchange_fee_atm) interchange_fee_atm FROM   `pdh_rd_data_navigator.tc33_visa` WHERE file_date >= '2024-04-09'
+GROUP BY 1,2,3,4) s1  
+  ON   upper(i.terminal_id) = upper(s1.term_id)
+AND i.pan = concat(SUBSTR(s1.an,1,6),"XXXXXX",SUBSTR(s1.an, 13,16))
+and ( (upper(i.transaction_type) = 'PURCHASE' and s1.txn_code_of_fin_txn = '05') or (upper(i.transaction_type) = 'REFUND' and s1.txn_code_of_fin_txn = '06') )
+and i.transaction_amount = s1.samt and 
+   ( case 
+      when transaction_approval_status is null then 'Y'
+	  when transaction_approval_status = 0 then 'Y'
+      when transaction_approval_status = 1 then 'N'
+	  else 'N'
+	end ) ="Y"
+
+
 LEFT JOIN
   `pdh_ref_ds.ref_store_details` ref_store_details
 ON
@@ -75,4 +92,5 @@ ON
    BETWEEN ref_rate_card.from_date  AND IFNULL(ref_rate_card.to_date, '2999-12-31')
   AND UPPER(ref_rate_card.scheme) = "VISA"
 
-  Where  upper(i.scheme) ="VISA"
+ Where  upper(i.scheme) ="VISA" 
+
