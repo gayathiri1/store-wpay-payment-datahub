@@ -11,6 +11,7 @@ import pickle
 import os.path
 import base64
 import pandas as pd
+import json
 from email.mime.text import MIMEText
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -19,8 +20,9 @@ from google.auth.transport.requests import Request
 from google.cloud import bigquery
 from jinja2 import Template
 from zlibpdh import curate_sql as cs
-from airflow.contrib.operators.gcs_to_bq import GoogleCloudStorageToBigQueryOperator
+#from airflow.providers.google.cloud.transfers.gcs_to_bigquery import GCSToBigQueryOperator 
 from google.oauth2.credentials import Credentials
+from airflow.providers.google.cloud.hooks.gcs import GCSHook
 
 
 class PDHUtils:
@@ -110,51 +112,60 @@ class PDHUtils:
         else:
             print('Wrong value for parameter load_type. Should be H or I')
             exit(1)
+     #Added logic for Composer 2.6 upgrade
+        bq_load_client = bigquery.Client()
+        
+        print (f'source_objects value is: {[source_objects]}')
             
+        gsSourceUri = "gs://" + bucket + "/" + source_objects
+        print (f'gsSourceUri: {gsSourceUri}') 
+        
+        destination_project_dataset_table= 'pdh_staging_ds' + '.' + kwargs[object_name]['table_name'] + uid
+        print (f'destination_project_dataset_table: {destination_project_dataset_table}') 
+        
+        schema = kwargs[object_name]['schema']
+        print (f'schema is: {schema}')
+        try:
+            schemafield = json.loads(GCSHook().download(bucket,schema).decode("utf-8"))        
+        except Exception as e:
+            print(f'Error fetching schema file from GCS path: {e}')
+        
         #Logic to handle MMI Feed Format.
         if (kwargs[object_name]['table_name']).lower() == 'mmi_store_data_feed'\
             or (kwargs[object_name]['table_name']).lower() == 'dn_wpaygfssst'\
-             or (kwargs[object_name]['table_name']).lower() == 'eftpos_tx_100_01':            
-            t1 = GoogleCloudStorageToBigQueryOperator(
-                task_id='load_csv_to_bq',
-                bucket=bucket,
-                source_objects=[source_objects],
-                destination_project_dataset_table=kwargs['project_name'] + ':'
-                                              + 'pdh_staging_ds' + '.'
-                                              + kwargs[object_name]['table_name'] + uid,
-                create_disposition="CREATE_IF_NEEDED",
-                schema_object=kwargs[object_name]['schema'],
-                schema_fields=None,
-                skip_leading_rows=0,                
-                field_delimiter=delimiter,
-                autodetect=False,
-                dag=dag
-            )
-            try:
-                t1.execute(dict())
-            except Exception as e:
-                print(f'Exception as {e}')
+             or (kwargs[object_name]['table_name']).lower() == 'eftpos_tx_100_01': 
+         #Removed GCS operator logic and added below for Composer 2.6 upgrade
+             try:
+                job_config = bigquery.LoadJobConfig(
+                        create_disposition = "CREATE_IF_NEEDED",
+                        skip_leading_rows = 0,
+                        source_format = 'CSV',
+                        schema = schemafield,
+                        field_delimiter = delimiter,
+                        write_disposition = 'WRITE_TRUNCATE',
+                        )
+                print (f'job_config is: {job_config}')  
+                load_job = bq_load_client.load_table_from_uri(gsSourceUri, destination_project_dataset_table, job_config=job_config)  # API request
+                load_job.result()               # Waits for the job to complete.
+             except Exception as e:
+                print(f'Exception in load_job {e}')
         #BAU logic.
         else:
-            t1 = GoogleCloudStorageToBigQueryOperator(
-                task_id='load_csv_to_bq',
-                bucket=bucket,
-                source_objects=[source_objects],
-                destination_project_dataset_table=kwargs['project_name'] + ':'
-                                                  + 'pdh_staging_ds' + '.'
-                                                  + kwargs[object_name]['table_name'] + uid,
-                create_disposition="CREATE_IF_NEEDED",
-                schema_object=kwargs[object_name]['schema'],
-                schema_fields=None,
-                skip_leading_rows=1,
-                field_delimiter=delimiter,                             
-                autodetect=False,
-                dag=dag
-            )
+            #Removed GCS operator logic and added below for Composer 2.6 upgrade
             try:
-                t1.execute(dict())
+                job_config = bigquery.LoadJobConfig(
+                        create_disposition = "CREATE_IF_NEEDED",
+                        skip_leading_rows = 1,
+                        source_format = 'CSV',
+                        schema = schemafield,
+                        field_delimiter = delimiter,
+                        write_disposition = 'WRITE_TRUNCATE',
+                        )
+                print (f'job_config is: {job_config}') 
+                load_job = bq_load_client.load_table_from_uri(gsSourceUri, destination_project_dataset_table, job_config=job_config)  # API request
+                load_job.result()              # Waits for the job to complete.
             except Exception as e:
-                print(f'Exception as {e}')
+                print(f'Exception in load_job {e}')
 
     @classmethod
     def reflect_bq_schema_curated(cls,table_name,file_date, file_name, pdh_load_time, payload_id,uid):
@@ -234,11 +245,6 @@ class PDHUtils:
         elif 'dn_wpaygfssst' in src_file:
             df = pd.read_csv('gs://' + src_file, sep=',', dtype=str, skiprows=1, encoding='ISO-8859-1', header=None)            
             df.drop(df.tail(1).index, inplace=True)
-            df.to_csv('gs://'+trgt_file,sep=',', index=False, header=None)
-        elif 'ecomm_chargebacks' in src_file:
-            df = pd.read_csv('gs://' + src_file, sep=',', dtype=str, encoding='ISO-8859-1', header=None)
-            for col in df:
-                df[col] = df[col].str.strip()        
             df.to_csv('gs://'+trgt_file,sep=',', index=False, header=None)
         else:
             df = pd.read_csv('gs://'+src_file,dtype=str,encoding='unicode_escape',header=header)
