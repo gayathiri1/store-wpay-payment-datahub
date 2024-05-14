@@ -9,13 +9,21 @@ import logging
 from zlibpdh import pdh_utilities as pu
 import pytz
 from zlibpdh import pdh_utilities as pu
-import pendulum
+import pendulum,os
 
 
 #DATPAY-3521 UTC to Sydney timezone change
 local_tz = pendulum.timezone("Australia/Sydney")
+#Set project_id here.
+project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+#Based on Project ID set start data here.
+if "PROD" in project_id.upper():
+    start_date = datetime(2024,5,13, tzinfo=local_tz)
+else:
+    start_date = datetime(2022,10, 1, tzinfo=local_tz)
+
 default_args = {
-    'start_date': datetime(2022,10, 1, tzinfo=local_tz),    
+    'start_date': start_date,    
 }
 
 logging.info("constructing dag - using airflow as owner")

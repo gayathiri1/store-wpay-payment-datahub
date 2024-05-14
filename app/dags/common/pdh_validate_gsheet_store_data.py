@@ -2,7 +2,7 @@ from airflow import DAG
 from google.cloud import storage,pubsub_v1
 from google.cloud import bigquery
 from airflow.models import Variable
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow.operators.python_operator import PythonOperator, ShortCircuitOperator
 from airflow.operators.dagrun_operator import TriggerDagRunOperator
 import logging
@@ -12,13 +12,25 @@ import pendulum
 from pdh_logging.event import Event
 from pdh_logging.utils import get_current_time_str_aest
 from dataclasses import asdict
-import json
+import json,os
 
 
 #DATPAY-3521 UTC to Sydney timezone change
 local_tz = pendulum.timezone("Australia/Sydney")
+
+#Set project_id here.
+project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+#Based on Project ID set start data here.
+if "PROD" in project_id.upper():
+    start_date = datetime(2024,5,15, tzinfo=local_tz)
+else:
+    start_date = datetime(2024,5,12, tzinfo=local_tz)
+
 default_args = {
-    'start_date': datetime(2021,11,25, tzinfo=local_tz),    
+    'start_date': start_date,
+    'retry_delay': timedelta(9000),
+    'retries': 0,
+    'max_active_runs': 1,   
 }
 
 logging.info("constructing dag - using airflow as owner")
@@ -26,8 +38,6 @@ logging.info("constructing dag - using airflow as owner")
 
 dag_name = "pdh_validate_gsheet_store_data"
 try:
-    control_table = Variable.get("validate_gsheet_store_data", deserialize_json=True)["control_table"]
-    project_id = control_table.split(".")[0]
     if "PROD" in project_id.upper():
         dag = DAG('pdh_validate_gsheet_store_data', catchup=False, default_args=default_args,schedule_interval= "45 03 * * *")
     else:

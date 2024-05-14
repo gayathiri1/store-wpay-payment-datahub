@@ -4,7 +4,7 @@ import json
 import logging
 import time
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow import DAG, AirflowException
 from airflow.models import Variable
 from airflow.operators.python_operator import PythonOperator, ShortCircuitOperator
@@ -13,11 +13,27 @@ from pdh_logging.event import Event
 from pdh_logging.utils import get_current_time_str_aest
 from zlibpdh import pdh_utilities as pu
 from zlibpdh import sub_utilities as su
+import pendulum
+
+#Fix to handle daylight savings
+local_tz = pendulum.timezone("Australia/Sydney")
+
+#Set project_id here.
+project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+#Based on Project ID set start data here.
+if "PROD" in project_id.upper():
+    start_date = datetime(2024,5,15, tzinfo=local_tz)
+else:
+    start_date = datetime(2024,5,12, tzinfo=local_tz)
+
 
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
-    "start_date": datetime(2021, 7, 12),
+    "start_date": start_date,
+    'retry_delay': timedelta(9000),
+    'retries': 0,
+    'max_active_runs': 1,
 }
 
 dag_name = "pdh_file_gen_bq_to_gcs"
@@ -41,19 +57,7 @@ class CustomAdapter(logging.LoggerAdapter):
 logger = CustomAdapter(logging.getLogger(__name__), {})
 logger.info(f"constructing dag {dag_name} - using airflow as owner")
 
-
-def get_project_id():
-    """
-    Get GCP project_id from airflow variable, which has been configured in control_table
-    """
-    control_table = Variable.get("file_gen_bq_to_gcs", deserialize_json=True)["control_table"]
-    project_id = control_table.split(".")[0]
-    # logger.debug(f"{project_id=}")
-    return project_id
-
-
 publisher = pubsub_v1.PublisherClient()
-project_id = get_project_id()
 topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables?
 topic_path = publisher.topic_path(project_id, topic_id)
 # msg = {"dag_name": dag_name}
