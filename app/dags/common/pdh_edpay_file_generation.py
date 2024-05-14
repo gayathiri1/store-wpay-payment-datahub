@@ -425,7 +425,7 @@ movePDHToEDP = GCSToGCSOperator(
     source_bucket="{{task_instance.xcom_pull(task_ids='extractToGCS',key='bucket_name')}}",
     source_object="{{task_instance.xcom_pull(task_ids='extractToGCS',key='source_object')}}",
     destination_bucket="{{task_instance.xcom_pull(task_ids='extractToGCS',key='edp_bucket_name')}}",
-    google_cloud_storage_conn_id='rewards_gcs',
+    gcp_conn_id='rewards_gcs',
     dag=dag
 )
  
