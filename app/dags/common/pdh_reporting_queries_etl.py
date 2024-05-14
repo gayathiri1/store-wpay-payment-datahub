@@ -2,28 +2,38 @@ from airflow import DAG
 from google.cloud import storage
 from google.cloud import bigquery
 from airflow.models import Variable
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow.operators.python_operator import PythonOperator, ShortCircuitOperator
 from airflow.operators.dagrun_operator import TriggerDagRunOperator
 import logging
 from zlibpdh import pdh_utilities as pu
 import pytz
 import ast
-import pendulum
+import pendulum,os
 
 
 #DATPAY-3521 UTC to Sydney timezone change
 local_tz = pendulum.timezone("Australia/Sydney")
+
+#Set project_id here.
+project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+#Based on Project ID set start data here.
+if "PROD" in project_id.upper():
+    start_date = datetime(2024,5,15, tzinfo=local_tz)
+else:
+    start_date = datetime(2024,5,12, tzinfo=local_tz)
+
+
 default_args = {
-    'start_date': datetime(2021,7, 12, tzinfo=local_tz),    
+    'start_date': start_date,
+    'max_active_runs': 1,
+    'retry_delay': timedelta(9000),
+    'retries': 0,   
 }
 
 
 logging.info("constructing dag - using airflow as owner")
-
 try:
-   control_table = Variable.get("reporting_queries", deserialize_json=True)["control_table"] 
-   project_id = control_table.split(".")[0]
    if "PROD" in project_id.upper():
        dag = DAG('pdh_reporting_queries', catchup=False, default_args=default_args,schedule_interval= "10 23 * * *")
    else:
