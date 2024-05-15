@@ -13,15 +13,23 @@ import pendulum
 from pdh_logging.event import Event
 from pdh_logging.utils import get_current_time_str_aest
 from dataclasses import asdict
-import json
+import json,os
 import os.path
 from google.cloud import pubsub_v1
 
 
 #DATPAY-3521 UTC to Sydney timezone change
 local_tz = pendulum.timezone("Australia/Sydney")
+#Set project_id here.
+project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+#Based on Project ID set start data here.
+if "PROD" in project_id.upper():
+    start_date = datetime(2024,5,10, tzinfo=local_tz)
+else:
+    start_date = datetime(2021,7, 12, tzinfo=local_tz)
+
 default_args = {
-    'start_date': datetime(2021,7, 12, tzinfo=local_tz),    
+    'start_date': start_date,    
 }
 
 
