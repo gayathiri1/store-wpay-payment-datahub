@@ -39,10 +39,10 @@ logger = CustomAdapter(logging.getLogger(__name__), {})
 logger.info(f"constructing dag {dag_name} - using airflow as owner")
 
 publisher = pubsub_v1.PublisherClient()
-project_id = os.environ.get('PROJECT_ID', "gcp-wow-wpay-paydat-dev")
+project_id = os.environ.get('PDH_PROJECT_ID',"gcp-wow-wpay-paydat-dev")
 topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables
 topic_path = publisher.topic_path(project_id, topic_id)
-
+logging.info(f"topic_path => {topic_path}")
 
 def load_config(**kwargs):
     try:

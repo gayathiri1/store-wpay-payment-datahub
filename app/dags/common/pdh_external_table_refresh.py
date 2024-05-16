@@ -18,10 +18,16 @@ import json,os
 local_tz = pendulum.timezone("Australia/Sydney")
 
 #Set project_id here.
-project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+logging.info(f"ENV PROJECT ID is {os.environ.get('PROJECT_ID')}")
+logging.info(f"ENV GCP_PROJECT ID is {os.environ.get('GCP_PROJECT')}")
+IS_PROD = False
+project_id = os.environ.get('PDH_PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+logging.info(f"Project id is => {project_id}")
 #Based on Project ID set start data here.
-if "PROD" in project_id.upper():
-    start_date = datetime(2024,5,15, tzinfo=local_tz)
+if project_id.lower() == "gcp-wow-wpay-paydathub-prod":
+    logging.info(f"Current project is PROD =>{project_id}")
+    IS_PROD = True
+    start_date = datetime(2024,5,16, tzinfo=local_tz)
 else:
     start_date = datetime(2024,5,12, tzinfo=local_tz)
 
@@ -34,9 +40,9 @@ default_args = {
 
 logging.info("constructing dag - using airflow as owner")
 dag_name = "pdh_external_table_refresh"
-project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+#project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
 try:
-    if "PROD" in project_id.upper():
+    if IS_PROD:
         dag = DAG('pdh_external_table_refresh', catchup=False, default_args=default_args,schedule_interval= "00 03 * * *")
     else:
         dag = DAG('pdh_external_table_refresh', catchup=False, default_args=default_args,schedule_interval= "00 13 * * *")
@@ -63,6 +69,7 @@ publisher = pubsub_v1.PublisherClient()
 logging.info("project_id:{}".format(project_id))
 topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables
 topic_path = publisher.topic_path(project_id, topic_id)
+logging.info(f"topic_path => {topic_path}")
 # msg = {"dag_name": dag_name}
 # publisher.publish(topic_path, data=json.dumps(msg).encode("utf-8"))
 

@@ -16,10 +16,16 @@ import pendulum,os
 local_tz = pendulum.timezone("Australia/Sydney")
 
 #Set project_id here.
-project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+logging.info(f"ENV PROJECT ID is {os.environ.get('PROJECT_ID')}")
+logging.info(f"ENV GCP_PROJECT ID is {os.environ.get('GCP_PROJECT')}")
+IS_PROD = False
+project_id = os.environ.get('PDH_PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+logging.info(f"Project id is => {project_id}")
 #Based on Project ID set start data here.
-if "PROD" in project_id.upper():
-    start_date = datetime(2024,5,15, tzinfo=local_tz)
+if project_id.lower() == "gcp-wow-wpay-paydathub-prod":
+    logging.info(f"Current project is PROD =>{project_id}")
+    IS_PROD = True
+    start_date = datetime(2024,5,16, tzinfo=local_tz)
 else:
     start_date = datetime(2024,5,12, tzinfo=local_tz)
 
@@ -34,7 +40,7 @@ default_args = {
 
 logging.info("constructing dag - using airflow as owner")
 try:
-   if "PROD" in project_id.upper():
+   if IS_PROD:
        dag = DAG('pdh_reporting_queries', catchup=False, default_args=default_args,schedule_interval= "10 23 * * *")
    else:
       dag = DAG('pdh_reporting_queries', catchup=False, default_args=default_args,schedule_interval= "45 22 * * *")
