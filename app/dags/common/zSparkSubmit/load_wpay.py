@@ -14,6 +14,10 @@ client = storage.Client()
 
 spark = SparkSession.builder.master('yarn').appName('spark-load-bigquery').getOrCreate()
 sc = spark.sparkContext
+#spark.sql(“set spark.sql.legacy.timeParserPolicy=LEGACY”)
+spark.conf.set("spark.sql.legacy.timeParserPolicy", "LEGACY") ## Added for Composer 2.6 upgrade
+
+print(f'The PySpark {spark.version} version is running...')
 
 ArgParse = argparse.ArgumentParser(description='Get data-pipeline runtime parameters')
 ArgParse.add_argument('bucket',type=str, help='Source GCS bucket name')
@@ -30,7 +34,7 @@ def reflect_bq_schema(dataset_name, table_name):
       '(select string_agg(' \
         'case data_type' \
             ' when \'NUMERIC\' then \'CAST(\' || column_name || \' as STRING) as \' ||  column_name' \
-            ' when \'TIMESTAMP\' then \'to_timestamp(\' || column_name || \', \' || \'\\\'yyyyMMddHHmmssSSS\\\'\' ||\') as \' || column_name' \
+            ' when \'TIMESTAMP\' then \'date_format(to_timestamp(\' || column_name || \', \' || \'\\\'yyyyMMddHHmmssSSS\\\'\' ||\'), \\\'yyyy-MM-dd HH:mm:ss\\\') as \' || column_name' \
             ' when \'DATE\' then \'to_date(\' || column_name || \', \' || \'\\\'yyyyMMdd\\\'\' ||\') as \' || column_name' \
             ' else column_name end, "," order by ordinal_position) as column_name' \
         ' from  '+ dataset_name +'.INFORMATION_SCHEMA.COLUMNS where table_name=\''+ table_name +'\' '\

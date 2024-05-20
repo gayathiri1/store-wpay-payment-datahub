@@ -2,7 +2,7 @@ from airflow import DAG
 from google.cloud import storage
 from google.cloud import bigquery
 from airflow.models import Variable
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow.operators.python_operator import PythonOperator, ShortCircuitOperator
 from airflow.operators.dagrun_operator import TriggerDagRunOperator
 import logging
@@ -10,11 +10,30 @@ from zlibpdh import pdh_utilities as pu
 import pytz
 import ast
 import pendulum
+import os
 
 
 local_tz = pendulum.timezone("Australia/Sydney")
+
+#Set project_id here.
+logging.info(f"ENV PROJECT ID is {os.environ.get('PROJECT_ID')}")
+logging.info(f"ENV GCP_PROJECT ID is {os.environ.get('GCP_PROJECT')}")
+IS_PROD = False
+project_id = os.environ.get('PDH_PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+logging.info(f"Project id is => {project_id}")
+#Based on Project ID set start data here.
+if project_id.lower() == "gcp-wow-wpay-paydathub-prod":
+    logging.info(f"Current project is PROD =>{project_id}")
+    IS_PROD = True
+    start_date = datetime(2024,5,16, tzinfo=local_tz)
+else:
+    start_date = datetime(2024,5,12, tzinfo=local_tz)
+
 default_args = {
-    'start_date': datetime(2021,11,25, tzinfo=local_tz),    
+    'start_date': start_date,
+    'retry_delay': timedelta(9000),
+    'retries': 0,
+    'max_active_runs': 1,   
 }
 
 

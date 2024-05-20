@@ -40,19 +40,11 @@ class CustomAdapter(logging.LoggerAdapter):
 logger = CustomAdapter(logging.getLogger(__name__), {})
 logger.info(f"constructing dag {dag_name} - using airflow as owner")
 
-def get_project_id():
-    """
-    Get GCP project_id from airflow variable, which has been configured in control_table
-    """
-    control_table = Variable.get("file_gen_etl", deserialize_json=True)["control_table"]
-    project_id = control_table.split(".")[0]
-    logger.debug(f"{project_id=}")
-    return project_id
-
 publisher = pubsub_v1.PublisherClient()
-project_id = get_project_id()
+project_id = os.environ.get('PDH_PROJECT_ID',"gcp-wow-wpay-paydat-dev")
 topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables
 topic_path = publisher.topic_path(project_id, topic_id)
+logging.info(f"topic_path => {topic_path}")
 
 def load_config_and_validate_run(**kwargs):
     input_params = kwargs['dag_run'].conf
@@ -325,17 +317,20 @@ def load_target_table(**kwargs):
 
 
 
-def start_cluster():
+def start_cluster(**kwargs):
     config = Variable.get("v_gfs_datasets", deserialize_json=True)
-    spark_start = si.SparkInit(dag, 'start_cluster', config['project_name'],config['project_name'],
-                               config['project_name'], '','')
+    task_instance = kwargs['ti']
+    logging.info(f'task_instance :=> {task_instance}')
+    spark_start = si.SparkInit(dag, 'start-cluster', config['project_name'],config['project_name'],
+                               config['project_name'], '','','')
     try:
         t1 = spark_start.start_cluster()
-        return t1
+        t1.execute(task_instance.get_template_context())
+        return 'spark_submit'
+
     except Exception as e:
         logging.info(f'Exception caught :=> {e}')
         return 'update_queue'
-
 
 def spark_submit(**kwargs):
     task_instance = kwargs['ti']
@@ -343,6 +338,13 @@ def spark_submit(**kwargs):
     input_params = task_instance.xcom_pull(task_ids='load_config_and_validate_run', key='input_params' + uid)
     file_name = input_params['run_config']['file_name']
     object_name = file_name.split('/')[2]
+    #MCI.AR.T1G0.S.E0086464.D231225.T191300.A001.txt #MCI.AR.TFL6.S.E0086464.D230108.T195107.A001.txt
+    if object_name == "mastercard_TFL6" or object_name == "mastercard_T1G0":
+      temp_fname = file_name.split('/')[3]
+      fname = (temp_fname.split('.')[0] + "_" + temp_fname.split('.')[2] +"_" + temp_fname.split('.')[5]).lower()
+    else:
+        fname = (file_name.split('/')[3]).split('.')[0]
+        
     config = Variable.get("v_gfs_datasets", deserialize_json=True)
     logging.info(f'{object_name=}')
     logging.info(f'Pypath : {config[object_name]}')
@@ -365,10 +367,10 @@ def spark_submit(**kwargs):
         
 
     spark_sub= si.SparkInit(dag, 'spark-submit', config['project_name'], config['project_name'],
-                            config['project_name'], pypath, config[object_name]['args'])
+                            config['project_name'], pypath, config[object_name]['args'],fname)
     t2 = spark_sub.submit_cluster()
     try:
-        t2.execute(dict())
+        t2.execute(task_instance.get_template_context())
         event_message = f'Spark job submitted successfully for {file_name}'
         event=Event(
             dag_name=dag_name,
@@ -404,12 +406,15 @@ def check_tasks():
         return 'skip_dataproc'
 
 
-def stop_cluster():
+def stop_cluster(**kwargs):
+    task_instance = kwargs['ti']
     config = Variable.get("v_gfs_datasets", deserialize_json=True)
-    spark_stop= si.SparkInit(dag, 'stop_cluster', config['project_name'], config['project_name'],
-                             config['project_name'], '','')
+    spark_stop= si.SparkInit(dag, 'stop-cluster', config['project_name'], config['project_name'],
+                             config['project_name'], '','','')
     t3 = spark_stop.stop_cluster()
-    return t3
+    t3.execute(task_instance.get_template_context())
+    #return t3
+
 
 def load_failed(**kwargs):
     task_instance = kwargs['ti']
@@ -459,6 +464,13 @@ load_config_and_validate_run_t = BranchPythonOperator(
     task_id='load_config_and_validate_run',
     provide_context=True,
     python_callable=load_config_and_validate_run,
+    dag=dag
+)
+
+start_cluster_t = BranchPythonOperator(
+    task_id='start_cluster',
+    provide_context=True,
+    python_callable=start_cluster,
     dag=dag
 )
 
@@ -524,14 +536,20 @@ update_queue = PythonOperator(
     dag=dag
 )
 
+stop_cluster_t = PythonOperator(
+    task_id='stop_cluster',
+    python_callable=stop_cluster,
+    dag=dag
+)
+
 
 generate_uuid >> load_config_and_validate_run_t >> load_csv_file_t >> load_target_table_t >> load_completed_t
 generate_uuid >> load_config_and_validate_run_t >> load_failed_t
-generate_uuid >> load_config_and_validate_run_t >> start_cluster() >> spark_submit >> check_tasks >> stop_cluster() >> load_completed_t
-generate_uuid >> load_config_and_validate_run_t >> start_cluster() >> spark_submit >> check_tasks >> skip_dataproc
-generate_uuid >> load_config_and_validate_run_t >> spark_submit >> check_tasks >> stop_cluster() >> load_completed_t
+generate_uuid >> load_config_and_validate_run_t >> start_cluster_t >> spark_submit >> check_tasks >> stop_cluster_t >> load_completed_t
+generate_uuid >> load_config_and_validate_run_t >> start_cluster_t >> spark_submit >> check_tasks >> skip_dataproc
+generate_uuid >> load_config_and_validate_run_t >> spark_submit >> check_tasks >> stop_cluster_t >> load_completed_t
 generate_uuid >> load_config_and_validate_run_t >> spark_submit >> check_tasks >> skip_dataproc
 generate_uuid >> load_config_and_validate_run_t >> spark_submit >> update_queue
 generate_uuid >> load_config_and_validate_run_t >> skip_dataproc
 generate_uuid >> load_config_and_validate_run_t >> update_queue
-generate_uuid >> load_config_and_validate_run_t >> start_cluster() >> update_queue
+generate_uuid >> load_config_and_validate_run_t >> start_cluster_t >> update_queue

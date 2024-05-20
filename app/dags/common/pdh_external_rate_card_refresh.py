@@ -1,7 +1,7 @@
 from airflow import DAG
 from google.cloud import bigquery,pubsub_v1
 from airflow.models import Variable
-from datetime import datetime
+from datetime import datetime, timedelta
 from airflow.operators.python_operator import PythonOperator, ShortCircuitOperator
 import logging
 from zlibpdh import pdh_utilities as pu
@@ -11,12 +11,30 @@ import pendulum
 from pdh_logging.event import Event
 from pdh_logging.utils import get_current_time_str_aest
 from dataclasses import asdict
-import json
+import json,os
 
 #DATPAY-3521 UTC to Sydney timezone change
 local_tz = pendulum.timezone("Australia/Sydney")
+
+#Set project_id here.
+logging.info(f"ENV PROJECT ID is {os.environ.get('PROJECT_ID')}")
+logging.info(f"ENV GCP_PROJECT ID is {os.environ.get('GCP_PROJECT')}")
+IS_PROD = False
+project_id = os.environ.get('PDH_PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+logging.info(f"Project id is => {project_id}")
+#Based on Project ID set start data here.
+if project_id.lower() == "gcp-wow-wpay-paydathub-prod":
+    logging.info(f"Current project is PROD =>{project_id}")
+    IS_PROD = True
+    start_date = datetime(2024,5,16, tzinfo=local_tz)
+else:
+    start_date = datetime(2024,5,12, tzinfo=local_tz)
+
 default_args = {
-    'start_date': datetime(2021,9, 8, tzinfo=local_tz),    
+    'start_date': start_date,
+    'retry_delay': timedelta(9000),
+    'retries': 0,
+    'max_active_runs': 1,  
 }
 
 
@@ -43,19 +61,12 @@ class CustomAdapter(logging.LoggerAdapter):
 logger = CustomAdapter(logging.getLogger(__name__), {})
 logger.info(f"constructing dag {dag_name} - using airflow as owner")
 
-def get_project_id():
-    """
-    Get GCP project_id from airflow variable, which has been configured in control_table
-    """
-    control_table = Variable.get("external_rate_card_det", deserialize_json=True)["control_table"]
-    project_id = control_table.split(".")[0]
-    logger.debug(f"project_id ={project_id}")
-    return project_id
-
 publisher = pubsub_v1.PublisherClient()
-project_id = get_project_id()
+#logging.info("project_id:{}".format(project_id))
+
 topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables
 topic_path = publisher.topic_path(project_id, topic_id)
+logging.info(f"topic_path => {topic_path}")
 # msg = {"dag_name": dag_name}
 # publisher.publish(topic_path, data=json.dumps(msg).encode("utf-8"))
 

@@ -1,5 +1,5 @@
 from __future__ import print_function
-import datetime
+from datetime import datetime, timedelta
 import logging
 from airflow import DAG
 from airflow.models import Variable
@@ -10,22 +10,46 @@ from zlibpdh import pdh_utilities as pu
 from pdh_logging.event import Event
 from pdh_logging.utils import get_current_time_str_aest
 from dataclasses import asdict
-import json
+import json,os
 import pendulum
 
+#Fix to handle daylight savings
+local_tz = pendulum.timezone("Australia/Sydney")
+
+#Set project_id here.
+logging.info(f"ENV PROJECT ID is {os.environ.get('PROJECT_ID')}")
+logging.info(f"ENV GCP_PROJECT ID is {os.environ.get('GCP_PROJECT')}")
+IS_PROD = False
+project_id = os.environ.get('PDH_PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+logging.info(f"Project id is => {project_id}")
+#Based on Project ID set start data here.
+if project_id.lower() == "gcp-wow-wpay-paydathub-prod":
+    logging.info(f"Current project is PROD =>{project_id}")
+    IS_PROD = True
+    start_date = datetime(2024,5,16, tzinfo=local_tz)
+else:
+    start_date = datetime(2024,5,12, tzinfo=local_tz)
+
 default_dag_args= {
-    'start_date' : datetime.datetime(2021, 1, 4)
+    'start_date' : start_date,
+    'max_active_runs': 1,
+    'retry_delay': timedelta(9000),
+    'retries': 0,
 }
 
-dag = DAG(
-    'load_wdp_to_bq',
-    schedule_interval=None,
-    default_args=default_dag_args
-)
-
 dag_name = "load_wdp_to_bq"
+#project_id = os.environ.get('PROJECT_ID',"gcp-wow-wpay-paydat-dev")
 # https://stackoverflow.com/a/70397050/482899
 #log_prefix = f"[pdh_batch_pipeline][{dag_name}]"
+
+try:
+    if IS_PROD:
+        dag = DAG('load_wdp_to_bq', catchup=False, default_args=default_dag_args,schedule_interval="30 09 * * *")
+    else:
+        dag = DAG('load_wdp_to_bq', catchup=False, default_args=default_dag_args,schedule_interval=None)  
+except Exception as e:
+    logging.info("Exception in setting DAG schedule:{}".format(e)) 
+    
 log_prefix = "[pdh_batch_pipeline]"+"["+dag_name+"]"
 exec_time_aest = get_current_time_str_aest()
 
@@ -39,20 +63,10 @@ class CustomAdapter(logging.LoggerAdapter):
 logger = CustomAdapter(logging.getLogger(__name__), {})
 logger.info(f"constructing dag {dag_name} - using airflow as owner")
 
-def get_project_id():
-    """
-    Get GCP project_id from airflow variable, which has been configured in control_table
-    """
-    control_table = Variable.get("wdp_pos", deserialize_json=True)["control_table"]
-    project_id = control_table.split(".")[0]
-    logger.debug(f"project_id ={project_id}")
-    return project_id
-
-
 publisher = pubsub_v1.PublisherClient()
-project_id = get_project_id()
 topic_id = "T_batch_pipeline_outbound_events"  # TODO: airflow variables
 topic_path = publisher.topic_path(project_id, topic_id)
+logging.info(f"topic_path => {topic_path}")
 # msg = {"dag_name": dag_name}
 # publisher.publish(topic_path, data=json.dumps(msg).encode("utf-8"))
 
@@ -229,4 +243,3 @@ load_completed_t = PythonOperator(
 
 
 load_wdp_run_config_t >> parse_load_type_t >> load_completed_t
-

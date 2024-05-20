@@ -17,11 +17,32 @@ import numpy as np
 from zlibpdh import pdh_utilities as pu
 from zlibpdh import sub_utilities as su
 import time
+import pendulum
+
+#Fix to handle daylight savings
+local_tz = pendulum.timezone("Australia/Sydney")
+
+#Set project_id here.
+logging.info(f"ENV PROJECT ID is {os.environ.get('PROJECT_ID')}")
+logging.info(f"ENV GCP_PROJECT ID is {os.environ.get('GCP_PROJECT')}")
+IS_PROD = False
+project_id = os.environ.get('PDH_PROJECT_ID',"gcp-wow-wpay-paydat-dev")
+logging.info(f"Project id is => {project_id}")
+#Based on Project ID set start data here.
+if project_id.lower() == "gcp-wow-wpay-paydathub-prod":
+    logging.info(f"Current project is PROD =>{project_id}")
+    IS_PROD = True
+    start_date = datetime(2024,5,16, tzinfo=local_tz)
+else:
+    start_date = datetime(2024,5,12, tzinfo=local_tz)
 
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
-    'start_date': datetime(2022,6, 12)
+    'retry_delay': timedelta(9000),
+    'retries': 0,
+    'max_active_runs': 1,
+    'start_date': start_date
 }
 
 logging.info("constructing dag - using airflow as owner")
