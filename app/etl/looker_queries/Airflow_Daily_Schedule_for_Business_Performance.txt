@@ -719,7 +719,7 @@ lga_bench as
       -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
-      `pdh_ref_ds.ref_store_details` m 
+      `wpay_analytics.ref_store_ind` m 
       on LEFT(FEE.net_term_id, 5) = M.store_id
       --inner join
       --wpay_analytics.wpay_card_identity_model cim
@@ -1303,7 +1303,7 @@ state_bench as
       -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
-      `pdh_ref_ds.ref_store_details` m 
+      `wpay_analytics.ref_store_ind` m 
       on LEFT(FEE.net_term_id, 5) = M.store_id
       --inner join
       --wpay_analytics.wpay_card_identity_model cim
@@ -1805,7 +1805,7 @@ country_bench as
       -- / (100*count(distinct fee.card_id))) spend_per_card_holder 
       from wpay_analytics.wpay_billing_engine_tran_dtl fee  
       inner join
-      `pdh_ref_ds.ref_store_details` m 
+      `wpay_analytics.ref_store_ind` m 
       on LEFT(FEE.net_term_id, 5) = M.store_id
       --inner join
       --wpay_analytics.wpay_card_identity_model cim
@@ -2345,7 +2345,7 @@ select
 from 
   wpay_analytics.wpay_billing_engine_tran_dtl fee
 inner join
-  `pdh_ref_ds.ref_store_details` m 
+  `wpay_analytics.ref_store_ind` m 
   on LEFT(FEE.net_term_id, 5) = M.store_id
 where fee.calc_approval_flag = 'A'
 and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
@@ -2499,7 +2499,7 @@ select
 from 
   wpay_analytics.wpay_billing_engine_tran_dtl fee
 inner join
-  `pdh_ref_ds.ref_store_details` m 
+  `wpay_analytics.ref_store_ind` m 
   on LEFT(FEE.net_term_id, 5) = M.store_id
 where fee.calc_approval_flag = 'A'
 and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
