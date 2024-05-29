@@ -18,7 +18,7 @@ with activation as (SELECT
   ProgramGroup,
   "" AS Tax_code,
   SUM(Amount_Transacting_Merchants_Currency_Or_Points) AS Amount,
-  NULL AS GST_Amount
+  NULL AS GST_Amount 
 FROM
   `pdh_rd_quickcilver.qc_detail_transactions`
 WHERE

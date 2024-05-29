@@ -1,0 +1,355 @@
+create or replace table wpay_analytics.wpay_chargeback_dtl
+as 
+with prd_cb as  
+(
+	select
+	file_date
+	,file_name
+	,pdh_load_time
+	,payload_id
+	,id
+	,region
+	,received_dt	
+	,bank_ref_no
+	,UPPER(store_id) store_id
+	,UPPER(store_id)||' | '||UPPER(store_name) store_name
+	,txn_dttm_local
+	,cast(amount as numeric) amount
+	,bank
+	,rrn
+	,coalesce(reason,'') reason
+	,lane
+	,status_open
+	,closed_utc
+	,rr_sent_dttm_utc
+	,rr_resent_dttm_utc
+	,response_dttm_utc
+	,response_2_dttm_utc
+	,charged_dt
+	,chgbk_challenge_dt
+	,chgbk_rev_dt
+	,signature
+	,orderno
+	,dn_completion_pos_crd_dat_in_mod
+	,all_comments
+	,division
+	,merchant_no
+	,keyed
+	,pan
+	,stan
+	,card_type
+	,(charged_amt) charged_amt
+	,chgbk_close_dt
+	,chgbk_code
+	,gfs_pcms
+	,send_bank_dttm_utc
+	,sli_3ds
+	,car_3ds
+	,mti
+	,mc_rr
+	,mc_chgbk
+	,mc_state
+	,mc_rsn_cd
+	,visa_allocation
+	,visa_collaboration
+	,visa_state
+	,visa_rsn_cd
+	,case when rr_sent_dttm_utc is null then 'N' else 'Y' end request_send_flag
+	,case when response_dttm_utc is null then 'N' else 'Y' end response_received_flag
+	,case when chgbk_challenge_dt is null then 'N' else 'Y' end challenged_flag
+	,case when chgbk_rev_dt is null then 'N' else 'Y' end reversal_flag
+	,case when LOWER(status_open)='t'   then 'open' when  LOWER(status_open)='f' then 'closed'  else 'closed' end status_flag
+	from  `pdh_rd_data_navigator.chargebacks`
+	qualify row_number() over (partition by bank_ref_no order by pdh_load_time desc ) = 1
+)
+, hist_cb as  
+(
+	select
+	cast(null as date) file_date
+	,cast(null as string) file_name
+	,cast(null as TIMESTAMP)  pdh_load_time
+	,cast(null as string) payload_id
+	,cast(coalesce(id,'0') as numeric) id
+	,region
+	,cast(replace(received_dt,'NULL',null) as timestamp) received_dt
+	,bank_ref_no
+	,UPPER(store_id) store_id
+	,UPPER(store_id)||' | '||UPPER(store_name) store_name
+	,cast(replace(txn_dttm_local,'NULL',null) as timestamp) txn_dttm_local
+	,cast(amount as numeric) amount
+	,bank
+	,rrn
+	,coalesce(reason,'') reason
+	,cast(case when cast(lane as string) is null then '0' end  as numeric) lane
+	,case 
+	when cast(bool_field_12 as string) = 'true' then 'T'
+	when cast(bool_field_12 as string) = 'false' then 'F'
+	end status_open
+	,cast(replace(closed_utc,'NULL',null) as timestamp) closed_utc
+	,cast(replace(rr_sent_dttm_utc,'NULL',null) as timestamp) rr_sent_dttm_utc
+	,cast(replace(rr_resent_dttm_utc,'NULL',null) as timestamp) rr_resent_dttm_utc
+	,cast(replace(response_dttm_utc,'NULL',null) as timestamp)  response_dttm_utc
+	,cast(replace(response_2_dttm_utc,'NULL',null) as timestamp)response_2_dttm_utc
+	,cast(replace(charged_dt,'NULL',null) as timestamp) charged_dt
+	,cast(replace(chgbk_challenge_dt,'NULL',null) as timestamp)  chgbk_challenge_dt
+	,cast(replace(chgbk_rev_dt,'NULL',null) as timestamp) chgbk_rev_dt
+	,signature
+	,orderno
+	,dn_completion_pos_crd_dat_in_mod
+	,all_comments
+	,division
+	,cast(merchant_no as string) merchant_no
+	,cast(keyed as string) keyed
+	,pan
+	,stan
+	,card_type
+	,cast(replace(charged_amt,'NULL',null) as numeric) charged_amt
+	,cast(replace(chgbk_close_dt,'NULL',null) as timestamp) chgbk_close_dt
+	,chgbk_code
+	,gfs_pcms
+	,cast(replace(send_bank_dttm_utc,'NULL',null)  as timestamp) send_bank_dttm_utc
+	,sli_3ds
+	,car_3ds
+	,mti
+	,cast(mc_rr as string) mc_rr
+	,cast(mc_chgbk as string) mc_chgbk
+	,mc_state
+	,mc_rsn_cd
+	,visa_allocation
+	,visa_collaboration
+	,visa_state
+	,visa_rsn_cd
+	,case when rr_sent_dttm_utc is null then 'N' else 'Y' end request_send_flag
+	,case when response_dttm_utc is null then 'N' else 'Y' end response_received_flag
+	,case when chgbk_challenge_dt is null then 'N' else 'Y' end challenged_flag
+	,case when chgbk_rev_dt is null then 'N' else 'Y' end reversal_flag
+	,'closed' status_flag
+	from `wpay_analytics.chargebacks_onceoff_hist_load` 
+	where bank_ref_no not in (select distinct bank_ref_no from prd_cb)
+	qualify row_number() over (partition by bank_ref_no order by pdh_load_time desc ) = 1
+)
+,cb_with_hist as
+(
+	select * from prd_cb
+	union all
+	select * from hist_cb
+)
+,cb as 
+(
+  select * 
+  ,coalesce( case 
+  when bank = 'MASTERCARD' then substr(reason,1,4) 
+  when bank = 'VISA' then substr(reason,1,4) 
+  when bank = 'NZ ANZ' then substr(reason,1,4) 
+  when lower(reason) like 'fraud' then '0000'
+  end ,'') reason_code
+  from cb_with_hist
+	qualify row_number() over (	partition by concat(upper(store_id),'_',concat((right(pan,4)),(left(pan,6))),'_',cast(txn_dttm_local as date),'_',amount,'_',rrn) 
+                                order by received_dt desc,rr_sent_dttm_utc desc,response_dttm_utc desc,charged_dt desc,chgbk_challenge_dt desc,chgbk_rev_dt desc,chgbk_close_dt desc,response_dttm_utc desc,send_bank_dttm_utc, id desc 
+                              ) = 1	  
+) 
+, cal as 
+(
+	select 
+	CAST(EXTRACT (Year from received_dt) AS string) as chargeback_year
+	,cast(CAST(EXTRACT (Year from received_dt) AS string)||cast(LPAD(CAST(EXTRACT (Month from received_dt) AS string),2,'0') as string) as integer) as chargeback_month_nbr
+	,case CAST(EXTRACT (Month from received_dt) AS integer)
+		when 1 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('01' as string)
+		when 2 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('02' as string)
+		when 3 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('03' as string)
+		when 4 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('04' as string)
+		when 5 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('05' as string)
+		when 6 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('06' as string)
+		when 7 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('07' as string)
+		when 8 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('08' as string)
+		when 9 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('09' as string)
+		when 10 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('10' as string)
+		when 11 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('11' as string)
+		when 12 then CAST(EXTRACT (Year from received_dt) AS string)||'-'||cast('12' as string)
+	end as chargeback_month
+	,date_trunc(date(received_dt),month) chargeback_month_start_date
+	,date_add(date_add(date_trunc(date(received_dt),month),interval 1 month),interval -1 day) chargeback_month_end_date
+	--,cast('WK '||extract(week from date(received_dt))||' : '||date_trunc(date(received_dt),week(SUNDAY)) as string) chargeback_week
+	,cast('WK '||extract(week from date(date_add(date_add(date_trunc(date(received_dt),week(SUNDAY)),interval 1 week),interval -1 day)))||' : '||date_add(date_add(date_trunc(date(received_dt),week(SUNDAY)),interval 1 week),interval -1 day) as string) chargeback_week	
+	,date_trunc(date(received_dt),week(SUNDAY)) chargeback_week_start_date
+	,date_add(date_add(date_trunc(date(received_dt),week(SUNDAY)),interval 1 week),interval -1 day) chargeback_week_end_date
+	,cb.*
+	,coalesce(case when ref.chargeback_reason_desc is null and lower(reason) like '%fraud%' 
+				then  'fraud' 
+				else  ref.chargeback_reason_desc 
+	end,'') chargeback_reason_desc 
+	,coalesce(case when ref.chargeback_category is null and lower(reason) like '%fraud%' 
+				then  'fraud' 
+				else  ref.chargeback_category 
+	end ,'') chargeback_category
+	,CASE
+	WHEN LOWER(status_open)='t'  
+	THEN
+		IF ( (rr_sent_dttm_utc IS NULL AND response_dttm_utc IS NULL), "Received into slipper not sent to store", 
+		IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NULL, "Sent to store waiting on response",
+		IF ( rr_sent_dttm_utc IS NULL, "Waiting on Scheme",
+		IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NOT NULL AND charged_dt IS NULL, "Waiting on Scheme",
+		IF ( rr_sent_dttm_utc IS NOT NULL AND response_dttm_utc IS NOT NULL AND charged_dt IS NOT NULL, "Charged and Open","" ) ) )))
+	WHEN LOWER(status_open)= 'f' 
+	THEN	
+		IF  ( charged_dt IS NULL,    "Closed and Successful",    "Closed and Unsuccessful" )
+	END AS final_status,
+	DATE_DIFF(file_date,DATE(received_dt), DAY) AS days_since_raised,
+	CASE UPPER(bank)
+		WHEN 'MASTERCARD' THEN DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 45 DAY), file_date,DAY )
+		WHEN 'VISA' THEN DATE_DIFF(DATE_ADD(DATE(received_dt),INTERVAL 45 DAY), File_date,DAY )
+		ELSE DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 14 DAY),File_date,DAY )
+	END  AS days_to_close,
+	CASE LOWER(status_open)
+			WHEN 'f'  
+		THEN 	IF ( charged_dt IS NULL AND chgbk_rev_dt IS NULL, "Successfully Contested", 
+				IF ( charged_dt IS NOT NULL AND chgbk_rev_dt IS NOT NULL, "Successfully Contested", 
+				IF ( charged_dt IS NULL AND chgbk_rev_dt IS NOT NULL, "Successfully Contested",
+				IF ( charged_dt IS NOT NULL AND chgbk_rev_dt IS NULL, "Charged Liability and Closed", "") )))
+			WHEN 't' 
+		THEN	IF	( charged_dt IS NOT NULL    AND chgbk_rev_dt IS NULL,    "Charged Liability and Open",
+				IF  ( (
+						CASE UPPER(bank)  
+						WHEN 'MASTERCARD' THEN DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 45 DAY), File_date,DAY )
+						WHEN 'VISA' THEN DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 45 DAY), File_date,DAY )
+						ELSE	DATE_DIFF(DATE_ADD(DATE(received_dt), INTERVAL 12 DAY),File_date,DAY )
+						END	
+				) > 0, "Potential Liability - Open",
+				IF ( charged_dt IS NOT NULL  AND chgbk_rev_dt IS NOT NULL, "Potential Liability - Open",
+				IF (charged_dt IS NULL	AND chgbk_rev_dt IS NULL, "Potential Liability - Open", ""))))
+		ELSE	" "
+	END  AS chargeback_status,
+	If( upper(r.is_online) = "ONLINE",
+			'CNP',
+			CASE UPPER(signature)
+			WHEN 'PIN' THEN 'CP'
+			WHEN 'NOVER' THEN 'CP'
+			WHEN 'CNP' THEN 'CNP'
+			WHEN 'SIG' THEN 'CP'
+			ELSE
+			'CP'
+		END
+		) AS cp_indicator,
+	r. company,
+	r.Merchant_group,
+	r.invoice_group,
+	r.division merchant_division,
+	r.brand,
+	r.merchant_portal_mg,
+	r.merchant_portal_cg,
+	r.store_id||' | '||r.site_name site_name,
+	r.is_online,
+	r.suburb,
+	r.state,
+	cast(r.postcode as String) postcode,
+	case 
+	when (request_send_flag = 'N' and response_received_flag = 'N' and challenged_flag = 'N' and reversal_flag = 'N' and status_flag = 'open'   ) then  'Request to be send to merchant'
+	when (request_send_flag = 'N' and response_received_flag = 'N' and challenged_flag = 'N' and reversal_flag = 'N' and status_flag = 'closed' ) then  'Accepted Liability (Unchallenged)'
+	when (request_send_flag = 'N' and response_received_flag = 'N' and challenged_flag = 'N' and reversal_flag = 'Y' and status_flag = 'open'   ) then  'Request to be send to merchant'
+	when (request_send_flag = 'N' and response_received_flag = 'N' and challenged_flag = 'N' and reversal_flag = 'Y' and status_flag = 'closed' ) then  'Withdrawn by Issuer'
+
+	when (request_send_flag = 'Y' and response_received_flag = 'N' and challenged_flag = 'N' and reversal_flag = 'N' and status_flag = 'open'   ) then  'Merchant Response Awaited'
+	when (request_send_flag = 'Y' and response_received_flag = 'N' and challenged_flag = 'N' and reversal_flag = 'N' and status_flag = 'closed' ) then  'Accepted Liability (Unchallenged)'
+	when (request_send_flag = 'Y' and response_received_flag = 'N' and challenged_flag = 'N' and reversal_flag = 'Y' and status_flag = 'open'   ) then  'Merchant Response Awaited'
+	when (request_send_flag = 'Y' and response_received_flag = 'N' and challenged_flag = 'N' and reversal_flag = 'Y' and status_flag = 'closed' ) then  'Withdrawn by Issuer'
+
+	when (request_send_flag = 'N' and response_received_flag = 'Y' and challenged_flag = 'N' and reversal_flag = 'N' and status_flag = 'open'   ) then  'Unworked'
+	when (request_send_flag = 'N' and response_received_flag = 'Y' and challenged_flag = 'N' and reversal_flag = 'N' and status_flag = 'closed' ) then  'Accepted Liability (Unchallenged)'
+	when (request_send_flag = 'N' and response_received_flag = 'Y' and challenged_flag = 'N' and reversal_flag = 'Y' and status_flag = 'open'   ) then  'Unworked'
+	when (request_send_flag = 'N' and response_received_flag = 'Y' and challenged_flag = 'N' and reversal_flag = 'Y' and status_flag = 'closed' ) then  'Withdrawn by Issuer'
+
+	when (request_send_flag = 'N' and response_received_flag = 'Y' and challenged_flag = 'Y' and reversal_flag = 'N' and status_flag = 'open'   ) then  'Pending-Credit Not Received'
+	when (request_send_flag = 'N' and response_received_flag = 'Y' and challenged_flag = 'Y' and reversal_flag = 'N' and status_flag = 'closed' ) then  'Loss'
+	when (request_send_flag = 'N' and response_received_flag = 'Y' and challenged_flag = 'Y' and reversal_flag = 'Y' and status_flag = 'open'   ) then  'Pending-Credit Received'
+	when (request_send_flag = 'N' and response_received_flag = 'Y' and challenged_flag = 'Y' and reversal_flag = 'Y' and status_flag = 'closed' ) then  'Won'
+
+	when (request_send_flag = 'Y' and response_received_flag = 'Y' and challenged_flag = 'N' and reversal_flag = 'N' and status_flag = 'open'   ) then  'Unworked'
+	when (request_send_flag = 'Y' and response_received_flag = 'Y' and challenged_flag = 'N' and reversal_flag = 'N' and status_flag = 'closed' ) then  'Accepted Liability (Unchallenged)'
+	when (request_send_flag = 'Y' and response_received_flag = 'Y' and challenged_flag = 'N' and reversal_flag = 'Y' and status_flag = 'open'   ) then  'Unworked'
+	when (request_send_flag = 'Y' and response_received_flag = 'Y' and challenged_flag = 'N' and reversal_flag = 'Y' and status_flag = 'closed' ) then  'Withdrawn by Issuer'
+
+	when (request_send_flag = 'Y' and response_received_flag = 'Y' and challenged_flag = 'Y' and reversal_flag = 'N' and status_flag = 'open'   ) then  'Pending-Credit Not Received'
+	when (request_send_flag = 'Y' and response_received_flag = 'Y' and challenged_flag = 'Y' and reversal_flag = 'N' and status_flag = 'closed' ) then  'Loss'
+	when (request_send_flag = 'Y' and response_received_flag = 'Y' and challenged_flag = 'Y' and reversal_flag = 'Y' and status_flag = 'open'   ) then  'Pending-Credit Received'
+	when (request_send_flag = 'Y' and response_received_flag = 'Y' and challenged_flag = 'Y' and reversal_flag = 'Y' and status_flag = 'closed' ) then  'Won'
+	end activity_stage
+	from cb
+	left outer join 
+	wpay_analytics.ref_chargeback_reason_codes ref
+	on ( ref.chargeback_reason_code = cb.reason_code)
+	left outer join 
+	`pdh_ref_ds.ref_store_details` r 
+	on UPPER(cb.store_id)=r.store_id
+	where received_dt is not null
+	and date_trunc(date(received_dt),month)  between date_add(date_trunc(date(current_date),month),interval -11 month)   and current_date
+)
+select *
+from cal;
+
+
+----------------------------- ENRICHED VIEW --------------------------------
+
+
+create or replace view wpay_analytics.vw_wpay_chargeback_dtl as(
+
+select *,
+
+case when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "OPEN") then "Needs action"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "CLOSED") then "Accepted"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "OPEN") then "Needs action"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "OPEN") then "Needs action"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "CLOSED") then "Accepted"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "OPEN") then "Needs action"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "OPEN") then "Needs action"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "CLOSED") then "Accepted"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "OPEN") then "Needs action"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "OPEN") then "Contested - in review"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "CLOSED") then "Contested - lost"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "OPEN") then "Contested - in review"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "CLOSED") then "Contested - won"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "OPEN") then "Needs action"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "CLOSED") then "Accepted"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "N" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "OPEN") then "Needs action"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "OPEN") then "Contested - in review"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "CLOSED") then "Contested - lost"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "OPEN") then "Contested - in review"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "Y" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "CLOSED") then "Contested - won"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "OPEN") then "Contested - in review"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "CLOSED") then "Contested - lost"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "OPEN") then "Contested - in review"
+
+when (upper(trim(request_send_flag)) = "N" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "CLOSED") then "Contested - won"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "OPEN") then "Contested - in review"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "N" and upper(trim(status_flag)) = "CLOSED") then "Contested - lost"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "OPEN") then "Contested - in review"
+
+when (upper(trim(request_send_flag)) = "Y" and upper(trim(response_received_flag)) = "N" and upper(trim(challenged_flag)) = "Y" and upper(trim(reversal_flag)) = "Y" and upper(trim(status_flag)) = "CLOSED") then "Contested - won"
+else null
+end as dispute_status 
+from wpay_analytics.wpay_chargeback_dtl 
+);

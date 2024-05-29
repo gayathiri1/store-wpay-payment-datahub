@@ -1,0 +1,14 @@
+
+update wpay_analytics.wpay_billing_engine_tran_dtl be
+SET be.chargeback_id = 
+(
+  select cast(id as integer)   chargeback_id
+  from 
+  wpay_analytics.vw_wpay_chargeback_dtl
+  where cast(pdh_load_time as date) > current_Date - 7
+  and concat(upper(store_id),'_',concat((right(pan,4)),(left(pan,6))),'_',cast(txn_dttm_local as date),'_',amount,'_',rrn) 
+    = concat(left(upper(be.net_term_id),5),'_',concat((right(be.masked_pan,4)),(left(be.masked_pan,6))),'_',cast(be.tstamp_local as date),'_',be.transaction_total/100,'_',CAST(SAFE_CAST(be.retrieval_ref_no AS FLOAT64) AS STRING))
+) 
+where chargeback_id is null 
+and cast(switch_tran_date as date) > current_date - 150
+;
