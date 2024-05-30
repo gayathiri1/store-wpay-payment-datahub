@@ -130,6 +130,7 @@ output_included as
 (
 SELECT 
   'Wpay' as method,
+  case when left(cast(T.new_time as string),7) = (select max(left(cast(T.new_time as string),7)) from trans_included T) then "Month to date" else left(cast(T.new_time as string),7) end as month,
   date(left(cast(T.new_time as string),10)) as period,
   T.division,
   T.company,
@@ -206,7 +207,7 @@ JOIN
   wpay_analytics.settlement_reference S 
 ON 
   upper(T.division) = upper(S.division)
-group by 1,2,3,4,5,6,7,8,9,10,11
+group by 1,2,3,4,5,6,7,8,9,10,11,12
 )
 
 
@@ -215,6 +216,7 @@ output_excluded as
 (
 SELECT 
   'Third Party' as method,
+  case when left(cast(T.new_time as string),7) = (select max(left(cast(T.new_time as string),7)) from trans_excluded T) then "Month to date" else left(cast(T.new_time as string),7) end as month,
   date(left(cast(T.new_time as string),10)) as period,
   T.division,
   T.company,
@@ -291,10 +293,10 @@ JOIN
   wpay_analytics.settlement_reference S 
 ON 
   upper(T.division) = upper(S.division)
-group by 1,2,3,4,5,6,7,8,9,10,11
+group by 1,2,3,4,5,6,7,8,9,10,11,12
 )
 
-
+select * from(
 select 
   *, 
   concat(cast(settle_date as string),' ',payout_time_only) as payout_time,
@@ -310,6 +312,22 @@ select
   case when (datetime(cast(settle_date as string)) <= current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag 
 from 
   output_excluded
+)
+
+-- where period between date_sub(current_date(), interval 3 month) and current_date()
+where
+
+period between
+      date_add(date_sub((select max(period) from(
+      select * from 
+     wpay_analytics.wpay_payouts_all_merchants 
+      WHERE period BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(period) from(
+      select * from 
+      wpay_analytics.wpay_payouts_all_merchants ))
+
+      
+
+-- order by period asc
 
 );
 

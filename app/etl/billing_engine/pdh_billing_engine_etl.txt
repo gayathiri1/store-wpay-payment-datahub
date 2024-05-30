@@ -1093,7 +1093,7 @@ CASE
     WHEN transaction_status IN ('Declined', 'Failed', 'Voided') THEN 'N'
     ELSE NULL
 END approval_flag,
-case lower(trim(scheme)) 
+case lower(trim(coalesce(dn.scheme,dn.payment_method))) 
 when 'amex' then 'AMEX'
 when 'eftpos' then 'EFTPOS'
 when 'discover' then 'DISCOVER'
@@ -1101,6 +1101,7 @@ when 'jcb' then 'JCB'
 when 'visa' then 'VISA'
 when 'mastercard' then 'MASTERCARD'
 when 'diners-club' then 'DINERS'
+when 'paypal' THEN 'PAYPAL'
 else scheme
 end link_route,
 msw.reporting_group merchant_group,
@@ -1500,7 +1501,7 @@ SELECT
 	CAST(0.0 AS NUMERIC) as presentment_fees,
 	CAST(0.0 AS NUMERIC) as terminal_fees,
 	CAST(0.0 AS NUMERIC) as gateway_fees,
-	CASE WHEN source_application = 'Gr4vy' THEN IF(wallet_id IN ('CardDebit', 'CardCredit'), payment_method, CONCAT(calc_scheme, calc_card_type))
+	CASE WHEN source_application = 'Gr4vy' THEN IF(wallet_id NOT IN ('CardDebit', 'CardCredit'), payment_method, CONCAT(calc_scheme, calc_card_type))
 		ELSE IFNULL(wallet_id, CONCAT(calc_scheme, calc_card_type))
 		END AS calc_payment_method
 from `temp_billing_all` d
@@ -1778,7 +1779,8 @@ gateway_fees,
 calc_payment_method AS payment_method,
 '' AS order_id,
 '' AS payment_id,
-'' AS payment_event_id
+'' AS payment_event_id,
+CAST(NULL AS INTEGER) chargeback_id
 FROM `temp_fee_calc` d;
 
 ------------------------------------------------------------------------------------------------------------------------------------------

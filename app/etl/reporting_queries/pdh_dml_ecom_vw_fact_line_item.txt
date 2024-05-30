@@ -1,0 +1,73 @@
+
+
+------------------------------------------------------
+--Author: RB
+--Date: 2021 May 24
+--Version: 01
+------------------------------------------------------
+truncate table `pdh_risk_analytics_s.vw_fact_line_item`;
+
+insert into `pdh_risk_analytics_s.vw_fact_line_item`
+
+(
+With Article as
+(
+SELECT ARTICLE_NBR,
+MRCDS_CTGRY_LVL_1_NAME as ProductCategory,
+MRCDS_CTGRY_LVL_2_NAME as ProductSubCategory
+FROM `pdh_risk_analytics_s.vw_dim_article`
+)
+
+,Stg_1_Fact_LineItems
+as
+(
+SELECT
+
+Order_RequestID,
+Case when Order_MerchantID like '%bigw_online%' then 'Big W'
+when Order_MerchantID like '%bws_online%' then 'BWS Online'
+when Order_MerchantID like '%dan_murphys%' then 'Dan Murphy'
+when Order_MerchantID like '%gfs_giftcards%' then 'Gift Cards'
+when Order_MerchantID like '%woolworths_online%' then 'Woolworths Online'
+when Order_MerchantID like '%wow_connect%' then 'WOW Mobile'
+when Order_MerchantID like '%langtons%' then 'Langtons'
+when Order_MerchantID like '%countdown_online%' then 'Countdown Online'
+when Order_MerchantID like '%shortys_liquor%' then 'Shortys Liquor'
+end as Merchant_ID,
+
+Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) as Order_Transaction_Date
+,l.ProductName
+,l.Price as ProductPrice
+,l.Quantity as ProductQuantity
+,l.Quantity * l.Price as TotalProductPrice
+--,l.ProductCode
+,l.ProductSKU
+,Case When a.ProductCategory is null or a.ProductCategory = '' then 'No Product Category' else a.ProductCategory end as ProductCategory
+,Case When a.ProductSubCategory is null or a.ProductSubCategory = '' then 'No Product Sub Category' else a.ProductSubCategory end as ProductSubCategory
+
+FROM `pdh_risk_analytics_s.cyberscr_ap_tx` c , unnest(Order_LineItem_Records) as l
+left join Article a on a.ARTICLE_NBR = l.ProductSKU
+where DATE(Order_TransactionDate) BETWEEN DATE_SUB(CURRENT_DATE(), INTERVAL 25 MONTH) AND CURRENT_DATE()
+)
+
+select
+Order_RequestID
+,Merchant_ID,
+Order_Transaction_Date,
+ProductCategory,
+ProductSubCategory,
+ProductSKU,
+ProductName,
+Sum(ProductPrice) as ProductPrice,
+Sum(ProductQuantity) as ProductQuantity,
+Sum(TotalProductPrice) as TotalProductPrice
+from Stg_1_Fact_LineItems
+group by
+Order_RequestID
+,Merchant_ID
+,Order_Transaction_Date
+,ProductName
+,ProductCategory
+,ProductSubCategory
+,ProductSKU
+)

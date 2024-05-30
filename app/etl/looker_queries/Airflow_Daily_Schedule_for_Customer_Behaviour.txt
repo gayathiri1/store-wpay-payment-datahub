@@ -30,9 +30,9 @@ select
   prev.w_cust_beh_in_store_count w_cust_beh_in_store_count_LM,
   prev.w_cust_beh_cross_channel_count w_cust_beh_cross_channel_count_LM
 from 
-  wpay_analytics.wpay_all_merchants_performance_metrics curr
+  wpay_analytics.wpay_all_merchants_performance_metrics_bp curr
 left join 
-  wpay_analytics.wpay_all_merchants_performance_metrics prev
+  wpay_analytics.wpay_all_merchants_performance_metrics_bp prev
 on
   curr.Aggregation_Level = prev.Aggregation_Level
   and curr.Benchmark_lvl = prev.Benchmark_lvl

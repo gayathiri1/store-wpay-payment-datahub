@@ -1,0 +1,466 @@
+---------------------------------------------------------
+--Author: RB
+--Merchant: All
+--Description: Insight bar chart and tables (TY and LY)
+--Date: 20210602
+--Version: 01
+--Description: Time Analysis charts, trends and tables (TY and LY)
+--Date: 20210722
+--Version: 02
+--Description: Remove the Paypall transactions in BWS
+--Date: 20210923
+--Version: 03
+---------------------------------------------------------
+
+--ETL_eCom_Fact_CyberSource_Insights
+---------------------------------------------------------
+--Author: RB
+--Merchant: All
+--Description: Insight bar chart and tables (TY and LY)
+--Date: 20210602
+--Version: 01
+--Description: Time Analysis charts, trends and tables (TY and LY)
+--Date: 20210722
+--Version: 02
+--Description: Remove the Paypall transactions in BWS
+--Date: 20210923
+--Version: 03
+--Description: Remove the Fraud type bcos there is no CNP data in fact cybersource
+--Date: 20240508
+--Version: 04
+
+---------------------------------------------------------
+
+
+--Qlikview Calculations
+--TotalTransactions
+--vTotalDecision
+--num(count(DISTINCT{<$($1)>}Order_RequestID),'#,##0')
+--vTotalDecisionLY
+--= ($(vTotalDecision(vPeriodFilter)) - vTotalDecisionLY) / vTotalDecisionLY --last year %
+
+--Rejection
+--$(vRejectedPreAuthFail(vPeriodFilter))
+--vRejectedPreAuthFailLY
+--($(vRejectedPreAuthFail(vPeriodFilter)) - vRejectedPreAuthFailLY ) / vRejectedPreAuthFailLY
+
+--Num(Count({<CaseManagement_Profile_Active_Decision={'REJECT'}-{'ACCEPT','REVIEW'},
+-- CaseManagement_Profile_Passive_Name=-{'Pre-Auth failed orders'},$($1)>}CaseManagement_Profile_Active_Decision)
+-- ,'#,##0')
+
+--ReviewByEFT
+--=$(vReview(vPeriodFilter))
+--num(Count(Distinct{<CaseManagement_Profile_Active_Decision={'REVIEW'}-{'ACCEPT','REJECT'},$($1)>}Order_RequestID),'#,##0')
+
+--RejectByEFT
+--$(vRejectedAfterReviewCount(vPeriodFilter))
+--num(Count(Distinct{<CaseManagement_ReviewResult_Decision={'REJECT'},$($1)>}Order_RequestID),'#,##0')
+--
+--AcceptByEFT
+--$(vAcceptedAfterReviewCount(vPeriodFilter))
+--num(Count(Distinct {<CaseManagement_ReviewResult_Decision={'ACCEPT'},$($1)>}Order_RequestID),'#,##0')
+
+--
+--=$(vMASCount(vPeriodFilter))
+--num(Count(DISTINCT{<MarkedSuspect_Reason={'suspected'},$($1)>}Order_RequestID),'#,##0')
+
+--Accept + Reject
+--num($(vAccepted(vPeriodFilter))+$(vRejected(vPeriodFilter)),'#,##0')
+--Num(Count(Distinct {<CaseManagement_Profile_Active_Decision={'ACCEPT'}-{'REJECT','REVIEW'},$($1)>}Order_RequestID),'#,##0')
+--Num(Count(Distinct{<CaseManagement_Profile_Active_Decision={'REJECT'}-{'ACCEPT','REVIEW'},$($1)>}Order_RequestID),'#,##0')
+
+--PreAuthFail
+--$(vPreAuthFailCount(vPeriodFilter))
+--Num(Count(Distinct {<CaseManagement_Profile_Passive_Name={'Pre-Auth failed orders'},$($1)>}Order_RequestID),'#,##0')
+
+--AcceptedDollar
+--$(vAcceptedDollar(vPeriodFilter))
+--Money(Sum({<CaseManagement_Profile_Active_Decision={'ACCEPT'}-{'REJECT','REVIEW'},$($1)>}[Payment_LocalOrderAmount]),'$#,##0')
+
+--Prevented Fraud
+--Money($(vRejectedDollar(vPeriodFilter))+$(vRejectedAfterReview(vPeriodFilter)),'$#,##0')
+
+--vRejectedDollar
+--Money(Sum({<CaseManagement_Profile_Active_Decision={'REJECT'},$($1)>}[Payment_LocalOrderAmount]),'$#,##0')
+
+--vRejectedAfterReview
+--Money(Sum({<CaseManagement_ReviewResult_Decision={'REJECT'},$($1)>}Payment_LocalOrderAmount),'$#,##0')
+
+
+--WoolworthsRejectedDollar
+--Money($(vRejectedDollarPreAuthFail(vPeriodFilter)),'$#,##0')
+--Money(Sum({<CaseManagement_Profile_Active_Decision={'REJECT'},CaseManagement_Profile_Passive_Name=-{"Pre-Auth failed orders"},$($1)>}[Payment_LocalOrderAmount]),'$#,##0')
+
+--EFT Rejected $
+--Money($(vRejectedAfterReview(vPeriodFilter)),'$#,##0')
+--Money(Sum({<CaseManagement_ReviewResult_Decision={'REJECT'},$($1)>}Payment_LocalOrderAmount),'$#,##0')
+
+--Bank Rejected
+--Money(Money($(vRejectedDollar(vPeriodFilter)),'$#,##0')-Money($(vRejectedDollarPreAuthFail(vPeriodFilter)),'$#,##0'),'$#,##0')
+
+--vRejectedDollar
+--Money(Sum({<CaseManagement_Profile_Active_Decision={'REJECT'},$($1)>}[Payment_LocalOrderAmount]),'$#,##0')
+
+--vRejectedDollarPreAuthFail
+--Money(Sum({<CaseManagement_Profile_Active_Decision={'REJECT'},CaseManagement_Profile_Passive_Name=-{"Pre-Auth failed orders"},$($1)>}[Payment_LocalOrderAmount]),'$#,##0')
+
+--ChargeBack
+--$(vChargeBack(vPeriodFilter))
+--Money(Sum({<$($1)>}[Value of request]),'$#,##0')
+
+--OverallTransactions
+--$(vTotalDecision(vPeriodFilter))-$(vPreAuthFailCount(vPeriodFilter))
+--num(count(DISTINCT{<$($1)>}Order_RequestID),'#,##0') -- Total_Transactions_MtM
+--Num(Count(Distinct {<CaseManagement_Profile_Passive_Name={'Pre-Auth failed orders'},$($1)>}Order_RequestID),'#,##0') --Systems_PreAuthFail
+
+--AcceptedBySystem
+--$(vAccepted(vPeriodFilter))&' ('&num($(vAccepted(vPeriodFilter))/$(vTotalDecision(vPeriodFilter)),'#,##0.0%')&')'
+--Num(Count(Distinct {<CaseManagement_Profile_Active_Decision={'ACCEPT'}-{'REJECT','REVIEW'},$($1)>}Order_RequestID),'#,##0') --vAccepted
+--num(count(DISTINCT{<$($1)>}Order_RequestID),'#,##0') --vTotalDecision
+--solution: TotalSystemsAccept, TotalSystemsAccept/TotalTransactions
+
+--vRejectedPreAuthFail --TotalRejectedTransactions
+--Num(Count({<CaseManagement_Profile_Active_Decision={'REJECT'}-{'ACCEPT','REVIEW'},CaseManagement_Profile_Passive_Name=-{'Pre-Auth failed orders'},$($1)>}CaseManagement_Profile_Active_Decision),'#,##0')
+
+--vRejected --TotalSystemsReject
+--Num(Count(Distinct{<CaseManagement_Profile_Active_Decision={'REJECT'}-{'ACCEPT','REVIEW'},$($1)>}Order_RequestID),'#,##0')
+
+--vAcceptedAfterReviewCount --Accepted by Reviewer
+--num(Count(Distinct {<CaseManagement_ReviewResult_Decision={'ACCEPT'},$($1)>}Order_RequestID),'#,##0')
+
+--vRejectedAfterReviewCount --RejectedByViewer --TotalEFTReject
+--num(Count(Distinct{<CaseManagement_ReviewResult_Decision={'REJECT'},$($1)>}Order_RequestID),'#,##0')
+
+--TotalTransactions
+--$(vAcceptedDollar(vPeriodFilter)) + $(vAcceptedAfterReview(vPeriodFilter))
+--TotalSystemsAcceptDollar + TotalEFTAcceptDollar
+
+--Total Fraud Prevented
+--$(vRejectedAfterReview(vPeriodFilter)) + $(vRejectedDollarPreAuthFail(vPeriodFilter)) -- Total Fraud Prevented
+--TotalEFTRejectDollar + TotalRejectedTransactionsDollar (TotalSystemsRejectDollar?)
+--
+
+--ChargeBack
+--=$(vChargeBack(vPeriodFilter))&' ('&num(($(vChargeBack(vPeriodFilter))/($(vAcceptedDollar(vPeriodFilter))+$(vAcceptedAfterReview(vPeriodFilter)))),'#,##.00%')&')'
+--Money(Sum({<$($1)>}[Value of request]),'$#,##0') --vChargeBack --TotalChargeBackDollar
+--TotalChargeBackDollar/ (TotalSystemsAcceptDollar + TotalEFTAcceptDollar)
+
+--vReviewDays
+--count(distinct {<$($1),_flagReviewMonth={1}>}[Review Result Date])
+
+--vRequestsReviewed
+--count(distinct{<CaseManagement_Profile_Active_Decision={'REVIEW'},$($1)>} Order_RequestID)
+
+--vRequestsReviewedSLA
+--count(distinct{<CaseManagement_Profile_Active_Decision={'REVIEW'},_FlagOmitReviewTimeAll={0},$($1)>} Order_RequestID)
+
+--vReviewBWSExpressCount
+--num(Count(DISTINCT{<CaseManagement_Profile_Active_Decision={'REVIEW'},_FlagOmitReviewTimeBWS={0},$($1)>} Order_RequestID),'#,##0')
+
+--vReviewDMCLC2HRSCount
+--num(Count(DISTINCT{<CaseManagement_Profile_Active_Decision={'REVIEW'},_FlagOmitReviewTimeDanMurphyCLC2HRS={0},$($1)>} Order_RequestID),'#,##0')
+
+
+truncate table pdh_risk_analytics_s.vw_fact_cybersource_insight;
+
+insert into pdh_risk_analytics_s.vw_fact_cybersource_insight
+(
+With Max_Date
+as
+(
+SELECT max(Order_Transaction_Date) as MaxDate
+FROM `pdh_risk_analytics_s.fact_cybersource`
+)
+
+,stage_ChargeBack
+as
+(
+SELECT
+cast(format_date('%Y%m%d',Order_Transaction_Date) as string) as Order_RequestID,
+Merchant_ID,
+Order_Transaction_Date,
+Bank_Code as Bank,
+DATE_TRUNC(Order_Transaction_Date, month) as Order_Transaction_Month,
+Sum(Value_of_request) as ChargeBack,
+Sum(Days_for_ChargeBack) as ChargeBackDays
+FROM `pdh_risk_analytics_s.fact_chargeback`
+Where nrank = 1
+Group by Merchant_ID, Order_Transaction_Date, Order_Transaction_Month, Bank
+)
+
+,stage_Fact_CyberSource
+as
+(
+SELECT
+Order_RequestID
+,Merchant_ID
+,Order_Transaction_Month
+,Order_Transaction_Date
+,CaseManagement_Profile_Active_Decision as CaseManagement_Active_Decision
+,CaseManagement_ReviewResult_Decision
+,count(Distinct Order_RequestID) as TotalTransactions
+,MerchantDefinedData_ShippingMethod
+--,FraudType
+,Email_Domain
+,Reviewer_Name
+,Payment_CardIssuer
+,MarkedSuspect_Reason
+,Payment_CardBIN
+,Order_Transaction_HOUR
+,Customer_BillTo_State
+
+,Case When UPPER(Trim(IfNull(IfNull(Suburb,ifnull(StoreSuburb, Store_Suburb)),'NA'))) = '' Then 'NA' else
+UPPER(Trim(IfNull(IfNull(Suburb,ifnull(StoreSuburb, Store_Suburb)),'NA'))) end as Pickup_Store
+
+,Case When CaseManagement_Profile_Passive_Name = 'Pre-Auth failed orders' then count(Distinct Order_RequestID) else 0 end as TotalSystemsPreAuthFail
+,Case When CaseManagement_Profile_Active_Decision = 'REJECT' then count(Distinct Order_RequestID) else 0 end as TotalSystemsReject
+,Case When CaseManagement_Profile_Active_Decision = 'REJECT' then sum(Payment_LocalOrderAmount) else 0 end as TotalSystemsRejectDollar
+,Case When CaseManagement_Profile_Active_Decision = 'ACCEPT' then count(Distinct Order_RequestID) else 0 end as TotalSystemsAccept
+,Case When CaseManagement_Profile_Active_Decision = 'ACCEPT' then sum(Payment_LocalOrderAmount) else 0 end as TotalSystemsAcceptDollar
+
+,Case When CaseManagement_Profile_Active_Decision = 'REJECT' and CaseManagement_Profile_Passive_Name not in ('Pre-Auth failed orders') Then Count(Distinct Order_RequestID) Else 0 End as TotalRejectedTransactions
+,Case When CaseManagement_Profile_Active_Decision = 'REJECT' and CaseManagement_Profile_Passive_Name not in ('Pre-Auth failed orders') Then sum(Payment_LocalOrderAmount) Else 0 end TotalRejectedTransactionsDollar
+
+,Case When CaseManagement_Profile_Active_Decision = 'REJECT'
+and CaseManagement_Profile_Passive_Name not in ('Pre-Auth failed orders')
+and MerchantDefinedData_PreAuthStatus is null
+and MerchantDefinedData_CardBIN is null
+Then count(distinct Order_RequestID) else 0 end as PayPall_Transaction
+
+,Case When CaseManagement_Profile_Active_Decision = 'REJECT'
+and CaseManagement_Profile_Passive_Name not in ('Pre-Auth failed orders')
+and MerchantDefinedData_PreAuthStatus is null
+and MerchantDefinedData_CardBIN is null
+Then sum(Payment_LocalOrderAmount) else 0 end as PayPall_Transaction_Dollar
+,Case When CaseManagement_Profile_Active_Decision = 'REVIEW' Then count(Distinct Order_RequestID) else 0 end TotalEFTReview
+,Case When CaseManagement_ReviewResult_Decision = 'REJECT' Then count(Distinct Order_RequestID) else 0 end TotalEFTReject
+,Case When CaseManagement_ReviewResult_Decision = 'REJECT' Then sum(Payment_LocalOrderAmount) else 0 end as TotalEFTRejectDollar
+,Case When CaseManagement_ReviewResult_Decision = 'ACCEPT' Then count(Distinct Order_RequestID) else 0 end as TotalEFTAccept
+,Case When CaseManagement_ReviewResult_Decision = 'ACCEPT' Then sum(Payment_LocalOrderAmount) else 0 end as TotalEFTAcceptDollar
+,Case When MarkedSuspect_Reason = 'suspected' then count(Distinct Order_RequestID) else 0 end as TotalEFTMarkedSuspect
+
+,Case When CaseManagement_Profile_Active_Decision = 'REJECT' then 1 else 0 end as CountCardsRejected
+,Case When MarkedSuspect_Reason in ('suspected','fraud_chargeback') then 1 else 0 end as CountCardsFraud
+,Payment_AccountSuffix
+
+
+
+FROM `pdh_risk_analytics_s.fact_cybersource`
+where
+DATE(Order_Transaction_Date) BETWEEN DATE_SUB((select maxdate from max_date), INTERVAL 25 MONTH) AND (select maxdate from max_date)
+group by
+Merchant_ID, Order_Transaction_Month,
+Order_Transaction_Date,CaseManagement_Profile_Active_Decision, CaseManagement_Profile_Passive_Name, CaseManagement_ReviewResult_Decision
+,MarkedSuspect_Reason, MerchantDefinedData_ShippingMethod, --FraudType,
+ Email_Domain, Reviewer_Name,Payment_CardIssuer, MarkedSuspect_Reason,Payment_CardBIN
+,Pickup_Store
+,Order_RequestID
+,Payment_AccountSuffix
+
+,Order_Transaction_HOUR
+,Customer_BillTo_State
+,MerchantDefinedData_PayPalPreAuthStatus
+
+,MerchantDefinedData_PreAuthStatus
+,MerchantDefinedData_CardBIN
+
+)
+
+,stage2_Fact_CyberSource
+as
+(
+SELECT
+Merchant_ID,
+Order_RequestID
+,Order_Transaction_Month
+,Order_Transaction_Date
+,CaseManagement_Active_Decision
+,CaseManagement_ReviewResult_Decision
+,MerchantDefinedData_ShippingMethod
+--,FraudType
+,Email_Domain
+,Reviewer_Name
+,Payment_CardIssuer
+,MarkedSuspect_Reason
+,Payment_CardBIN
+,Pickup_Store
+,Payment_AccountSuffix
+,sum(TotalTransactions) as TotalTransactions
+,sum(TotalSystemsPreAuthFail) as TotalSystemsPreAuthFail
+,sum(TotalSystemsReject) as TotalSystemsReject
+,sum(TotalSystemsRejectDollar) as TotalSystemsRejectDollar
+,sum(TotalSystemsAccept) as TotalSystemsAccept
+,sum(TotalSystemsAcceptDollar) as TotalSystemsAcceptDollar
+,sum(TotalRejectedTransactions) as TotalRejectedTransactions
+,sum(TotalRejectedTransactionsDollar) as TotalRejectedTransactionsDollar
+,sum(TotalEFTReview) as TotalEFTReview
+,sum(TotalEFTReject) as TotalEFTReject
+,sum(TotalEFTRejectDollar) as TotalEFTRejectDollar
+,sum(TotalEFTAccept) as TotalEFTAccept
+,sum(TotalEFTAcceptDollar) as TotalEFTAcceptDollar
+,sum(TotalEFTMarkedSuspect) as TotalEFTMarkedSuspect
+,sum(TotalTransactions) - sum(TotalSystemsPreAuthFail) as OverAllTransactions
+,sum(TotalSystemsAccept) + sum(TotalSystemsReject) as TotalSystemsAcceptReject
+,sum(TotalSystemsRejectDollar) - sum(TotalRejectedTransactionsDollar) as TotalBankRejectedDollar
+,sum(TotalEFTRejectDollar) + sum(TotalRejectedTransactionsDollar) as TotalPreventedFraudDollar
+,sum(TotalSystemsAcceptDollar) + sum(TotalEFTAcceptDollar) as TotalTransactionsDollar
+,sum(CountCardsRejected) as CountCardsRejected
+,sum(CountCardsFraud) as CountCardsFraud
+,Order_Transaction_HOUR
+,Customer_BillTo_State
+
+,sum(PayPall_Transaction) PayPall_Transaction
+,sum(PayPall_Transaction_Dollar) PayPall_Transaction_Dollar
+
+
+FROM stage_Fact_CyberSource
+group by
+Merchant_ID,
+Order_Transaction_Month,
+Order_RequestID, Order_Transaction_Date
+,CaseManagement_Active_Decision, CaseManagement_ReviewResult_Decision, MerchantDefinedData_ShippingMethod, --FraudType,
+Email_Domain, Reviewer_Name, Payment_CardIssuer, MarkedSuspect_Reason,Payment_CardBIN, Pickup_Store, Payment_AccountSuffix
+
+,Order_Transaction_HOUR
+,Customer_BillTo_State
+
+)
+
+select
+
+Order_RequestID
+,c.Order_Transaction_Date
+,c.Merchant_ID
+,c.Order_Transaction_Month
+,CaseManagement_Active_Decision
+,Case When CaseManagement_ReviewResult_Decision is null then 'NA' else CaseManagement_ReviewResult_Decision end as CaseManagement_ReviewResult_Decision
+
+,Case When MerchantDefinedData_ShippingMethod is null then 'NA' else MerchantDefinedData_ShippingMethod end as Shipping_Method
+
+--,Case When FraudType is null then 'NA' else FraudType end as FraudType
+
+,Case When Email_Domain is null then 'NA' else Email_Domain end as Email_Domain
+
+,Case When Reviewer_Name is null then 'NA' else Reviewer_Name end as Reviewer_Name
+
+,Case When Payment_CardIssuer is null then 'NA' else Payment_CardIssuer end as Bank
+
+,Case When MarkedSuspect_Reason is null then 'NA' else MarkedSuspect_Reason end as MarkedSuspect_Reason
+
+,Case When CAST(Payment_CardBIN AS STRING) is null then 'NA' else CAST(Payment_CardBIN AS STRING) end as Card_BIN
+
+,Pickup_Store
+
+,Payment_AccountSuffix
+
+
+,Case When Merchant_ID = 'BWS Online' Then TotalPreventedFraudDollar - PayPall_Transaction_Dollar else TotalPreventedFraudDollar end TotalPreventedFraudDollar
+
+
+,TotalSystemsAcceptDollar
+,TotalTransactionsDollar
+
+,TotalSystemsAccept
+
+,TotalBankRejectedDollar
+
+,TotalSystemsRejectDollar
+
+,TotalSystemsReject
+
+,TotalSystemsAcceptReject
+
+,OverAllTransactions
+
+,TotalSystemsPreAuthFail
+
+,TotalEFTMarkedSuspect
+
+,TotalEFTAcceptDollar
+
+,TotalEFTAccept
+
+,TotalEFTReject
+
+,TotalEFTRejectDollar
+
+,TotalEFTReview
+
+,TotalTransactions
+
+,TotalRejectedTransactions
+,TotalRejectedTransactionsDollar
+
+,Case When TotalEFTReject = 1 or TotalEFTReject > 1 or TotalRejectedTransactions = 1 or TotalRejectedTransactions > 1 then 1 Else 0 end TotalProductsRejected
+
+,0 as ChargeBack
+,0 as ChargeBackDays
+
+,CountCardsRejected
+,CountCardsFraud
+
+,Customer_BillTo_State
+,Order_Transaction_HOUR
+,PayPall_Transaction
+,PayPall_Transaction_Dollar
+
+from stage2_Fact_CyberSource c
+
+union all
+
+select
+
+b.Order_RequestID as Order_RequestID
+,b.Order_Transaction_Date
+,b.Merchant_ID
+,b.Order_Transaction_Month
+
+,'NA' as CaseManagement_Active_Decision
+,'NA' as CaseManagement_ReviewResult_Decision
+,'NA' as Shipping_Method
+--,'NA' as FraudType
+,'NA' as Email_Domain
+,'NA' as Reviewer_Name
+,b.Bank
+,'NA' as MarkedSuspect_Reason
+,'NA' as Card_BIN
+,'NA' as Pickup_Store
+,0 as Payment_AccountSuffix
+
+,0 as TotalPreventedFraudDollar
+,0 as TotalSystemsAcceptDollar
+,0 as TotalTransactionsDollar
+,0 as TotalSystemsAccept
+,0 as TotalBankRejectedDollar
+,0 as TotalSystemsRejectDollar
+,0 as TotalSystemsReject
+,0 as TotalSystemsAcceptReject
+,0 as OverAllTransactions
+,0 as TotalSystemsPreAuthFail
+,0 as TotalEFTMarkedSuspect
+,0 as TotalEFTAcceptDollar
+,0 as TotalEFTAccept
+,0 as TotalEFTReject
+,0 as TotalEFTRejectDollar
+,0 as TotalEFTReview
+,0 as TotalTransactions
+
+,0 as TotalRejectedTransactions
+,0 as TotalRejectedTransactionsDollar
+,0 as TotalProductsRejected
+
+,b.ChargeBack
+,b.ChargeBackDays
+
+,0 as CountCardsRejected
+,0 as CountCardsFraud
+
+
+,Null as Customer_BillTo_State
+,Null as Order_Transaction_HOUR
+
+,0 PayPall_Transaction
+,0 PayPall_Transaction_Dollar
+
+from stage_ChargeBack b
+)
