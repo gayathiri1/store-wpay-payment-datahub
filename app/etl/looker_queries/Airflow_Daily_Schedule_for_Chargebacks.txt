@@ -30,7 +30,7 @@ with prd_cb as
 	,chgbk_rev_dt
 	,signature
 	,orderno
-	,dn_completion_pos_crd_dat_in_mod
+	--,dn_completion_pos_crd_dat_in_mod
 	,all_comments
 	,division
 	,merchant_no
@@ -46,14 +46,14 @@ with prd_cb as
 	,sli_3ds
 	,car_3ds
 	,mti
-	,mc_rr
-	,mc_chgbk
-	,mc_state
-	,mc_rsn_cd
-	,visa_allocation
-	,visa_collaboration
-	,visa_state
-	,visa_rsn_cd
+	-- ,mc_rr
+	-- ,mc_chgbk
+	-- ,mc_state
+	-- ,mc_rsn_cd
+	-- ,visa_allocation
+	-- ,visa_collaboration
+	-- ,visa_state
+	-- ,visa_rsn_cd
 	,case when rr_sent_dttm_utc is null then 'N' else 'Y' end request_send_flag
 	,case when response_dttm_utc is null then 'N' else 'Y' end response_received_flag
 	,case when chgbk_challenge_dt is null then 'N' else 'Y' end challenged_flag
@@ -95,7 +95,7 @@ with prd_cb as
 	,cast(replace(chgbk_rev_dt,'NULL',null) as timestamp) chgbk_rev_dt
 	,signature
 	,orderno
-	,dn_completion_pos_crd_dat_in_mod
+	--,dn_completion_pos_crd_dat_in_mod
 	,all_comments
 	,division
 	,cast(merchant_no as string) merchant_no
@@ -111,14 +111,14 @@ with prd_cb as
 	,sli_3ds
 	,car_3ds
 	,mti
-	,cast(mc_rr as string) mc_rr
-	,cast(mc_chgbk as string) mc_chgbk
-	,mc_state
-	,mc_rsn_cd
-	,visa_allocation
-	,visa_collaboration
-	,visa_state
-	,visa_rsn_cd
+	-- ,cast(mc_rr as string) mc_rr
+	-- ,cast(mc_chgbk as string) mc_chgbk
+	-- ,mc_state
+	-- ,mc_rsn_cd
+	-- ,visa_allocation
+	-- ,visa_collaboration
+	-- ,visa_state
+	-- ,visa_rsn_cd
 	,case when rr_sent_dttm_utc is null then 'N' else 'Y' end request_send_flag
 	,case when response_dttm_utc is null then 'N' else 'Y' end response_received_flag
 	,case when chgbk_challenge_dt is null then 'N' else 'Y' end challenged_flag
