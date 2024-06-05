@@ -1,0 +1,416 @@
+----------------------------------------------------------------------
+--Author: RB
+--Description: Extract the TPC Chargeback from Cybersource
+--Date: 20211216
+--Version: 01
+--Description: New requirements from WPAY
+--Date: 20230426
+--Version: 02
+--ETL Job: ETL_eCom_Fact_CyberSource_Chargeback
+--
+--Description: New requirements from eCom Team
+--Date: 20230726
+--Version: 03
+--ETL Job: ETL_eCom_Fact_CyberSource_Chargeback
+---------------------------------------------------------
+
+TRUNCATE TABLE pdh_risk_analytics_s.vw_fact_cybersource_chargeback;
+INSERT INTO pdh_risk_analytics_s.vw_fact_cybersource_chargeback
+(
+     
+With TPC_Chargeback as 
+(
+SELECT  
+c.Merchant_Reference_Number	
+,cast(c.Order_Request_ID as string) as Order_Request_ID
+--,SK_CHARGEBACK_NO
+--,c.Merchant_ID	
+--,c.Store_Name	
+--,c.Store_Regions	
+,c.Date_Received_at_TPC	
+,c.Case_Number_Ref_Number	
+,c.Store_No	
+,c.Original_Transaction_Date	
+,c.Value_of_request	
+,c.Bank_Code	
+,c.Trans_No_RRN	
+,c.Status	
+,c.Date_Request_Was_Sent_To_Store	
+,c.Date_response_received_from_store	
+,c.Keyed_or_Swiped	
+,c.Second_Req	
+,c.Date_response_received_for_2nd_Request	
+,c.Order_Transaction_Date	
+,c.Reason	
+,c.Comments	
+,c.Days_for_ChargeBack
+--,'| Cybersource |'
+--,f.*	
+--,FactType	
+--,nrank	
+--,DW_EFFECTIVEDATE	
+--,DW_EXPIRATIONDATE	
+--,CURRENT_DW	
+--,FILENAME	
+FROM `pdh_risk_analytics_s.fact_chargeback` c 
+--left join `gcp-wow-risk-de-data-prod.ECom.Fact_CyberSource` f on f.Order_MerchantReferenceNumber = c.Merchant_Reference_Number
+where not (c.Merchant_Reference_Number	is null or c.Merchant_Reference_Number = '')
+--and Merchant_Reference_Number = '9241878921220-1602646210820-1'
+--,Order_Request_ID
+)
+
+,CyberSourceChargeback as
+(
+SELECT 
+      -- layout should be exactly from QlikView Discovery
+     Merchant_ID
+     ,Order_RequestID
+     ,Order_MerchantReferenceNumber as MerchantReferenceNumber
+     ,MerchantDefinedData_EdrCard AS EDRCardNumber     
+     ,Order_Transaction_Date 
+     ,CaseManagement_Profile_Active_Decision as OrderDecision
+     ,Sum(Payment_LocalOrderAmount) as TransactionAmount
+     ,Payment_AccountSuffix as CardLast4Digits
+     ,AFSInformation_Score          
+     ,MarkedSuspect_Notes as ReviewerComments
+     ,Customer_BillTo_CustomerID as CustomerID 
+     ,DeviceFingerprint_TrueIPAddress_Address as IPAddress	
+     ,MerchantDefinedData_AgeOfAccount as AgeOfAccount
+     ,MerchantDefinedData_DeliveryState	as DeliveryState
+     ,MerchantDefinedData_PreAuthStatus as PreAuthStatus     
+     ,MerchantDefinedData_ShippingMethod as ShippingMethod
+     ,Case When MerchantDefinedData_StaffCardFlag = "1" Then 'Staff Card' Else 'Non Staff Card' end as StaffCard		
+     ,Payment_CardIssuer as CardIssuer	
+     ,Payment_CardScheme as CardScheme	
+     ,Case When UPPER(Trim(IfNull(IfNull(Suburb,ifnull(StoreSuburb, Store_Suburb)),'NA'))) = '' Then 'NA' else 
+                UPPER(Trim(IfNull(IfNull(Suburb,ifnull(StoreSuburb, Store_Suburb)),'NA'))) end as Pickup_Store
+
+     ,Customer_BillTo_City as BillToCity
+     ,Customer_BillTo_State
+     ,Customer_ShipTo_State
+     ,MerchantDefinedData_OrderChannel as OrderChannel 	
+     ,Reviewer_Name          
+     ,Order_Transaction_Month      
+
+     --below are removed
+     /*
+     
+     ,FORMAT_DATETIME("%B %Y", Order_Transaction_Date) as TransactionMonth     
+     ,CaseManagement_ReviewResult_Decision as ReviewResult       
+     ,FraudType          
+     ,Payment_CardBIN as Bank 
+     ,CaseManagement_ReviewResult_Date as ReviewResultDateTime
+     ,Case When Sum(Payment_LocalOrderAmount) > 0 then count(distinct Order_RequestID) else 0 end as NumberOfCustomerOrder 
+
+     ,Case When MarkedSuspect_Reason is null or MarkedSuspect_Reason = '' then 'NA' else MarkedSuspect_Reason end as MarkedSuspect 
+     ,MarkedSuspect_Date     
+     ,MarkedSuspect_UserName       
+     ,MerchantDefinedData_CustomerType as CustomerType     
+     ,Concat(Customer_BillTo_FirstName, " ",Customer_BillTo_LastName) as CustomerName
+     --,Customer_BillTo_FirstName
+     --,Customer_BillTo_LastName 
+     ,Email_Domain               
+     ,Customer_BillTo_Address1 as BillToAddress     
+     ,Customer_BillTo_Country as BillToCountry
+     ,Customer_BillTo_Email as CustomerEmail
+     ,Customer_BillTo_Phone
+     ,Customer_BillTo_PostalCode     
+     ,Customer_ShipTo_Address1
+     ,Customer_ShipTo_Address2
+     ,Customer_ShipTo_City
+     ,Customer_ShipTo_Country
+     ,Concat(Customer_ShipTo_FirstName, " ", Customer_ShipTo_LastName) as CustomerShipToName
+     ,Customer_ShipTo_Phone
+     ,Customer_ShipTo_PostalCode
+     
+     ,Concat(MerchantDefinedData_CollectionPersonFirstName, " ", MerchantDefinedData_CollectionPersonLastName) as CollectionPersonName	
+     ,MerchantDefinedData_CollectionPersonMobileNum	as CollectionPersonMobileNumber	     
+     ,MerchantDefinedData_EstDeliveryDate as EstDeliveryDate		
+     ,MerchantDefinedData_GiftBagOrder as GiftBagOrder	     
+     ,MerchantDefinedData_OrderReviewSLA as OrderReviewSLA	
+     --,MerchantDefinedData_StoreSuburb	     
+     ,MerchantDefinedData_UnattendedDelivery as UnattendedDelivery	
+     ,Payment_CardBIN as CardBIN	 
+     ,Payment_CardBINCountry as CardBINCountry	
+     ,Payment_CardType as CardType     
+     */
+
+/*
+     ,Case When CaseManagement_Profile_Passive_Name = 'Pre-Auth failed orders' then count(Distinct Order_RequestID) else 0 end as TotalSystemsPreAuthFail 
+     ,Case When CaseManagement_Profile_Active_Decision = 'REJECT' then count(Distinct Order_RequestID) else 0 end as TotalSystemsReject
+     ,Case When CaseManagement_Profile_Active_Decision = 'REJECT' then sum(Payment_LocalOrderAmount) else 0 end as TotalSystemsRejectDollar
+
+     ,Case When CaseManagement_Profile_Active_Decision = 'REJECT' and CaseManagement_Profile_Passive_Name not in ('Pre-Auth failed orders') Then Count(Distinct Order_RequestID) Else 0 End as TotalRejectedTransactions
+     ,Case When CaseManagement_Profile_Active_Decision = 'REJECT' and CaseManagement_Profile_Passive_Name not in ('Pre-Auth failed orders') Then sum(Payment_LocalOrderAmount) Else 0 end TotalRejectedTransactionsDollar
+     
+     ,Case When CaseManagement_Profile_Active_Decision = 'REVIEW' Then count(Distinct Order_RequestID) else 0 end TotalEFTReview
+
+     ,Case When CaseManagement_Profile_Active_Decision = 'REVIEW' Then sum(Payment_LocalOrderAmount) else 0 end TotalEFTReviewDollar
+          
+     ,Case When CaseManagement_ReviewResult_Decision = 'REJECT' Then count(Distinct Order_RequestID) else 0 end TotalEFTReject
+     ,Case When CaseManagement_ReviewResult_Decision = 'REJECT' Then sum(Payment_LocalOrderAmount) else 0 end as TotalEFTRejectDollar
+ 
+     ,Case When MarkedSuspect_Reason = 'suspected' then count(Distinct Order_RequestID) else 0 end as TotalEFTMarkedSuspect 
+
+     ,Case When CaseManagement_Profile_Active_Decision = 'REJECT' then 1 else 0 end as CountCardsRejected
+     ,Case When MarkedSuspect_Reason in ('suspected','fraud_chargeback') then 1 else 0 end as CountCardsFraud
+  
+
+     ,count(distinct Order_RequestID) as NumberOfTransactionOrder 
+     ,Case When CaseManagement_Profile_Active_Decision = 'ACCEPT' then count(Distinct Order_RequestID) else 0 end as TotalSystemsAccept
+     ,Case When CaseManagement_Profile_Active_Decision = 'ACCEPT' then sum(Payment_LocalOrderAmount) else 0 end as TotalSystemsAcceptDollar
+
+     ,Case When CaseManagement_ReviewResult_Decision = 'ACCEPT' Then count(Distinct Order_RequestID) else 0 end as TotalEFTAccept       
+     ,Case When CaseManagement_ReviewResult_Decision = 'ACCEPT' Then sum(Payment_LocalOrderAmount) else 0 end as TotalEFTAcceptDollar    
+    */
+
+ FROM `pdh_risk_analytics_s.fact_cybersource` c
+ where Order_MerchantReferenceNumber in (select Merchant_Reference_Number from TPC_Chargeback) 
+ --and CaseManagement_Profile_Active_Decision not in ('REJECT')
+ --merchant_id In ('BWS Online') and 
+ --merchant_id In ('Woolworths Online') and 
+ --DATE(Order_Transaction_Date) BETWEEN DATE_SUB((select maxdate from max_date), INTERVAL 13 MONTH) AND (select maxdate from max_date)
+ Group By 
+      Order_RequestID
+     ,Merchant_ID
+     ,Order_Transaction_Month 
+     ,Order_Transaction_Date     
+     ,CaseManagement_Profile_Active_Decision
+     ,CaseManagement_ReviewResult_Decision   
+     ,MerchantDefinedData_ShippingMethod 
+     --,FraudType
+     ,Email_Domain
+     ,Reviewer_Name
+     
+     ,MarkedSuspect_Reason
+     ,Payment_CardBIN     
+     ,Payment_AccountSuffix     
+     ,Store_Suburb
+     ,StoreSuburb     
+     ,Suburb
+     ,MerchantDefinedData_CustomerType
+     ,MerchantDefinedData_EdrCard
+     ,Order_MerchantReferenceNumber
+     ,CaseManagement_ReviewResult_Date
+     ,AFSInformation_Score
+     ,MarkedSuspect_Date
+     ,MarkedSuspect_Notes
+     ,MarkedSuspect_UserName
+
+     ,Email_Domain               
+     ,Customer_BillTo_CustomerID
+     ,Customer_BillTo_FirstName
+     ,Customer_BillTo_LastName 
+     ,Customer_BillTo_Address1
+     ,Customer_BillTo_City
+     ,Customer_BillTo_Country
+     ,Customer_BillTo_Email
+     ,Customer_BillTo_Phone
+     ,Customer_BillTo_PostalCode
+     ,Customer_BillTo_State
+
+     ,Customer_ShipTo_Address1
+     ,Customer_ShipTo_Address2
+     ,Customer_ShipTo_City
+     ,Customer_ShipTo_Country
+     ,Customer_ShipTo_FirstName
+     ,Customer_ShipTo_LastName
+     ,Customer_ShipTo_Phone
+     ,Customer_ShipTo_PostalCode
+     ,Customer_ShipTo_State
+
+     ,DeviceFingerprint_TrueIPAddress_Address	
+
+     ,MerchantDefinedData_AgeOfAccount
+     ,MerchantDefinedData_CollectionPersonFirstName	
+     ,MerchantDefinedData_CollectionPersonLastName	
+     ,MerchantDefinedData_CollectionPersonMobileNum	
+     ,MerchantDefinedData_DeliveryState	
+     ,MerchantDefinedData_EstDeliveryDate	
+     ,MerchantDefinedData_GiftBagOrder	
+     ,MerchantDefinedData_OrderChannel	
+     ,MerchantDefinedData_OrderReviewSLA	
+     ,MerchantDefinedData_PreAuthStatus	
+     ,MerchantDefinedData_ShippingMethod
+     ,MerchantDefinedData_StaffCardFlag		
+     ,MerchantDefinedData_StoreSuburb	
+     ,MerchantDefinedData_UnattendedDelivery	
+
+     ,Payment_CardBIN	
+     ,Payment_CardBINCountry	
+     ,Payment_CardIssuer	
+     ,Payment_CardScheme	
+     ,Payment_CardType	
+
+
+)
+
+,CyberSource_TPC as 
+(
+Select 
+c.Merchant_ID	
+,c.Order_RequestID	
+,c.MerchantReferenceNumber	
+,c.EDRCardNumber	
+,c.Order_Transaction_Date	
+,c.Order_Transaction_Month
+,c.OrderDecision	
+,c.TransactionAmount	
+,c.CardLast4Digits	
+,c.AFSInformation_Score	
+,c.ReviewerComments	
+,c.CustomerID	
+,c.IPAddress	
+,c.AgeOfAccount	
+,c.DeliveryState	
+,c.PreAuthStatus	
+,c.ShippingMethod	
+,c.StaffCard	
+,c.CardIssuer	
+,c.CardScheme	
+,c.Pickup_Store	
+,c.BillToCity	
+,c.Customer_BillTo_State	
+,c.Customer_ShipTo_State	
+,c.OrderChannel	
+,c.Reviewer_Name
+,'|' as TPC_Data
+,row_number() over (partition by c.MerchantReferenceNumber order by c.Order_RequestID, c.Order_Transaction_Date ) as nrank1 
+,cast(t.Order_Request_ID as string) as TPC_Order_Request_ID
+,t.Date_Received_at_TPC	TPC_Date_Received
+,t.Case_Number_Ref_Number TPC_Case_Number_Ref_Number		
+,t.Store_No	TPC_Store_No	
+,t.Original_Transaction_Date TPC_Original_Transaction_Date	
+,t.Value_of_request	TPC_Value_of_request	
+,t.Bank_Code	TPC_Bank_Code	
+,t.Trans_No_RRN	TPC_Trans_No_RRN	
+,t.Status	TPC_Status	
+,t.Date_Request_Was_Sent_To_Store	TPC_Date_Request_Was_Sent_To_Store	
+,t.Date_response_received_from_store	TPC_Date_response_received_from_store	
+,t.Keyed_or_Swiped	TPC_Keyed_or_Swiped	
+,t.Second_Req	TPC_Second_Req	
+,t.Date_response_received_for_2nd_Request	TPC_Date_response_received_for_2nd_Request	
+,t.Order_Transaction_Date as TPC_Order_Transaction_Date	
+,t.Reason	TPC_Reason	
+,t.Comments	TPC_Comments	
+,t.Days_for_ChargeBack TPC_Days_for_ChargeBack
+
+/*
+     ,c.NumberOfTransactionOrder 
+     ,c.TotalSystemsAccept
+     ,c.TotalSystemsAcceptDollar
+     ,c.TotalEFTAccept       
+     ,c.TotalEFTAcceptDollar   
+*/
+
+from 
+CyberSourceChargeback c
+left join TPC_Chargeback t on t.Merchant_Reference_Number = c.MerchantReferenceNumber
+)
+
+,Customer_Entity as (
+SELECT 
+Customer_BillTo_CustomerID, IsCustomerConsistent, Order_Transaction_Date, 
+Order_Transaction_DateTime,
+AgeOfAccount, NoOfOrders, Customer_BillTo_Address, NoOfOrdersSameAddress, IsNewAddress, 
+--TotalUniqueAddress, 
+IsAddressConsistent, Customer_BillTo_Phone, NoOfOrdersSamePhone, IsNewPhone, 
+--TotalUniquePhone, 
+IsPhoneConsistent, Customer_BillTo_Email, NoOfOrdersSameEmail, IsNewEmail, --TotalUniqueEmail, 
+IsEmailConsistent 
+,row_number() over (Partition By Customer_BillTo_CustomerID, Order_Transaction_Date order by Order_Transaction_DateTime desc) nrank
+FROM `pdh_risk_analytics_s.vw_fact_customer_entity` e
+where exists (select distinct CustomerID, Order_Transaction_Date from CyberSourceChargeback c 
+                      where c.CustomerID = e.Customer_BillTo_CustomerID and c.Order_Transaction_Date = e.Order_Transaction_Date)
+)
+
+select  
+c.Merchant_ID	
+,c.Order_RequestID	
+,c.MerchantReferenceNumber	
+,c.EDRCardNumber	
+,c.Order_Transaction_Date	
+,c.Order_Transaction_Month
+,c.OrderDecision	
+,c.TransactionAmount	
+,c.CardLast4Digits	
+,c.AFSInformation_Score	
+,c.ReviewerComments	
+,c.CustomerID	
+,c.IPAddress	
+--,c.AgeOfAccount	
+,e.AgeOfAccount	
+,c.DeliveryState	
+,c.PreAuthStatus	
+,c.ShippingMethod	
+,c.StaffCard	
+,c.CardIssuer	
+,c.CardScheme	
+,c.Pickup_Store	
+,c.BillToCity	
+,c.Customer_BillTo_State	
+,c.Customer_ShipTo_State	
+,c.OrderChannel	
+,c.Reviewer_Name	
+,c.TPC_Data	
+--,c.nrank1	
+,TPC_Order_Request_ID
+,TPC_Date_Received
+,TPC_Case_Number_Ref_Number		
+,TPC_Store_No	
+,TPC_Original_Transaction_Date	
+,TPC_Value_of_request	
+,TPC_Bank_Code	
+,TPC_Trans_No_RRN	
+,TPC_Status	
+,TPC_Date_Request_Was_Sent_To_Store	
+,TPC_Date_response_received_from_store	
+,TPC_Keyed_or_Swiped	
+,TPC_Second_Req	
+,TPC_Date_response_received_for_2nd_Request	
+,TPC_Order_Transaction_Date	
+,TPC_Reason	
+,TPC_Comments	
+,TPC_Days_for_ChargeBack
+
+
+---v03, start
+,if(e.IsCustomerConsistent = 1, True, False) as IsCustomerConsistent
+,if(cast(e.AgeOfAccount as bigint) >= 180, True, False) as Customer_AgeIs180
+,e.NoOfOrders as Customer_NoOfOrders
+,e.Customer_BillTo_Address
+,e.NoOfOrdersSameAddress
+,if(e.IsNewAddress=1,True,False) as IsNewAddress 
+--,e.TotalUniqueAddress
+,if(e.IsAddressConsistent = 1, True, False) as IsAddressConsistent
+,e.Customer_BillTo_Phone
+,e.NoOfOrdersSamePhone
+,if(e.IsNewPhone=1,True,False) as IsNewPhone
+--,e.TotalUniquePhone
+,if(e.IsPhoneConsistent=1, True, False) as IsPhoneConsistent
+,e.Customer_BillTo_Email
+,e.NoOfOrdersSameEmail
+,if(e.IsNewEmail=1, True, False) as IsNewEmail
+--,e.TotalUniqueEmail
+,if(e.IsEmailConsistent=1,True, False)  IsEmailConsistent 
+
+---Fraud Type
+,if(e.IsCustomerConsistent = 1, 'Friendy Fraud', 'Chargeback Fraud'           
+    ) as Fraud_Type
+
+,e.IsCustomerConsistent as FriendlyFraud
+,if(e.IsCustomerConsistent = 1, 0, 1) as ChargebackFraud
+,1 as N_Record
+
+--end
+
+from CyberSource_TPC c
+left join Customer_Entity e on e.Customer_BillTo_CustomerID = c.CustomerID and e.Order_Transaction_Date = c.Order_Transaction_Date and e.nrank = 1
+where c.nrank1 = 1
+order by Merchant_ID, Order_RequestID
+--total records: 17,334
+
+)
+
+
+

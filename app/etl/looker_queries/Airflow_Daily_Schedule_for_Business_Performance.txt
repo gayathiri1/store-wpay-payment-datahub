@@ -1,3 +1,19 @@
+-- BUSINESS PERFORMANCE UPDATE (TRAN_DTL)
+
+-- Period:
+-- - Monthly
+
+-- Country
+-- Store
+
+-- External
+
+-----------------------------------------------------------------------------------------------------
+
+----------------------------------------------------------------------------------------------------------
+--MMI DATA
+-- REMOVING DUPLICATION FROM THE MMI DATA
+
 create or replace table wpay_analytics.mmi_area_industry as
 (
 select --mt.*
@@ -143,8 +159,8 @@ select
   distinct stores.store_id,
   stores.country,
   stores.state,
-  stores.division,
-  stores.brand,
+  -- stores.division,
+  -- stores.brand,
   stores.industry,
   stores.industry_name,
   --distinct stores.store_id,
@@ -154,10 +170,10 @@ select
   stores.caid,
   --stores.is_closed,
   stores.company,
-  stores.invoice_group,
-  stores.merchant_group,
+   stores.invoice_group,
+  -- stores.merchant_group,
   stores.merchant_portal_mg,
-  stores.merchant_portal_cg,
+  -- stores.merchant_portal_cg,
   --stores.is_online,
   stores.LGA as LGA,
   stores.LGA_id as LGA_id
@@ -282,7 +298,7 @@ on
   --amount.Online as Online,
   --amount.Card_Type as Card_Type,
   amount.Store as Store,
-  amount.Brand as Brand,
+  --amount.Brand as Brand,
   amount.Suburb as Suburb,
   amount.trans_amount as trans_amount,
   amount.trans_count as trans_count,
@@ -297,7 +313,7 @@ select
   --trans.is_online as Online,
   --trans.card_type as Card_Type,
   stores.store_id as Store,
-  stores.brand as Brand,
+  --stores.brand as Brand,
   stores.suburb as Suburb,
   --sum(trans.transaction_count) as trans_count,
   (sum(case when trans.calc_tran_type_description in 
@@ -320,7 +336,7 @@ ON LEFT(trans.net_term_id, 5) = stores.store_id
 where
   (trans.calc_approval_flag = 'A' ) 
 group by
-  1,2,3,4,5,6
+  1,2,3,4,5
 ) amount
 order by Store,year,month)
 -------------------------------------------------------------------------------------------------------------
@@ -414,13 +430,13 @@ wpay_store_trans as
     distinct stores.store_id,
     stores.country,
     stores.state,
-    stores.division,
-    stores.brand,
+    -- stores.division,
+    -- stores.brand,
     stores.company,
-    stores.invoice_group,
-    stores.merchant_group,
+     stores.invoice_group,
+    -- stores.merchant_group,
     stores.merchant_portal_mg,
-    stores.merchant_portal_cg,
+    -- stores.merchant_portal_cg,
     stores.industry,
     stores.industry_name,
     --distinct stores.store_id,
@@ -528,8 +544,8 @@ lga_bench as
     'All' as store_status,
     lga_bench.country,
     lga_bench.state,
-    lga_bench.division,
-    lga_bench.brand,
+    -- lga_bench.division,
+    -- lga_bench.brand,
     lga_bench.industry,
     lga_bench.site_name,
     lga_bench.suburb,
@@ -537,10 +553,10 @@ lga_bench as
     cast(lga_bench.caid as string)  as caid,
     --cast(lga_bench.is_closed as string) as is_closed,
     lga_bench.company,
-    lga_bench.invoice_group,
-    lga_bench.merchant_group,
+     lga_bench.invoice_group,
+    -- lga_bench.merchant_group,
     lga_bench.merchant_portal_mg,
-    lga_bench.merchant_portal_cg,
+    -- lga_bench.merchant_portal_cg,
     'All' as is_online,
     'All' as scheme,
     'All' as card_type,
@@ -751,8 +767,8 @@ from
 select 
   stores.country,
   stores.state,
-  stores.division,
-  stores.brand,
+  -- stores.division,
+  -- stores.brand,
   stores.company,
   stores.industry,
   stores.industry_name,
@@ -763,14 +779,14 @@ select
   --stores.caid,
   --stores.is_closed,
   --stores.company,
-  stores.invoice_group,
-  stores.merchant_group,
+   stores.invoice_group,
+  -- stores.merchant_group,
   stores.merchant_portal_mg,
-  stores.merchant_portal_cg
+  -- stores.merchant_portal_cg
   --stores.is_online,
 from
   wpay_analytics.ref_store_ind stores
-group by 1,2,3,4,5,6,7,8,9,10,11) store_info
+group by 1,2,3,4,5,6,7) store_info
 left join
   (
   select 
@@ -874,13 +890,13 @@ on
   --amount.Store as Store,
   amount.industry as Industry,
   amount.industry_name as industry_name,
-  amount.Brand as Brand,
-  amount.division as division,
+  -- amount.Brand as Brand,
+  -- amount.division as division,
   amount.company as company,
-  amount.invoice_group as invoice_group,
-  amount.merchant_group as merchant_group,
+   amount.invoice_group as invoice_group,
+  -- amount.merchant_group as merchant_group,
   amount.merchant_portal_mg as merchant_portal_mg,
-  amount.merchant_portal_cg as merchant_portal_cg,
+  -- amount.merchant_portal_cg as merchant_portal_cg,
   --amount.Suburb as Suburb,
   amount.trans_amount as trans_amount,
   amount.trans_count as trans_count,
@@ -898,13 +914,13 @@ select
   --trans.store_id as Store,
   stores.industry as Industry,
   stores.industry_name as industry_name,
-  stores.brand as Brand,
-  stores.division as division,
+  -- stores.brand as Brand,
+  -- stores.division as division,
   stores.company as company,
-  stores.invoice_group as invoice_group,
-  stores.merchant_group as merchant_group,
+   stores.invoice_group as invoice_group,
+  -- stores.merchant_group as merchant_group,
   stores.merchant_portal_mg as merchant_portal_mg,
-  stores.merchant_portal_cg as merchant_portal_cg,
+  -- stores.merchant_portal_cg as merchant_portal_cg,
   --stores.suburb as Suburb,
   --sum(trans.transaction_count) as trans_count,
   (sum(case when trans.calc_tran_type_description in 
@@ -927,7 +943,7 @@ ON LEFT(trans.net_term_id, 5) = stores.store_id
 where
   (trans.calc_approval_flag = 'A' ) 
 group by
-  1,2,3,4,5,6,7,8,9,10,11,12,13
+  1,2,3,4,5,6,7,8,9
 ) amount
 
 )
@@ -986,26 +1002,26 @@ from store_trans_state curr
 left join 
   store_trans_state prev
 on  (curr.State = prev.State)
-   and (curr.Brand = prev.Brand)
-   and (curr.division = prev.division)
+  --  and (curr.Brand = prev.Brand)
+  --  and (curr.division = prev.division)
    and (curr.company = prev.company)
-   and (curr.invoice_group = prev.invoice_group)
-   and (curr.merchant_group = prev.merchant_group)
+    and (curr.invoice_group = prev.invoice_group)
+  --  and (curr.merchant_group = prev.merchant_group)
    and (curr.merchant_portal_mg = prev.merchant_portal_mg)
-   and (curr.merchant_portal_cg = prev.merchant_portal_cg)
+  --  and (curr.merchant_portal_cg = prev.merchant_portal_cg)
     and curr.Month = prev.Month
     and (cast(curr.Year as int)-1) = cast(prev.Year as int)
 order by curr.State,curr.Year,curr.Month
 ) prev_y
 on
   (store_trans_state.State = prev_y.State)
-   and (store_trans_state.Brand = prev_y.Brand)
-   and (store_trans_state.division = prev_y.division)
+  --  and (store_trans_state.Brand = prev_y.Brand)
+  --  and (store_trans_state.division = prev_y.division)
    and (store_trans_state.company = prev_y.company)
-   and (store_trans_state.invoice_group = prev_y.invoice_group)
-   and (store_trans_state.merchant_group = prev_y.merchant_group)
+    and (store_trans_state.invoice_group = prev_y.invoice_group)
+  --  and (store_trans_state.merchant_group = prev_y.merchant_group)
    and (store_trans_state.merchant_portal_mg = prev_y.merchant_portal_mg)
-   and (store_trans_state.merchant_portal_cg = prev_y.merchant_portal_cg)
+  --  and (store_trans_state.merchant_portal_cg = prev_y.merchant_portal_cg)
   and store_trans_state.Year = prev_y.Year
   and store_trans_state.Month = prev_y.Month
 left join
@@ -1018,26 +1034,26 @@ from store_trans_state curr
 left join 
   store_trans_state prev
 on (curr.State = prev.State)
-   and (curr.Brand = prev.Brand)
-   and (curr.division = prev.division)
+  --  and (curr.Brand = prev.Brand)
+  --  and (curr.division = prev.division)
    and (curr.company = prev.company)
-   and (curr.invoice_group = prev.invoice_group)
-   and (curr.merchant_group = prev.merchant_group)
+    and (curr.invoice_group = prev.invoice_group)
+  --  and (curr.merchant_group = prev.merchant_group)
    and (curr.merchant_portal_mg = prev.merchant_portal_mg)
-   and (curr.merchant_portal_cg = prev.merchant_portal_cg)
+  --  and (curr.merchant_portal_cg = prev.merchant_portal_cg)
     and left(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),4) = cast(prev.Year as string)
     and substring(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),6,2)  = prev.Month
 order by curr.State,curr.Year,curr.Month
 ) prev_m
 on
   (store_trans_state.State = prev_m.State)
-   and (store_trans_state.Brand = prev_m.Brand)
-   and (store_trans_state.division = prev_m.division)
+  --  and (store_trans_state.Brand = prev_m.Brand)
+  --  and (store_trans_state.division = prev_m.division)
    and (store_trans_state.company = prev_m.company)
-   and (store_trans_state.invoice_group = prev_m.invoice_group)
-   and (store_trans_state.merchant_group = prev_m.merchant_group)
+    and (store_trans_state.invoice_group = prev_m.invoice_group)
+  --  and (store_trans_state.merchant_group = prev_m.merchant_group)
    and (store_trans_state.merchant_portal_mg = prev_m.merchant_portal_mg)
-   and (store_trans_state.merchant_portal_cg = prev_m.merchant_portal_cg)
+  --  and (store_trans_state.merchant_portal_cg = prev_m.merchant_portal_cg)
   and store_trans_state.Year = prev_m.Year
   and store_trans_state.Month = prev_m.Month
 order by store_trans_state.State, store_trans_state.Year,store_trans_state.Month
@@ -1074,13 +1090,13 @@ order by store_trans_state.State, store_trans_state.Year,store_trans_state.Month
   left join 
     final_state
   on (state_internal.state = final_state.state)
-    and (state_internal.Brand = final_state.Brand)
-    and (state_internal.division = final_state.division)
+    -- and (state_internal.Brand = final_state.Brand)
+    -- and (state_internal.division = final_state.division)
     and (state_internal.company = final_state.company)
-    and (state_internal.invoice_group = final_state.invoice_group)
-    and (state_internal.merchant_group = final_state.merchant_group)
+     and (state_internal.invoice_group = final_state.invoice_group)
+    -- and (state_internal.merchant_group = final_state.merchant_group)
     and (state_internal.merchant_portal_mg = final_state.merchant_portal_mg)
-    and (state_internal.merchant_portal_cg = final_state.merchant_portal_cg)
+    -- and (state_internal.merchant_portal_cg = final_state.merchant_portal_cg)
     and (state_internal.Year = final_state.Year)
     --and (state_internal.Month = final_state.Month)
     and (cast(state_internal.Month as int) = cast(final_state.Month as int))
@@ -1115,8 +1131,8 @@ state_bench as
     'All' as store_status,
     state_bench.country,
     state_bench.state,
-    state_bench.division,
-    state_bench.brand,
+    -- state_bench.division,
+    -- state_bench.brand,
     state_bench.industry,
     'All' as site_name,
     'All' as suburb,
@@ -1124,10 +1140,10 @@ state_bench as
     'All' as caid,
     --'All' as is_closed,
     state_bench.company,
-    state_bench.invoice_group,
-    state_bench.merchant_group,
+     state_bench.invoice_group,
+    -- state_bench.merchant_group,
     state_bench.merchant_portal_mg,
-    state_bench.merchant_portal_cg,
+    -- state_bench.merchant_portal_cg,
     'All' as is_online,
     'All' as scheme,
     'All' as card_type,
@@ -1271,12 +1287,12 @@ state_bench as
     (
   select 
       m.company,
-      m.invoice_group,    
-      m.merchant_group,
-      m.division, 
-      m.brand, 
+       m.invoice_group,    
+      -- m.merchant_group,
+      -- m.division, 
+      -- m.brand, 
       m.merchant_portal_mg,
-      m.merchant_portal_cg,   
+      -- m.merchant_portal_cg,   
       --m.store_id,   
       --m.site_name,    
      -- m.suburb,   
@@ -1311,16 +1327,16 @@ state_bench as
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
 and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
-      group by 1,2,3,4,5,6,7,8,9
+      group by 1,2,3,4,5
       ) cust_info
   on cust_info.company = state_bench.company
-    and cust_info.merchant_group = state_bench.merchant_group
-    and cust_info.division = state_bench.division
+    -- and cust_info.merchant_group = state_bench.merchant_group
+    -- and cust_info.division = state_bench.division
     and cust_info.state = state_bench.state
-    and cust_info.invoice_group = state_bench.invoice_group
-    and cust_info.brand = state_bench.brand
+     and cust_info.invoice_group = state_bench.invoice_group
+    -- and cust_info.brand = state_bench.brand
     and cust_info.merchant_portal_mg = state_bench.merchant_portal_mg
-    and cust_info.merchant_portal_cg = state_bench.merchant_portal_cg
+    -- and cust_info.merchant_portal_cg = state_bench.merchant_portal_cg
     and concat(state_bench.Year,concat('-',state_bench.Month)) = cust_info.Transaction_Date
   order by state_bench.Benchmark
 )
@@ -1344,8 +1360,8 @@ from
 select 
   stores.country,
   --stores.state,
-  stores.division,
-  stores.brand,
+  -- stores.division,
+  -- stores.brand,
   stores.company,
   stores.industry,
   stores.industry_name,
@@ -1356,14 +1372,14 @@ select
   --stores.caid,
   --stores.is_closed,
   --stores.company,
-  stores.invoice_group,
-  stores.merchant_group,
+   stores.invoice_group,
+  -- stores.merchant_group,
   stores.merchant_portal_mg,
-  stores.merchant_portal_cg
+  -- stores.merchant_portal_cg
   --stores.is_online,
 from
   wpay_analytics.ref_store_ind stores
-group by 1,2,3,4,5,6,7,8,9,10) store_info
+group by 1,2,3,4,5,6) store_info
 left join
   (
   select 
@@ -1462,13 +1478,13 @@ on
   --amount.Store as Store,
   amount.industry as Industry,
   amount.industry_name as industry_name,
-  amount.Brand as Brand,
-  amount.division as division,
+  -- amount.Brand as Brand,
+  -- amount.division as division,
   amount.company as company,
-  amount.invoice_group as invoice_group,
-  amount.merchant_group as merchant_group,
+   amount.invoice_group as invoice_group,
+  -- amount.merchant_group as merchant_group,
   amount.merchant_portal_mg as merchant_portal_mg,
-  amount.merchant_portal_cg as merchant_portal_cg,
+  -- amount.merchant_portal_cg as merchant_portal_cg,
   --amount.Suburb as Suburb,
   amount.trans_amount as trans_amount,
   amount.trans_count as trans_count,
@@ -1486,13 +1502,13 @@ select
   --trans.store_id as Store,
   stores.industry as Industry,
   stores.industry_name as industry_name,
-  stores.brand as Brand,
-  stores.division as division,
+  -- stores.brand as Brand,
+  -- stores.division as division,
   stores.company as company,
-  stores.invoice_group as invoice_group,
-  stores.merchant_group as merchant_group,
+   stores.invoice_group as invoice_group,
+  -- stores.merchant_group as merchant_group,
   stores.merchant_portal_mg as merchant_portal_mg,
-  stores.merchant_portal_cg as merchant_portal_cg,
+  -- stores.merchant_portal_cg as merchant_portal_cg,
   --stores.suburb as Suburb,
   --sum(trans.transaction_count) as trans_count,
   (sum(case when trans.calc_tran_type_description in 
@@ -1516,7 +1532,7 @@ where
   (trans.calc_approval_flag = 'A' ) 
 
 group by
-  1,2,3,4,5,6,7,8,9,10,11,12
+  1,2,3,4,5,6,7,8
 ) amount
 
 )
@@ -1571,25 +1587,25 @@ from store_trans_country curr
 left join 
   store_trans_country prev
 on  
-   (curr.Brand = prev.Brand)
-   and (curr.division = prev.division)
-   and (curr.company = prev.company)
-   and (curr.invoice_group = prev.invoice_group)
-   and (curr.merchant_group = prev.merchant_group)
+  --  (curr.Brand = prev.Brand)
+  --  and (curr.division = prev.division)
+    (curr.company = prev.company)
+    and (curr.invoice_group = prev.invoice_group)
+  --  and (curr.merchant_group = prev.merchant_group)
    and (curr.merchant_portal_mg = prev.merchant_portal_mg)
-   and (curr.merchant_portal_cg = prev.merchant_portal_cg)
+  --  and (curr.merchant_portal_cg = prev.merchant_portal_cg)
     and curr.Month = prev.Month
     and (cast(curr.Year as int)-1) = cast(prev.Year as int)
 order by curr.Year,curr.Month
 ) prev_y
 on
-    (store_trans_country.Brand = prev_y.Brand)
-   and (store_trans_country.division = prev_y.division)
-   and (store_trans_country.company = prev_y.company)
-   and (store_trans_country.invoice_group = prev_y.invoice_group)
-   and (store_trans_country.merchant_group = prev_y.merchant_group)
+  --   (store_trans_country.Brand = prev_y.Brand)
+  --  and (store_trans_country.division = prev_y.division)
+    (store_trans_country.company = prev_y.company)
+    and (store_trans_country.invoice_group = prev_y.invoice_group)
+  --  and (store_trans_country.merchant_group = prev_y.merchant_group)
    and (store_trans_country.merchant_portal_mg = prev_y.merchant_portal_mg)
-   and (store_trans_country.merchant_portal_cg = prev_y.merchant_portal_cg)
+  --  and (store_trans_country.merchant_portal_cg = prev_y.merchant_portal_cg)
   and store_trans_country.Year = prev_y.Year
   and store_trans_country.Month = prev_y.Month
 left join
@@ -1602,25 +1618,25 @@ from store_trans_country curr
 left join 
   store_trans_country prev
 on 
-    (curr.Brand = prev.Brand)
-   and (curr.division = prev.division)
-   and (curr.company = prev.company)
-   and (curr.invoice_group = prev.invoice_group)
-   and (curr.merchant_group = prev.merchant_group)
+  --   (curr.Brand = prev.Brand)
+  --  and (curr.division = prev.division)
+    (curr.company = prev.company)
+    and (curr.invoice_group = prev.invoice_group)
+  --  and (curr.merchant_group = prev.merchant_group)
    and (curr.merchant_portal_mg = prev.merchant_portal_mg)
-   and (curr.merchant_portal_cg = prev.merchant_portal_cg)
+  --  and (curr.merchant_portal_cg = prev.merchant_portal_cg)
     and left(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),4) = cast(prev.Year as string)
     and substring(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),6,2)  = prev.Month
 order by curr.Year,curr.Month
 ) prev_m
 on
-    (store_trans_country.Brand = prev_m.Brand)
-   and (store_trans_country.division = prev_m.division)
-   and (store_trans_country.company = prev_m.company)
-   and (store_trans_country.invoice_group = prev_m.invoice_group)
-   and (store_trans_country.merchant_group = prev_m.merchant_group)
+  --   (store_trans_country.Brand = prev_m.Brand)
+  --  and (store_trans_country.division = prev_m.division)
+    (store_trans_country.company = prev_m.company)
+    and (store_trans_country.invoice_group = prev_m.invoice_group)
+  --  and (store_trans_country.merchant_group = prev_m.merchant_group)
    and (store_trans_country.merchant_portal_mg = prev_m.merchant_portal_mg)
-   and (store_trans_country.merchant_portal_cg = prev_m.merchant_portal_cg)
+  --  and (store_trans_country.merchant_portal_cg = prev_m.merchant_portal_cg)
   and store_trans_country.Year = prev_m.Year
   and store_trans_country.Month = prev_m.Month
 order by store_trans_country.Year,store_trans_country.Month
@@ -1657,13 +1673,13 @@ order by store_trans_country.Year,store_trans_country.Month
   left join 
     final_country
   on 
-    (country_internal.Brand = final_country.Brand)
-    and (country_internal.division = final_country.division)
-    and (country_internal.company = final_country.company)
-    and (country_internal.invoice_group = final_country.invoice_group)
-    and (country_internal.merchant_group = final_country.merchant_group)
+    -- (country_internal.Brand = final_country.Brand)
+    -- and (country_internal.division = final_country.division)
+     (country_internal.company = final_country.company)
+     and (country_internal.invoice_group = final_country.invoice_group)
+    -- and (country_internal.merchant_group = final_country.merchant_group)
     and (country_internal.merchant_portal_mg = final_country.merchant_portal_mg)
-    and (country_internal.merchant_portal_cg = final_country.merchant_portal_cg)
+    -- and (country_internal.merchant_portal_cg = final_country.merchant_portal_cg)
     and (country_internal.Year = final_country.Year)
     --and (country_internal.Month = final_country.Month)
     and (cast(country_internal.Month as int) = cast(final_country.Month as int))
@@ -1693,8 +1709,8 @@ country_bench as
     'All' as store_status,
     country_bench.country,
     'All' as state,
-    country_bench.division,
-    country_bench.brand,
+    -- country_bench.division,
+    -- country_bench.brand,
     country_bench.industry,
     'All' as site_name,
     'All' as suburb,
@@ -1702,10 +1718,10 @@ country_bench as
     'All' as caid,
     --'All' as is_closed,
     country_bench.company,
-    country_bench.invoice_group,
-    country_bench.merchant_group,
+     country_bench.invoice_group,
+    -- country_bench.merchant_group,
     country_bench.merchant_portal_mg,
-    country_bench.merchant_portal_cg,
+    -- country_bench.merchant_portal_cg,
     'All' as is_online,
     'All' as scheme,
     'All' as card_type,
@@ -1773,12 +1789,12 @@ country_bench as
     (
   select 
       m.company,
-      m.invoice_group,    
-      m.merchant_group,
-      m.division, 
-      m.brand, 
+       m.invoice_group,    
+      -- m.merchant_group,
+      -- m.division, 
+      -- m.brand, 
       m.merchant_portal_mg,
-      m.merchant_portal_cg,   
+      -- m.merchant_portal_cg,   
       --m.store_id,   
       --m.site_name,    
      -- m.suburb,   
@@ -1813,16 +1829,16 @@ country_bench as
       where fee.calc_approval_flag = 'A'
 	  and left(cast(fee.tstamp_trans as string),7) > '2022-07'
 and fee.calc_tran_type_description in ('REFUND','REFUND REVERSAL','PURCHASE','PURCHASE REVERSAL','PURCHASE WITH CASHOUT','PURCHASE WITH CASHOUT REVERSAL','REDEMPTION','REDEMPTION REVERSAL')
-      group by 1,2,3,4,5,6,7,8,9
+      group by 1,2,3,4,5
       ) cust_info
   on cust_info.company = country_bench.company
-    and cust_info.merchant_group = country_bench.merchant_group
-    and cust_info.division = country_bench.division
+    -- and cust_info.merchant_group = country_bench.merchant_group
+    -- and cust_info.division = country_bench.division
     and cust_info.country = country_bench.country
-    and cust_info.invoice_group = country_bench.invoice_group
-    and cust_info.brand = country_bench.brand
+     and cust_info.invoice_group = country_bench.invoice_group
+    -- and cust_info.brand = country_bench.brand
     and cust_info.merchant_portal_mg = country_bench.merchant_portal_mg
-    and cust_info.merchant_portal_cg = country_bench.merchant_portal_cg
+    -- and cust_info.merchant_portal_cg = country_bench.merchant_portal_cg
     and concat(country_bench.Year,concat('-',country_bench.Month)) = cust_info.Transaction_Date
 )
 -- end
@@ -1858,18 +1874,18 @@ create or replace table pdh_staging_ds.temp_external as (
     store_status,
     country,
     state,
-    division,
-    brand,
+    -- division,
+    -- brand,
     industry,
     site_name,
     suburb,
     postcode,
     caid,
     company,
-    invoice_group,
-    merchant_group,
+     invoice_group,
+    -- merchant_group,
     merchant_portal_mg,
-    merchant_portal_cg,
+    -- merchant_portal_cg,
     is_online,
     scheme,
     card_type,
@@ -1944,18 +1960,18 @@ with w_internal_country as
   base.store_status,
   base.country,
   base.state,
-  base.division,
-  base.brand,
+  -- base.division,
+  -- base.brand,
   base.industry,
   base.site_name,
   base.suburb,
   base.postcode,
   base.caid,
   base.company,
-  base.invoice_group,
-  base.merchant_group,
+   base.invoice_group,
+  -- base.merchant_group,
   base.merchant_portal_mg,
-  base.merchant_portal_cg,
+  -- base.merchant_portal_cg,
   base.is_online,
   base.scheme,
   base.card_type,
@@ -2002,7 +2018,7 @@ with w_internal_country as
   0 as b_ecom_txns_share,					
   0 as b_ecom_ind_rank_share,					
   --'Country' as Benchmark,
-  base.merchant_group as Benchmark,			
+  base.merchant_portal_mg as Benchmark,			
   'Country' as Benchmark_Location,	
   'Internal' as Benchmark_lvl
 from
@@ -2016,13 +2032,13 @@ select
   scheme,
   card_type,
   --state,
-  division,
-  brand,
+  -- division,
+  -- brand,
   merchant_portal_mg,
-  merchant_portal_cg,
+  -- merchant_portal_cg,
   company,
-  invoice_group,
-  merchant_group,
+   invoice_group,
+  -- merchant_group,
   --LGA_id,
   Period,
   Year,
@@ -2082,7 +2098,7 @@ select
   as w_trans_value_tot_yoy
 from
   pdh_staging_ds.temp_external
-group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15) internal_lga
+group by 1,2,3,4,5,6,7,8,9,10,11) internal_lga
 on 
   base.store_status = internal_lga.store_status
   and base.country = internal_lga.country
@@ -2090,13 +2106,13 @@ on
   and base.scheme = internal_lga.scheme
   and base.card_type = internal_lga.card_type
   --and base.state = internal_lga.state
-  and base.division = internal_lga.division
-  and base.brand = internal_lga.brand
+  -- and base.division = internal_lga.division
+  -- and base.brand = internal_lga.brand
   and (base.merchant_portal_mg = internal_lga.merchant_portal_mg)
-  and (base.merchant_portal_cg = internal_lga.merchant_portal_cg)
+  -- and (base.merchant_portal_cg = internal_lga.merchant_portal_cg)
   and base.company = internal_lga.company
-  and base.invoice_group = internal_lga.invoice_group
-  and base.merchant_group = internal_lga.merchant_group
+   and base.invoice_group = internal_lga.invoice_group
+  -- and base.merchant_group = internal_lga.merchant_group
   --and base.LGA_id = internal_lga.LGA_id
   and base.Period = internal_lga.Period
   and base.Year = internal_lga.Year
@@ -2116,18 +2132,18 @@ where base.Aggregation_Level = 'State'
   base.store_status,
   base.country,
   base.state,
-  base.division,
-  base.brand,
+  -- base.division,
+  -- base.brand,
   base.industry,
   base.site_name,
   base.suburb,
   base.postcode,
   base.caid,
   base.company,
-  base.invoice_group,
-  base.merchant_group,
+   base.invoice_group,
+  -- base.merchant_group,
   base.merchant_portal_mg,
-  base.merchant_portal_cg,
+  -- base.merchant_portal_cg,
   base.is_online,
   base.scheme,
   base.card_type,
@@ -2174,7 +2190,7 @@ where base.Aggregation_Level = 'State'
   0 as b_ecom_txns_share,					
   0 as b_ecom_ind_rank_share,					
   --'State' as Benchmark,
-  base.merchant_group as Benchmark,	
+  base.merchant_portal_mg as Benchmark,	
   'State' as Benchmark_Location,					
   'Internal' as Benchmark_lvl
 from
@@ -2188,14 +2204,14 @@ select
   scheme,
   card_type,
   state,
-  division,
-  brand,
+  -- division,
+  -- brand,
   merchant_portal_mg,
-  merchant_portal_cg,
-  company,
-  invoice_group,
-  merchant_group,
-  --LGA_id,
+  -- merchant_portal_cg,
+   company,
+   invoice_group,
+  -- merchant_group,
+  -- LGA_id,
   Period,
   Year,
   Month,
@@ -2254,7 +2270,7 @@ select
   as w_trans_value_tot_yoy
 from
   pdh_staging_ds.temp_external
-group by 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16) internal_lga
+group by 1,2,3,4,5,6,7,8,9,10,11,12) internal_lga
 on 
   base.store_status = internal_lga.store_status
   and base.country = internal_lga.country
@@ -2262,13 +2278,13 @@ on
   and base.scheme = internal_lga.scheme
   and base.card_type = internal_lga.card_type
   and base.state = internal_lga.state
-  and base.division = internal_lga.division
-  and base.brand = internal_lga.brand
+  -- and base.division = internal_lga.division
+  -- and base.brand = internal_lga.brand
   and (base.merchant_portal_mg = internal_lga.merchant_portal_mg)
-   and (base.merchant_portal_cg = internal_lga.merchant_portal_cg)
+  --  and (base.merchant_portal_cg = internal_lga.merchant_portal_cg)
   and base.company = internal_lga.company
-  and base.invoice_group = internal_lga.invoice_group
-  and base.merchant_group = internal_lga.merchant_group
+   and base.invoice_group = internal_lga.invoice_group
+  -- and base.merchant_group = internal_lga.merchant_group
   --and base.LGA_id = internal_lga.LGA_id
   and base.Period = internal_lga.Period
   and base.Year = internal_lga.Year
@@ -2318,7 +2334,7 @@ with cust_count as
 select
   -- m.company,
   m.invoice_group,    
-  -- m.merchant_group,
+  -- m.merchant_portal_mg,
   -- m.division, 
   -- m.brand,    
   -- m.store_id,   
@@ -2366,7 +2382,7 @@ cust_visits as
     cust_count mt
   -- on m.company = mt.company
   on m.invoice_group = mt.invoice_group
-  -- and m.merchant_group = mt.merchant_group
+  --and  m.merchant_portal_mg = mt.merchant_portal_mg
   -- and m.division = mt.division
   -- and m.brand = mt.brand
   -- and m.store_id  = mt.store_id
@@ -2384,7 +2400,7 @@ cust_visits as
     cust_count mmt
   -- on m.company = mmt.company
   on m.invoice_group = mmt.invoice_group
-  -- and m.merchant_group = mmt.merchant_group
+  --and m.merchant_portal_mg = mmt.merchant_portal_mg
   -- and m.division = mmt.division
   -- and m.brand = mmt.brand
   -- and m.store_id  = mmt.store_id
@@ -2406,6 +2422,7 @@ final_cust as
 select 
   -- company,
   invoice_group,
+  --merchant_portal_mg,
   -- division,
   --store_id,
   Transaction_Date,
@@ -2438,6 +2455,7 @@ select
   'All' as card_type,
 
   invoice_group,
+  --merchant_portal_mg,
   -- division,
   --store_id,
   Transaction_Date,
@@ -2472,7 +2490,7 @@ with cust_count_online as
 select
   -- m.company,
   m.invoice_group,    
-  -- m.merchant_group,
+  -- m.merchant_portal_mg,
   -- m.division, 
   -- m.brand,    
   -- m.store_id,   
@@ -2524,7 +2542,7 @@ order by 1,2,3,4
 select 
   -- company,
   invoice_group,    
-  -- merchant_group,
+  --merchant_portal_mg,
   -- division, 
   -- brand,    
   -- store_id,   
@@ -2560,7 +2578,7 @@ select
 
 
   invoice_group,    
-  --merchant_group,
+  --merchant_portal_mg,
   --division, 
   --brand,      
   -- country,
@@ -2608,12 +2626,12 @@ select distinct *
     curr.Year,
     curr.Month,
     curr.company,
-    curr.division,
-    curr.merchant_group,
-    curr.invoice_group,
+    -- curr.division,
+    -- curr.merchant_group,
+     curr.invoice_group,
     curr.merchant_portal_mg,
-    curr.merchant_portal_cg,
-    curr.brand,
+    -- curr.merchant_portal_cg,
+    -- curr.brand,
     curr.industry,
     curr.industry_name,
     curr.store_id,
@@ -2862,11 +2880,11 @@ select distinct *
     and left(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),4) = cast(prev_m.Year as string)
     and substring(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),6,2)  = cast(prev_m.Month as string)
     and curr.company = prev_m.company
-    and curr.division = prev_m.division
-    and curr.merchant_group = prev_m.merchant_group
-    and curr.invoice_group = prev_m.invoice_group
+    -- and curr.division = prev_m.division
+    -- and curr.merchant_group = prev_m.merchant_group
+     and curr.invoice_group = prev_m.invoice_group
     and (curr.merchant_portal_mg = prev_m.merchant_portal_mg)
-   and (curr.merchant_portal_cg = prev_m.merchant_portal_cg)
+  --  and (curr.merchant_portal_cg = prev_m.merchant_portal_cg)
     and curr.industry = prev_m.industry
     and curr.industry_name = prev_m.industry_name
     and curr.store_id = prev_m.store_id
@@ -2876,7 +2894,7 @@ select distinct *
     and curr.state = prev_m.state
     and curr.suburb = prev_m.suburb
     and curr.postcode = prev_m.postcode
-    and curr.brand = prev_m.brand
+    -- and curr.brand = prev_m.brand
     and curr.LGA = prev_m.LGA
     and curr.LGA_id = prev_m.LGA_id
   left join
@@ -2893,11 +2911,11 @@ select distinct *
     and (cast(curr.Year as int)-1) = cast(prev_y.Year as int)
     and curr.Month = prev_y.Month
     and curr.company = prev_y.company
-    and curr.division = prev_y.division
-    and curr.merchant_group = prev_y.merchant_group
-    and curr.invoice_group = prev_y.invoice_group
+    -- and curr.division = prev_y.division
+    -- and curr.merchant_group = prev_y.merchant_group
+     and curr.invoice_group = prev_y.invoice_group
     and (curr.merchant_portal_mg = prev_y.merchant_portal_mg)
-   and (curr.merchant_portal_cg = prev_y.merchant_portal_cg)
+  --  and (curr.merchant_portal_cg = prev_y.merchant_portal_cg)
     and curr.industry = prev_y.industry
     and curr.industry_name = prev_y.industry_name
     and curr.store_id = prev_y.store_id
@@ -2907,7 +2925,7 @@ select distinct *
     and curr.state = prev_y.state
     and curr.suburb = prev_y.suburb
     and curr.postcode = prev_y.postcode
-    and curr.brand = prev_y.brand
+    -- and curr.brand = prev_y.brand
     and curr.LGA = prev_y.LGA
     and curr.LGA_id = prev_y.LGA_id
 
@@ -2920,7 +2938,8 @@ select distinct *
     and curr.is_online = cust_count.is_online
     and curr.scheme = cust_count.scheme
     and curr.card_type = cust_count.card_type
-    and curr.invoice_group = cust_count.invoice_group   
+    and curr.invoice_group = cust_count.invoice_group 
+    --and curr.merchant_portal_mg = cust_count.merchant_portal_mg   
     and curr.Period = cust_count.Transaction_Date
   
   left join
@@ -2932,7 +2951,8 @@ select distinct *
     and curr.is_online = cust_count_online.is_online
     and curr.scheme = cust_count_online.scheme
     and curr.card_type = cust_count_online.card_type
-    and curr.invoice_group = cust_count_online.invoice_group    
+    and curr.invoice_group = cust_count_online.invoice_group  
+    --and curr.merchant_portal_mg = cust_count_online.merchant_portal_mg   
     and curr.Period = cust_count_online.Transaction_Date
 )
 -- where curr.w_trans_amount is not null,
@@ -2944,6 +2964,8 @@ select distinct *
 create or replace table wpay_analytics.wpay_all_merchants_performance_metrics_bp as
 (select * from pdh_staging_ds.temp_output_format);
 
+-- create or replace table wpay_analytics.wpay_all_merchants_performance_metrics_bp as
+-- (select * from wpay_analytics.wpay_all_merchants_performance_metrics_bp_test);
 
 -- create or replace table pdh_sf_mep_vw.wpay_all_merchants_performance_metrics_bp as 
 -- (
@@ -2976,7 +2998,7 @@ drop table if exists pdh_staging_ds.temp_output_format;
 drop table if exists pdh_staging_ds.temp_cust_count_online;
 drop table if exists pdh_staging_ds.temp_cust_count;
 
---------------------------------------------------------------------------------------------
+-------------------------------------------------------------------------------------------
 --------------------------------------------------------------------------------------------
 
 create or replace table `wpay_analytics.wpay_business_performance` as

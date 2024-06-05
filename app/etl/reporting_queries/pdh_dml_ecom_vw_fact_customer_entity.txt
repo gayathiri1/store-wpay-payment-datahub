@@ -1,0 +1,489 @@
+------------------------------------------------------
+--Author:       RB
+--Date:         2023 October 12
+--Description:  Dim EDR 
+--              Find all the similarities or duplicates of single EDR with multiple 
+--              email address, physical address, home address, delivery address, devices
+--Version:      01
+------------------------------------------------------
+TRUNCATE TABLE pdh_risk_analytics_s.vw_fact_customer_entity;
+INSERT INTO pdh_risk_analytics_s.vw_fact_customer_entity
+(
+With sKey as 
+(
+SELECT value, key FROM `pdh_risk_analytics_s.scrambleValueKey`  
+--WHERE KEY = 'B4F7AF48-6991-417E-A149-F2ECA56EBF14'
+)
+
+,TPC_Chargeback as 
+(
+SELECT Distinct 
+c.Merchant_Reference_Number	
+--,cast(c.Order_Request_ID as string) as Order_Request_ID
+--,SK_CHARGEBACK_NO
+--,c.Merchant_ID	
+--,c.Store_Name	
+--,c.Store_Regions	
+--,c.Date_Received_at_TPC	
+--,c.Case_Number_Ref_Number	
+--,c.Store_No	
+--,c.Original_Transaction_Date	
+--,c.Value_of_request	
+--,c.Bank_Code	
+--,c.Trans_No_RRN	
+--,c.Status	
+--,c.Date_Request_Was_Sent_To_Store	
+--,c.Date_response_received_from_store	
+--,c.Keyed_or_Swiped	
+--,c.Second_Req	
+--,c.Date_response_received_for_2nd_Request	
+--,c.Order_Transaction_Date	
+--,c.Reason	
+--,c.Comments	
+--,c.Days_for_ChargeBack
+--,'| Cybersource |'
+--,f.*	
+--,FactType	
+--,nrank	
+--,DW_EFFECTIVEDATE	
+--,DW_EXPIRATIONDATE	
+--,CURRENT_DW	
+--,FILENAME	
+FROM pdh_risk_analytics_s.fact_chargeback c  
+--left join `gcp-wow-risk-de-data-prod.ECom.Fact_CyberSource` f on f.Order_MerchantReferenceNumber = c.Merchant_Reference_Number
+where not (c.Merchant_Reference_Number	is null or c.Merchant_Reference_Number = '')
+--and Merchant_Reference_Number = '9241878921220-1602646210820-1'
+--,Order_Request_ID
+--17,945
+--17,720
+)
+
+,Stg_1_Dim_Customer
+as 
+(
+SELECT 
+
+    coalesce(BillTo_CustomerID.Value,c.customer_billto_customerid_scrambled) as Customer_BillTo_CustomerID,
+    coalesce(Customer_BillTo_FirstName.Value,c.customer_billto_firstname_scrambled) as Customer_BillTo_FirstName,
+     coalesce(Customer_BillTo_LastName.Value,c.Customer_BillTo_LastName_scrambled) as Customer_BillTo_LastName,
+    
+     coalesce(Customer_BillTo_Address1.Value,c.Customer_BillTo_Address1_scrambled) as Customer_BillTo_Address1,
+    Customer_BillTo_City,
+    Customer_BillTo_Country,
+    Customer_BillTo_PostalCode,
+    Customer_BillTo_State,
+
+    Upper(Concat(Concat(Concat(Concat(Concat( coalesce(Customer_BillTo_Address1.Value,c.Customer_BillTo_Address1_scrambled), ', '), Customer_BillTo_City, ', '), Customer_BillTo_State, ' '),  
+       Customer_BillTo_PostalCode, 
+       ' '), Customer_BillTo_Country)) 
+       as Customer_BillTo_Address,
+
+    lower( coalesce(Customer_BillTo_Email.Value,c.Customer_BillTo_Email_scrambled)) as Customer_BillTo_Email,
+     coalesce(Customer_BillTo_Phone.Value,Customer_BillTo_Phone_scrambled) as Customer_BillTo_Phone,
+
+    Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) as Order_Transaction_Date,
+    DATETIME(Order_TransactionDate, "Australia/Sydney") as Order_Transaction_DateTime,
+
+    cast(MerchantDefinedData_AgeOfAccount as bigint) as AgeOfAccount
+
+    ,row_number() over (partition by coalesce(BillTo_CustomerID.Value,c.customer_billto_customerid_scrambled) order by DATETIME(Order_TransactionDate, "Australia/Sydney")) as nRank
+
+FROM pdh_risk_analytics_s.cyberscr_ap_tx c
+-- FROM `gcp-wow-risk-de-data-prod.ECom.CYBERSRC_AP_TX` c  --, unnest(Order_LineItem_Records) as l
+ 
+ left join sKey BillTo_CustomerID on BillTo_CustomerID.Key = c.customer_billto_customerid_scrambled
+ left join sKey Customer_BillTo_Email on Customer_BillTo_Email.key = c.Customer_BillTo_Email_scrambled
+ left join sKey Customer_BillTo_FirstName on Customer_BillTo_FirstName.key = c.Customer_BillTo_FirstName_scrambled
+ left join sKey Customer_BillTo_LastName on Customer_BillTo_LastName.key = c.Customer_BillTo_LastName_scrambled
+ left join sKey Customer_BillTo_Phone on Customer_BillTo_Phone.key = c.Customer_BillTo_Phone_scrambled
+ left join sKey Customer_BillTo_Address1 on Customer_BillTo_Address1.key = c.Customer_BillTo_Address1_scrambled
+
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) <= '2018-12-31'  --8,337,729
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) between '2019-01-01' and '2019-12-31' --  18,765,252
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) between '2020-01-01' and '2020-12-31'  -- 63,552,303
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) between '2021-01-01' and '2021-12-31' -- 111,195,240
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) between '2022-01-01' and '2022-12-31'   --  91,405,114
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) >= '2023-01-01' -- 698,318,794
+ where c.Order_MerchantReferenceNumber in (select Merchant_Reference_Number from TPC_Chargeback) 
+
+ --BillTo_CustomerID.Value = '1794086'
+)
+
+--select * from Stg_1_Dim_Customer
+--where Customer_BillTo_CustomerID = '10016553' 
+
+
+,Stg_2_Dim_Customer_Profile
+as 
+(
+SELECT 
+
+    Order_RequestID
+    ,coalesce(BillTo_CustomerID.Value,c.customer_billto_customerid_scrambled) as Customer_BillTo_CustomerID,
+    --Customer_BillTo_FirstName.Value as Customer_BillTo_FirstName,
+    --Customer_BillTo_LastName.Value as Customer_BillTo_LastName,
+    
+    --Customer_BillTo_Address1.Value as Customer_BillTo_Address1,
+    --Customer_BillTo_City,
+    --Customer_BillTo_Country,
+    --Customer_BillTo_PostalCode,
+    --Customer_BillTo_State, 
+
+    Upper(Concat(Concat(Concat(Concat(Concat( coalesce(Customer_BillTo_Address1.Value,c.Customer_BillTo_Address1_scrambled), ', '), Customer_BillTo_City, ', '), Customer_BillTo_State, ' '),  
+       Customer_BillTo_PostalCode, 
+       ' '), Customer_BillTo_Country)) 
+       as Customer_BillTo_Address,
+
+    lower( coalesce(Customer_BillTo_Email.Value,c.Customer_BillTo_Email_scrambled)) as Customer_BillTo_Email,
+     coalesce(Customer_BillTo_Phone.Value,Customer_BillTo_Phone_scrambled) as Customer_BillTo_Phone,
+   
+
+    --Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) as Order_Transaction_Date,
+    --DATETIME(Order_TransactionDate, "Australia/Sydney") as Order_Transaction_DateTime,
+
+    --cast(MerchantDefinedData_AgeOfAccount as bigint) as AgeOfAccount
+
+    --,row_number() over (partition by BillTo_CustomerID.Value order by DATETIME(Order_TransactionDate, "Australia/Sydney")) as nRank
+FROM pdh_risk_analytics_s.cyberscr_ap_tx c
+ --FROM `gcp-wow-risk-de-data-prod.ECom.CYBERSRC_AP_TX` c  --, unnest(Order_LineItem_Records) as l
+ 
+ left join sKey BillTo_CustomerID on BillTo_CustomerID.Key = c.customer_billto_customerid_scrambled
+ left join sKey Customer_BillTo_Email on Customer_BillTo_Email.key = c.customer_billto_email_scrambled
+ --left join sKey Customer_BillTo_FirstName on Customer_BillTo_FirstName.key = c.Customer_BillTo_FirstName_scrambled
+ --left join sKey Customer_BillTo_LastName on Customer_BillTo_LastName.key = c.Customer_BillTo_LastName_scrambled
+ left join sKey Customer_BillTo_Phone on Customer_BillTo_Phone.key = c.Customer_BillTo_Phone_scrambled
+ left join sKey Customer_BillTo_Address1 on Customer_BillTo_Address1.key = c.Customer_BillTo_Address1_scrambled
+
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) <= '2018-12-31'  --8,337,729
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) between '2019-01-01' and '2019-12-31' --  18,765,252
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) between '2020-01-01' and '2020-12-31'  -- 63,552,303
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) between '2021-01-01' and '2021-12-31' -- 111,195,240
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) between '2022-01-01' and '2022-12-31'   --  91,405,114
+ --where Extract(Date from DATETIME(Order_TransactionDate, "Australia/Sydney")) >= '2023-01-01' -- 698,318,794
+ where (BillTo_CustomerID.Value in (select Customer_BillTo_CustomerID from Stg_1_Dim_Customer) or  c.customer_billto_customerid_scrambled in (select Customer_BillTo_CustomerID from Stg_1_Dim_Customer))
+
+ --BillTo_CustomerID.Value = '1794086'
+)
+
+--select distinct Customer_BillTo_CustomerID cnt from Stg_2_Dim_Customer_Profile
+--169,415, all records
+--12,701 unique Customer ID
+
+
+--select distinct Customer_BillTo_CustomerID
+--select *
+--from Stg_1_Dim_Customer limit 100
+--12,702 all unique customers ID
+--20,901 all records
+
+
+,stg_customer_stat as (
+select Customer_BillTo_CustomerID
+,count(Distinct Order_RequestID) as TotalNoOfOrders
+,count(Distinct Customer_BillTo_Address) TotalNoOfAddress
+,count(Distinct Customer_BillTo_EMail) TotalNoOfEmail
+,count(Distinct Customer_BillTo_Phone) TotalNoOfPhone
+from Stg_2_Dim_Customer_Profile
+group by Customer_BillTo_CustomerID
+--, Customer_BillTo_Address, Customer_BillTo_Email, Customer_BillTo_Phone
+)
+
+--select * from stg_customer_stat 
+--where TotalNoOfAddress > 2
+--order by Customer_BillTo_CustomerID
+
+,Stg_Address as (
+select Distinct
+Customer_BillTo_CustomerID
+,Customer_BillTo_Address
+,Order_Transaction_DateTime 
+,row_number() over (partition by Customer_BillTo_CustomerID order by Order_Transaction_DateTime) as nRank
+,row_number() over (partition by Customer_BillTo_CustomerID, Customer_BillTo_Address order by Order_Transaction_DateTime) as nRankAddress
+from Stg_1_Dim_Customer
+where Stg_1_Dim_Customer.Customer_BillTo_CustomerID is not null
+--order by Customer_BillTo_CustomerID, Order_Transaction_DateTime
+)
+
+--select * from stg_address 
+--where Customer_BillTo_CustomerID = '10016553'
+
+,Stg_Email as (
+select Distinct
+Customer_BillTo_CustomerID
+,Customer_BillTo_Email
+,Order_Transaction_DateTime 
+,row_number() over (partition by Customer_BillTo_CustomerID order by Order_Transaction_DateTime) as nRank
+,row_number() over (partition by Customer_BillTo_CustomerID, Customer_BillTo_Email order by Order_Transaction_DateTime) as nRankEmail
+from Stg_1_Dim_Customer
+where Stg_1_Dim_Customer.Customer_BillTo_CustomerID is not null
+--order by Customer_BillTo_CustomerID, Order_Transaction_DateTime
+)
+
+,Stg_Phone as (
+select Distinct
+Customer_BillTo_CustomerID
+,Customer_BillTo_Phone
+,Order_Transaction_DateTime 
+,row_number() over (partition by Customer_BillTo_CustomerID order by Order_Transaction_DateTime) as nRank
+,row_number() over (partition by Customer_BillTo_CustomerID, Customer_BillTo_Phone order by Order_Transaction_DateTime) as nRankPhone
+from Stg_1_Dim_Customer
+where Stg_1_Dim_Customer.Customer_BillTo_CustomerID is not null
+--order by Customer_BillTo_CustomerID, Order_Transaction_DateTime
+)
+
+,Consistent_Address as (
+select  
+s.Customer_BillTo_CustomerID
+,s.Order_Transaction_DateTime
+,s.nrank 
+,s.Customer_BillTo_Address
+,s.nrankAddress as NoOfOrdersSameAddress
+,if(s.nrankAddress = 1, 1, 0) as IsNewAddress
+,sum(if(s.nrankAddress = 1, 1, 0)) over (order by s.Customer_BillTo_CustomerID,s.Order_Transaction_DateTime ROWS UNBOUNDED PRECEDING) as TotalUniqueAddress
+,if(sum(if(s.nrankAddress = 1, 1, 0)) over (order by s.Customer_BillTo_CustomerID,s.Order_Transaction_DateTime ROWS UNBOUNDED PRECEDING) > 1 and s.nrankAddress < 3, 0, 1) IsAddressConsistent  
+from Stg_Address s
+--Window win as (order by s.Order_Transaction_DateTime ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+order by s.Customer_BillTo_CustomerID, s.Order_Transaction_DateTime
+)
+
+
+,Consistent_Email as (
+select  
+e.Customer_BillTo_CustomerID
+,e.Order_Transaction_DateTime
+,e.nrank 
+,e.Customer_BillTo_Email
+,e.nrankEmail as NoOfOrdersSameEmail
+,if(e.nrankEmail = 1, 1, 0) as IsNewEmail
+,sum(if(e.nrankEmail = 1, 1, 0)) over (order by e.Customer_BillTo_CustomerID, e.Order_Transaction_DateTime ROWS UNBOUNDED PRECEDING) as TotalUniqueEmail
+,if(sum(if(e.nrankEmail = 1, 1, 0)) over (order by e.Customer_BillTo_CustomerID, e.Order_Transaction_DateTime ROWS UNBOUNDED PRECEDING) > 1 and e.nrankEmail < 3, 0, 1) IsEmailConsistent  
+from Stg_Email e
+--Window win as (order by s.Order_Transaction_DateTime ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+order by e.Customer_BillTo_CustomerID, e.Order_Transaction_DateTime
+)
+
+,Consistent_Phone as (
+select  
+e.Customer_BillTo_CustomerID
+,e.Order_Transaction_DateTime
+,e.nrank 
+,e.Customer_BillTo_Phone
+,e.nrankPhone as NoOfOrdersSamePhone
+,if(e.nrankPhone = 1, 1, 0) as IsNewPhone
+,sum(if(e.nrankPhone = 1, 1, 0)) over (order by e.Customer_BillTo_CustomerID, e.Order_Transaction_DateTime ROWS UNBOUNDED PRECEDING) as TotalUniquePhone
+,if(sum(if(e.nrankPhone = 1, 1, 0)) over (order by e.Customer_BillTo_CustomerID, e.Order_Transaction_DateTime ROWS UNBOUNDED PRECEDING) > 1 and e.nrankPhone < 3, 0, 1) IsPhoneConsistent  
+from Stg_Phone e
+--Window win as (order by s.Order_Transaction_DateTime ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING)
+order by e.Customer_BillTo_CustomerID, e.Order_Transaction_DateTime
+)
+
+,stg_consistent_1 as (
+select 
+a.Customer_BillTo_CustomerID
+,if(c.AgeOfAccount >= 180 and a.IsAddressConsistent = 1 and p.IsPhoneConsistent = 1 and e.IsEmailConsistent = 1, 1, 0) IsCustomerConsistent
+,c.Customer_BillTo_FirstName
+,c.Customer_BillTo_LastName    
+,c.Customer_BillTo_Address1
+,c.Customer_BillTo_City
+,c.Customer_BillTo_Country
+,c.Customer_BillTo_PostalCode
+,c.Customer_BillTo_State
+,c.Order_Transaction_Date
+,c.AgeOfAccount
+,a.Order_Transaction_DateTime
+,a.nrank as NoOfOrders
+,a.Customer_BillTo_Address
+,a.NoOfOrdersSameAddress
+,a.IsNewAddress
+
+,a.IsAddressConsistent
+,p.Customer_BillTo_Phone
+,p.NoOfOrdersSamePhone
+,p.IsNewPhone
+
+,p.IsPhoneConsistent
+,e.Customer_BillTo_Email
+,e.NoOfOrdersSameEmail
+,e.IsNewEmail
+
+,e.IsEmailConsistent
+from Consistent_Address a
+left join Consistent_Phone p on p.Customer_BillTo_CustomerID = a.Customer_BillTo_CustomerID and p.nrank = a.nrank
+left join Consistent_Email e on e.Customer_BillTo_CustomerID = a.Customer_BillTo_CustomerID and e.nrank = a.nrank
+left join Stg_1_Dim_Customer c on c.Customer_BillTo_Address = a.Customer_BillTo_Address and c.nrank = a.nrank 
+--order by a.Customer_BillTo_CustomerID, a.Order_Transaction_DateTime, a.nrank 
+)
+
+,stg_consistent_2 as (
+select 
+c.Customer_BillTo_CustomerID
+,c.IsCustomerConsistent
+,c.Customer_BillTo_FirstName
+,c.Customer_BillTo_LastName
+,c.Customer_BillTo_Address1
+,c.Customer_BillTo_City
+,c.Customer_BillTo_Country
+,c.Customer_BillTo_PostalCode
+,c.Customer_BillTo_State
+,c.Order_Transaction_Date
+,c.AgeOfAccount
+,c.Order_Transaction_DateTime
+
+--test if more than 2 orders
+,c.NoOfOrders
+,s.TotalNoOfOrders
+,if(s.TotalNoOfOrders >= 3, 1, 0) as IsOrderConsistent
+
+--test if more than 2 unique address
+,c.Customer_BillTo_Address
+,c.NoOfOrdersSameAddress
+,s.TotalNoOfAddress
+,c.IsNewAddress
+--,c.IsAddressConsistent
+,if(c.IsAddressConsistent=0 and c.NoOfOrders = c.NoOfOrdersSameAddress,1,
+     if(c.IsAddressConsistent=0 and c.NoOfOrders <> c.NoOfOrdersSameAddress,0,
+        c.IsAddressConsistent
+       )
+   ) IsAddressConsistent
+
+
+--test if more than 2 phone numbers
+,c.Customer_BillTo_Phone
+,c.NoOfOrdersSamePhone
+,s.TotalNoOfPhone
+,c.IsNewPhone
+--,c.IsPhoneConsistent
+,if(c.IsPhoneConsistent=0 and c.NoOfOrders = c.NoOfOrdersSamePhone,1,
+     if(c.IsPhoneConsistent=0 and c.NoOfOrders <> c.NoOfOrdersSamePhone,0,
+        c.IsPhoneConsistent
+       )
+   ) IsPhoneConsistent
+
+
+--test if more than 2 email address
+,c.Customer_BillTo_Email
+,c.NoOfOrdersSameEmail
+,s.TotalNoOfEmail
+,c.IsNewEmail
+--,c.IsEmailConsistent
+,if(c.IsEmailConsistent=0 and c.NoOfOrders = c.NoOfOrdersSameEmail,1,
+     if(c.IsEmailConsistent=0 and c.NoOfOrders <> c.NoOfOrdersSameEmail,0,
+        c.IsEmailConsistent
+       )
+   ) IsEmailConsistent
+
+from stg_consistent_1 c
+left join stg_customer_stat s on s.Customer_BillTo_CustomerID = c.Customer_BillTo_CustomerID
+where s.Customer_BillTo_CustomerID is not null and s.TotalNoOfOrders is not null
+order by c.Customer_BillTo_CustomerID, Order_Transaction_DateTime
+--total records: 23,527
+)
+
+--select count(*) from stg_consistent_1
+
+,stg_consistent_3 as (
+select 
+s.Customer_BillTo_CustomerID
+,cc.TotalCustomerCount
+,s.IsCustomerConsistent
+,s.Customer_BillTo_FirstName
+,s.Customer_BillTo_LastName
+,s.Customer_BillTo_Address1
+,s.Customer_BillTo_City
+,s.Customer_BillTo_Country
+,s.Customer_BillTo_PostalCode
+,s.Customer_BillTo_State
+,s.Order_Transaction_Date
+,s.AgeOfAccount
+,s.Order_Transaction_DateTime
+,s.NoOfOrders
+,s.TotalNoOfOrders
+
+,s.IsOrderConsistent
+
+,s.Customer_BillTo_Address
+,s.NoOfOrdersSameAddress
+,s.TotalNoOfAddress
+,s.IsNewAddress
+
+,if(cc.TotalCustomerCount = 1 and s.TotalNoOfAddress > 2, 0,s.IsAddressConsistent) as IsAddressConsistent
+
+,s.Customer_BillTo_Phone
+,s.NoOfOrdersSamePhone
+,s.TotalNoOfPhone
+,s.IsNewPhone
+
+--,s.IsPhoneConsistent
+,if(cc.TotalCustomerCount = 1 and s.TotalNoOfPhone > 2, 0,s.IsPhoneConsistent) as IsPhoneConsistent
+
+,s.Customer_BillTo_Email
+,s.NoOfOrdersSameEmail
+,s.TotalNoOfEmail
+,s.IsNewEmail
+--,s.IsEmailConsistent
+,if(cc.TotalCustomerCount = 1 and s.TotalNoOfEmail > 2, 0,s.IsEmailConsistent) as IsEmailConsistent
+
+from stg_consistent_2 s
+left join (
+            select Customer_BillTo_CustomerID, count(*) TotalCustomerCount 
+            from Stg_1_Dim_Customer c
+            group by c.Customer_BillTo_CustomerID
+          ) cc on cc.Customer_BillTo_CustomerID = s.Customer_BillTo_CustomerID
+where cc.Customer_BillTo_CustomerID is not null
+--and s.TotalNoOfAddress > 2 and cc.TotalCustomerCount = 1
+order by s.Customer_BillTo_CustomerID, Order_Transaction_DateTime
+
+--and stg_consitent_2.IsAddressConsistent = 0
+--and NoOfOrders <> NoOfOrdersSameAddress
+--Customer_BillTo_CustomerID in ('10027417')
+--('10153580','10039506')
+--'10016553'
+)
+
+
+select 
+
+Customer_BillTo_CustomerID
+,TotalCustomerCount
+
+--,IsCustomerConsistent
+,if(AgeOfAccount >= 180 and IsOrderConsistent = 1 and IsAddressConsistent = 1 and IsPhoneConsistent = 1 and IsEmailConsistent = 1, 1, 0) as IsCustomerConsistent
+
+,Customer_BillTo_FirstName
+,Customer_BillTo_LastName
+,Customer_BillTo_Address1
+,Customer_BillTo_City
+,Customer_BillTo_Country
+,Customer_BillTo_PostalCode
+,Customer_BillTo_State
+,Order_Transaction_Date
+,AgeOfAccount
+,Order_Transaction_DateTime
+,NoOfOrders
+,TotalNoOfOrders
+,IsOrderConsistent
+,Customer_BillTo_Address
+,NoOfOrdersSameAddress
+,TotalNoOfAddress
+,IsNewAddress
+,IsAddressConsistent
+,Customer_BillTo_Phone
+,NoOfOrdersSamePhone
+,TotalNoOfPhone
+,IsNewPhone
+,IsPhoneConsistent
+,Customer_BillTo_Email
+,NoOfOrdersSameEmail
+,TotalNoOfEmail
+,IsNewEmail
+,IsEmailConsistent
+from stg_consistent_3
+)
+
+
+
+
+
+
+
+

@@ -177,12 +177,24 @@ IF ARRAY_LENGTH(missing_intermediate_data) > 0 THEN
 	SELECT ERROR(CONCAT("Raw billing data is not up to date in tables for last 1 week: ", ARRAY_TO_STRING(missing_intermediate_data, ", ")));
 END IF;
 
-SET txn_start_date = (SELECT MAX(switch_tran_date) + 1 FROM `pdh_analytics_ds.tbl_fees_all`);
-SET start_date = (SELECT MAX(switch_tran_date) + 1 FROM `pdh_analytics_ds.tbl_fees_all` WHERE fee_indicator = 'A');
+-- SET txn_start_date = (SELECT MAX(switch_tran_date) + 1 FROM `pdh_analytics_ds.tbl_fees_all`);
+SET
+  txn_start_date =(
+    SELECT
+      MAX(switch_tran_date) + 1
+    FROM
+      pdh_analytics_ds.tbl_fees_all
+    WHERE
+      switch_tran_date<= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY) );
+
+SET start_date = (SELECT MAX(switch_tran_date) + 1 FROM `pdh_analytics_ds.tbl_fees_all` WHERE fee_indicator = 'A' AND
+      switch_tran_date<= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY));
 
 IF start_date > txn_end_date OR txn_start_date > txn_end_date THEN
     SELECT ERROR("Start date is greater than end date");
 END IF;
+
+
 
 -- EARLY SETTLEMENT DATE ARRAY
 CALL pdh_staging_ds.CalculateCostFactor(start_date, end_date, settle_array);
@@ -931,6 +943,7 @@ select
         WHEN 'MASTERCARD' THEN 'MC' 
         WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
         WHEN 'AMEX' THEN 'AMEX'
+		WHEN 'UPI' THEN 'UPI'
         ELSE null
     end proc_id_iss_b,
     null issuer_institution_id,
@@ -962,6 +975,7 @@ select
         WHEN 'MASTERCARD' THEN 'MASTERCARD' 
         WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
         WHEN 'AMEX' THEN 'AMEX'
+		WHEN 'UPI' THEN 'UPI'
         ELSE null
     end scheme, 
     trim(transaction_type) as tran_type_desc,
@@ -977,6 +991,7 @@ select
         WHEN 'MASTERCARD' THEN 'MASTERCARD' 
         WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
         WHEN 'AMEX' THEN 'AMEX'
+		WHEN 'UPI' THEN 'UPI'
         ELSE null
     end link_route,
 	msw.reporting_group merchant_group,
@@ -2145,8 +2160,8 @@ AND switch_tran_date >= start_date;
 -- EDG SPECIFIC TABLES
 INSERT INTO `pdh_analytics_ds.tbl_fees_edg`
 SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
-WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
-AND merchant_group = 'ENDEAVOUR';
+WHERE switch_tran_date >= start_date AND switch_tran_date <= end_date
+ AND merchant_group = 'ENDEAVOUR';
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_edg`) < end_date THEN
     SELECT ERROR("EDG billing table not fully updated");
@@ -2293,8 +2308,8 @@ END IF;
 -- EG FUEL SPECIFIC TABLES
 INSERT INTO `pdh_analytics_ds.tbl_fees_egfuel`
 SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
-WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
-AND merchant_group IN ('EG FUEL', 'EG FUEL APAC');
+WHERE switch_tran_date >= start_date AND switch_tran_date <= end_date
+AND merchant_group IN ('EG FUEL', 'EG FUEL APAC') ;
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_egfuel`) < end_date THEN
     SELECT ERROR("EG Fuel billing table not fully updated");
@@ -2429,7 +2444,7 @@ END IF;
 -- WPAY NZ SPECIFIC TABLES
 INSERT INTO `pdh_analytics_ds.tbl_fees_wpaynz`
 SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
-WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
+WHERE switch_tran_date >= start_date AND switch_tran_date <= end_date
 AND merchant_group = 'COUNTDOWN';
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_wpaynz`) < end_date THEN
@@ -2565,8 +2580,8 @@ END IF;
 -- SMALL MERCHANT SPECIFIC TABLES
 INSERT INTO `pdh_analytics_ds.tbl_fees_sml_merchant`
 SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
-WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
-AND merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN', 'SUPERMARKETS', 'WOW ONLINE');
+WHERE switch_tran_date >= start_date AND switch_tran_date <= end_date
+AND merchant_group NOT IN ('ENDEAVOUR', 'EG FUEL', 'EG FUEL APAC', 'COUNTDOWN', 'SUPERMARKETS', 'WOW ONLINE') ;
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_sml_merchant`) < end_date THEN
     SELECT ERROR("Small Merchant billing table not fully updated");
@@ -2701,7 +2716,7 @@ END IF;
 -- SUPERMARKETS SPECIFIC TABLES
 INSERT INTO `pdh_analytics_ds.tbl_fees_super`
 SELECT * FROM `pdh_analytics_ds.tbl_fees_all`
-WHERE cast(tstamp_trans as date) >= start_date AND cast(tstamp_trans as date) <= end_date
+WHERE switch_tran_date >= start_date AND switch_tran_date <= end_date
 AND merchant_group IN ('SUPERMARKETS', 'WOW ONLINE');
 
 IF (SELECT MAX(switch_tran_date) FROM `pdh_analytics_ds.tbl_fees_super`) < end_date THEN

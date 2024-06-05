@@ -320,10 +320,10 @@ where
 period between
       date_add(date_sub((select max(period) from(
       select * from 
-     wpay_analytics.wpay_payouts_all_merchants 
+     output_included 
       WHERE period BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(period) from(
       select * from 
-      wpay_analytics.wpay_payouts_all_merchants ))
+      output_included ))
 
       
 
