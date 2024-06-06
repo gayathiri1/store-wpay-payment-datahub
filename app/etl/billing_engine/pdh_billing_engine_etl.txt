@@ -185,16 +185,14 @@ SET
     FROM
       pdh_analytics_ds.tbl_fees_all
     WHERE
-      switch_tran_date<= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY) );
+      switch_tran_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY) );
 
 SET start_date = (SELECT MAX(switch_tran_date) + 1 FROM `pdh_analytics_ds.tbl_fees_all` WHERE fee_indicator = 'A' AND
-      switch_tran_date<= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY));
+      switch_tran_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 60 DAY));
 
 IF start_date > txn_end_date OR txn_start_date > txn_end_date THEN
     SELECT ERROR("Start date is greater than end date");
 END IF;
-
-
 
 -- EARLY SETTLEMENT DATE ARRAY
 CALL pdh_staging_ds.CalculateCostFactor(start_date, end_date, settle_array);
@@ -938,12 +936,12 @@ select
     null proc_id_acq_b,
     null inst_id_recn_acq_b,
     null card_acpt_name_loc,
-	case upper(trim(scheme))
+    case upper(trim(scheme))
         WHEN 'VISA' THEN 'VDCS' 
         WHEN 'MASTERCARD' THEN 'MC' 
         WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
         WHEN 'AMEX' THEN 'AMEX'
-		WHEN 'UPI' THEN 'UPI'
+        WHEN 'UPI' THEN 'UPI'
         ELSE null
     end proc_id_iss_b,
     null issuer_institution_id,
@@ -954,10 +952,10 @@ select
     cast(order_num as string) order_number,
     approval_code approval_code,
     case
-		when upper(trim(scheme)) ='VISA' then cast(tran_uid as string)
-		when upper(trim(scheme)) = 'MASTERCARD' then trace_id
-		else  cast(tran_uid as string)
-	end as adtnl_response_data,  -- Fix for tran_uid join issue
+        when upper(trim(scheme)) ='VISA' then cast(tran_uid as string)
+        when upper(trim(scheme)) = 'MASTERCARD' then trace_id
+        else  cast(tran_uid as string)
+    end as adtnl_response_data,  -- Fix for tran_uid join issue
     null card_acpt_id,
     null merchant_store_id,
     domesitic_international_ind as dom_int_ind,
@@ -975,7 +973,7 @@ select
         WHEN 'MASTERCARD' THEN 'MASTERCARD' 
         WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
         WHEN 'AMEX' THEN 'AMEX'
-		WHEN 'UPI' THEN 'UPI'
+        WHEN 'UPI' THEN 'UPI'
         ELSE null
     end scheme, 
     trim(transaction_type) as tran_type_desc,
@@ -991,7 +989,7 @@ select
         WHEN 'MASTERCARD' THEN 'MASTERCARD' 
         WHEN 'AMERICAN EXPRESS' THEN 'AMEX'
         WHEN 'AMEX' THEN 'AMEX'
-		WHEN 'UPI' THEN 'UPI'
+        WHEN 'UPI' THEN 'UPI'
         ELSE null
     end link_route,
 	msw.reporting_group merchant_group,
