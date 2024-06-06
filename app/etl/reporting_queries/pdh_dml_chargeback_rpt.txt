@@ -19,7 +19,7 @@ SELECT
   status_open AS status,
   rr_sent_dttm_utc AS date_req_sent_store,
   response_dttm_utc AS date_resp_rcvd_store,
-  dn_completion_pos_crd_dat_in_mod AS ncard_input_mode,
+  --dn_completion_pos_crd_dat_in_mod AS ncard_input_mode,
   signature AS verification_method,
   orderno AS order_no,
   CAST(rr_resent_dttm_utc AS datetime) AS date_2_req_sent_store,
