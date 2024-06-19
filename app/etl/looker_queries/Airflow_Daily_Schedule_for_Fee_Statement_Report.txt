@@ -5,39 +5,86 @@ with monthly as(
 select 
 "Monthly" timeframe,
 
-case when max_transaction_month_flag = "Y" then "Month to date" 
-else left(string(transaction_date), 7) end as period,
-company,
-merchant_group,
-invoice_group,
-tran_type_description,
-case when approval_flag = "A" then "Approved" when approval_flag = "D" then "Declined" else
-approval_flag end as approval_flag,
-scheme,
-scheme_card_type,
-merchant_portal_mg,
-transaction_count,
-transaction_amount,
-settlement_amount_inc_gst,
-interchange_fees_invoiced_ex_gst,
-processing_fees_ex_gst,
-interchange_fees_tran_count,
-processing_fees_tran_count
+case when left(cast(tstamp_trans as string),7) = left(cast((select date(max(fees.tstamp_trans))     FROM
+       wpay_analytics.wpay_billing_engine_tran_dtl fees)  as string),7) then "Month to date" 
+else left(cast(tstamp_trans as string),7) end as period,
+stores.company,
+stores.merchant_group,
+stores.invoice_group,
+calc_tran_type_description as tran_type_description,
+case when calc_approval_flag = "A" then "Approved" when calc_approval_flag = "D" then "Declined" else
+calc_approval_flag end as approval_flag,
+calc_scheme as scheme,
+CASE calc_scheme
+        WHEN "DINERS" THEN "CREDIT"
+        WHEN "AMEX" THEN "CREDIT"
+        WHEN "EFTPOS" THEN "DEBIT"
+        WHEN "FUEL CARDS" THEN "FUEL CARDS"
+        WHEN "GIFT CARDS" THEN "GIFT CARDS"
+        WHEN "PAYPAL" THEN "APM"
+        WHEN "ALIPAY" THEN "APM"
+        WHEN "MASTERCARD" THEN CASE calc_card_type
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "VISA" THEN CASE calc_card_type
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "UPI" THEN "CREDIT"
+    END
+      AS scheme_card_type,
+stores.merchant_portal_mg,
 
-from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary` 
-where 1=1
+count(*) transaction_count,
 
-and transaction_date between
-    date_add(date_sub((select max(transaction_date) from(
-    select * from 
-    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 3 month), interval 1 day) and (select max(transaction_date) from(
-    select * from 
-    `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
-    WHERE transaction_date BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))
+(sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','ACTIVATION','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  ) as transaction_amount,
 
-or max_transaction_month_flag = "Y"
+(sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','ACTIVATION','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  ) as settlement_amount_inc_gst,
 
+(sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then abs(interchange_fees_invoiced/100) else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then abs(interchange_fees_invoiced/100) else 0 end)
+  ) as interchange_fees_invoiced_ex_gst,
+
+SUM(case when calc_tran_type_description not in ('PRE-AUTH','PRE-AUTH REVERSAL') then processing_fees/100 else 0 end) processing_fees_ex_gst,
+
+(sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then 1 else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then 1 else 0 end)
+  ) as interchange_fees_tran_count,
+
+sum(case when (processing_fees <> 0 and calc_tran_type_description not in ('PRE-AUTH','PRE-AUTH REVERSAL')) then 1 else 0 end) processing_fees_tran_count
+
+    FROM
+       wpay_analytics.wpay_billing_engine_tran_dtl fees
+    left join														
+      pdh_ref_ds.ref_store_details stores		
+    on								
+      left(fees.net_term_id,5) = stores.store_id	
+
+where date(tstamp_trans) >= date_trunc(date_sub((select date(max(fees.tstamp_trans))     FROM
+       wpay_analytics.wpay_billing_engine_tran_dtl fees) , interval 3 month), month)
+
+group by 1,2,3,4,5,6,7,8,9,10
 
 )
 
@@ -46,36 +93,106 @@ or max_transaction_month_flag = "Y"
 select 
 "Weekly" timeframe,
 
-case when max_transaction_week_flag = "Y" then "Week to date"
-else transaction_week end as period,
-company,
-merchant_group,
-invoice_group,
-tran_type_description,
-case when approval_flag = "A" then "Approved" when approval_flag = "D" then "Declined" else
-approval_flag end as approval_flag,
-scheme,
-scheme_card_type,
-merchant_portal_mg,
-transaction_count,
-transaction_amount,
-settlement_amount_inc_gst,
-interchange_fees_invoiced_ex_gst,
-processing_fees_ex_gst,
-interchange_fees_tran_count,
-processing_fees_tran_count
+case when dates.fw_start_date = (select max(fw_start_date) FROM
+       wpay_analytics.wpay_billing_engine_tran_dtl fees   
+    inner join 
+      `pdh_ref_ds.dim_date` dates
+    on 
+      date(fees.tstamp_trans)  = dates.clndr_date	) then "Week to date"
+else concat('Wk- ',dates.wofy, ' : ',format_date("%d %b", dates.fw_start_date),' to ',format_date("%d %b", dates.fw_end_date)) end as period,
 
-from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary` 
-where 1=1
+stores.company,
+stores.merchant_group,
+stores.invoice_group,
+calc_tran_type_description as tran_type_description,
+case when calc_approval_flag = "A" then "Approved" when calc_approval_flag = "D" then "Declined" else
+calc_approval_flag end as approval_flag,
+calc_scheme as scheme,
+CASE calc_scheme
+        WHEN "DINERS" THEN "CREDIT"
+        WHEN "AMEX" THEN "CREDIT"
+        WHEN "EFTPOS" THEN "DEBIT"
+        WHEN "FUEL CARDS" THEN "FUEL CARDS"
+        WHEN "GIFT CARDS" THEN "GIFT CARDS"
+        WHEN "PAYPAL" THEN "APM"
+        WHEN "ALIPAY" THEN "APM"
+        WHEN "MASTERCARD" THEN CASE calc_card_type
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "VISA" THEN CASE calc_card_type
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "UPI" THEN "CREDIT"
+    END
+      AS scheme_card_type,
+stores.merchant_portal_mg,
 
-and transaction_date between
-    date_sub((select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) , interval 12 week ) and (select max(transaction_date) from `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`) 
+count(*) transaction_count,
+
+(sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','ACTIVATION','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  ) as transaction_amount,
+
+(sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','ACTIVATION','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  ) as settlement_amount_inc_gst,
+
+(sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then abs(interchange_fees_invoiced/100) else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then abs(interchange_fees_invoiced/100) else 0 end)
+  ) as interchange_fees_invoiced_ex_gst,
+
+SUM(case when calc_tran_type_description not in ('PRE-AUTH','PRE-AUTH REVERSAL') then processing_fees/100 else 0 end) processing_fees_ex_gst,
+
+(sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then 1 else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then 1 else 0 end)
+  ) as interchange_fees_tran_count,
+
+sum(case when (processing_fees <> 0 and calc_tran_type_description not in ('PRE-AUTH','PRE-AUTH REVERSAL')) then 1 else 0 end) processing_fees_tran_count
+
+    FROM
+       wpay_analytics.wpay_billing_engine_tran_dtl fees
+   
+    left join														
+      pdh_ref_ds.ref_store_details stores		
+    on								
+      left(fees.net_term_id,5) = stores.store_id
     
+    left join 
+      `pdh_ref_ds.dim_date` dates
+    on 
+      date(fees.tstamp_trans)  = dates.clndr_date	
 
-or max_transaction_week_flag = "Y"
+    
+where date(fees.tstamp_trans) between
+      date_sub((select max(fw_start_date) FROM
+       wpay_analytics.wpay_billing_engine_tran_dtl fees   
+    inner join 
+      `pdh_ref_ds.dim_date` dates
+    on 
+      date(fees.tstamp_trans)  = dates.clndr_date	) , interval 12 week ) 
+    and 
+     (select date(max(fees.tstamp_trans))     FROM
+       wpay_analytics.wpay_billing_engine_tran_dtl fees) 
 
-
-
+group by 1,2,3,4,5,6,7,8,9,10
 )
 
 select * from monthly
@@ -87,3 +204,4 @@ create or replace view wpay_analytics.vw_wpay_fee_statement_report as(
 select * from `wpay_analytics.wpay_all_merchants_daily_fees_summary`
 );
 
+--------------------------------------------------------------------

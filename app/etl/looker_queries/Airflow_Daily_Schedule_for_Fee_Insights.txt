@@ -1,4 +1,3 @@
-
 CREATE OR REPLACE TABLE
   `wpay_analytics.wpay_fee_insights` AS(
   WITH
@@ -7,58 +6,113 @@ CREATE OR REPLACE TABLE
       -- "Monthly" timeframe,
       -- left(string(transaction_date), 4) Month,
 
-      transaction_month_start_date commencement_date,
-      LEFT(STRING(transaction_date), 7) Period,
-      approval_flag,
-      scheme,
-      scheme_card_type,
-      card_type,
+      date(concat(left(string(tstamp_trans), 7),'-01')) commencement_date,
+      left(string(tstamp_trans), 7) Period,
+
+      calc_approval_flag as approval_flag,
+      calc_scheme as scheme,
+      -- case
+      -- when calc_scheme = 'ALIPAY' then 'APM'
+      -- when calc_scheme = 'EFTPOS' then 'DEBIT'
+      -- when calc_scheme = 'FUEL CARDS' then 'APM'
+      -- when calc_scheme = 'GIFT CARDS' then 'APM'
+      -- when calc_scheme = 'PAYPAL' then 'APM'
+      -- else calc_card_type
+      -- end as scheme_card_type,
+      CASE calc_scheme
+        WHEN "DINERS" THEN "CREDIT"
+        WHEN "AMEX" THEN "CREDIT"
+        WHEN "EFTPOS" THEN "DEBIT"
+        WHEN "FUEL CARDS" THEN "FUEL CARDS"
+        WHEN "GIFT CARDS" THEN "GIFT CARDS"
+        WHEN "PAYPAL" THEN "APM"
+        WHEN "ALIPAY" THEN "APM"
+        WHEN "MASTERCARD" THEN CASE calc_card_type
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "VISA" THEN CASE calc_card_type
+        WHEN "CREDIT" THEN "CREDIT"
+        WHEN "DEBIT" THEN "DEBIT"
+      ELSE
+      ""
+    END
+        WHEN "UPI" THEN "CREDIT"
+    END
+      AS scheme_card_type,
+      
+      calc_card_type as card_type,
       case when dom_int_ind = " " then "D"
            when dom_int_ind is null then "D"
           else dom_int_ind
           end as dom_int_ind,
       -- dom_int_ind,
-      tran_type_description,
+      calc_tran_type_description as tran_type_description,
       fee_indicator,
-      company,
-      invoice_group,
-      merchant_group,
-      merchant_portal_mg,
-      division,
-      is_online,
-      SUM(transaction_count) transaction_count,
-      SUM(transaction_amount) transaction_amount,
-      SUM(settlement_amount_inc_gst) settlement_amount_inc_gst,
-      SUM(interchange_fees_invoiced_ex_gst) interchange_fees_invoiced_ex_gst,
-      SUM(interchange_fees_tran_count) interchange_fees_tran_count,
-      SUM(processing_fees_ex_gst) processing_fees_ex_gst,
-      SUM(processing_fees_tran_count) processing_fees_tran_count,
-      SUM(fraud_fees_ex_gst) fraud_fees_ex_gst
+      stores.company,
+      stores.invoice_group,
+      stores.merchant_group,
+      stores.merchant_portal_mg,
+      stores.division,
+      stores.is_online,
+
+      count(*) transaction_count,
+
+  (sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','ACTIVATION','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  ) as transaction_amount,
+
+  (sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REDEMPTION','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','ACTIVATION','REFUND','CASHOUT REVERSAL','REDEMPTION REVERSAL') and calc_approval_flag = 'A') then (transaction_total/100) else 0 end)
+  ) as settlement_amount_inc_gst,
+
+        (sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then abs(interchange_fees_invoiced/100) else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REFUND','CASHOUT REVERSAL') and calc_approval_flag = 'A') then abs(interchange_fees_invoiced/100) else 0 end)
+  ) as interchange_fees_invoiced_ex_gst,
+
+      --sum(case when interchange_fees_invoiced <> 0 then 1 else 0 end) interchange_fees_tran_count,
+
+      (sum(case 
+  when (calc_tran_type_description in ('PURCHASE','PURCHASE WITH CASHOUT','REFUND REVERSAL','CASHOUT') and calc_approval_flag = 'A') then 1 else 0 end)
+  -
+  sum(case 
+  when (calc_tran_type_description in ('PURCHASE REVERSAL','PURCHASE WITH CASHOUT REVERSAL','REFUND','CASHOUT REVERSAL') and calc_approval_flag = 'A') then 1 else 0 end)
+  ) as interchange_fees_tran_count,
+
+      SUM(case when calc_tran_type_description not in ('PRE-AUTH','PRE-AUTH REVERSAL') then processing_fees/100 else 0 end) processing_fees_ex_gst,
+
+      sum(case when (processing_fees <> 0 and calc_tran_type_description not in ('PRE-AUTH','PRE-AUTH REVERSAL')) then 1 else 0 end) processing_fees_tran_count,
+
+      SUM(fraud_fees/100) fraud_fees_ex_gst
+
     FROM
-      `pdh_sf_mep_vw.wpay_all_merchants_daily_fees_summary_hist`
+       wpay_analytics.wpay_billing_engine_tran_dtl fees
+    left join														
+      pdh_ref_ds.ref_store_details stores		
+    on								
+      left(fees.net_term_id,5) = stores.store_id	
     WHERE
 
-    string(transaction_date) between 
+    string(date(tstamp_trans)) between 
     left(string(date_sub(current_date() , interval 13 month)), 7)
     and left(cast(current_date() as string),7)
 
+  --   and calc_tran_type_description not in 
+  -- ('PRE-AUTH','PRE-AUTH REVERSAL')
 
     GROUP BY
-      1,
-      2,
-      3,
-      4,
-      5,
-      6,
-      7,
-      8,
-      9,
-      10,
-      11,
-      12,
-      13,
-      14,
-      15 
+      1,2,3,4,5,6,7,8,9,10,11,12,13,14,15 
       )
    
   SELECT
@@ -96,6 +150,8 @@ on
 
 
     );
+
+
 CREATE OR REPLACE VIEW
   `wpay_analytics.vw_wpay_fee_insights` AS(
   SELECT
@@ -110,7 +166,4 @@ CREATE OR REPLACE VIEW
   FROM
     `wpay_analytics.wpay_fee_insights` )
 
-
-
-
-
+--------------------------------------------------------------------------------
