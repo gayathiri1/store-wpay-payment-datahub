@@ -1,0 +1,268 @@
+--20240524 Generate PTFL Listing
+declare sys_date date default current_date("Australia/Sydney");
+declare sys_time time default current_time("Australia/Sydney");
+declare sys_datetime datetime default
+      cast(concat(format_date("%Y-%m-%d",sys_date), "T",
+                  format_time("%H:%M:%S",sys_time)) as datetime);
+declare yesterday_datetime default datetime_add(sys_datetime, interval -1 day);
+declare yesterday date default sys_date - 1;
+declare settlement_date string default format_date("%Y%m%d",yesterday);
+declare nullstr string;
+declare batch string;
+DECLARE inp_lookup STRING DEFAULT "PTLF Listing";
+--select sys_datetime,sys_date,yesterday_datetime,yesterday;
+--
+truncate table pdh_analytics_ds.stlm_ptlf_listing;
+--truncate table pdh_analytics_ds.stlm_ptlf_listing_history;
+CALL `pdh_ref_ds.get_nextbatch`(inp_lookup,batch);
+--
+if (ifnull(batch,"") in ("","NOContRec","UpdFailed"))  then
+    return;
+end if;
+--
+insert into pdh_analytics_ds.stlm_ptlf_listing
+  select distinct 
+           concat(tlf.ptlf_prefix,"_Txn_Listing_",
+                  format_date("%Y%m%d",yesterday)),
+                    tlf.ptlf_prefix,
+                    "H",
+                    "transaction_uid",
+                    "wpay_store_id",
+                    "terminal_id",
+                    "card_acceptor_id",
+                    "transaction_amt",
+                    "transaction_timestamp",
+                    "transaction_local_timestamp",
+                    "pan",
+                    "stan",
+                    "rrn",
+                    "original_stan",
+                    "mti",
+                    "card_entry_mode",
+                    "sale_amt",
+                    "cashout_amt",
+                    "transaction_type_desc",
+                    "scheme",
+                    "card_type",
+                    "card_subtype",
+                    "settlement_date",
+                    "response_code",
+                    "approval_status",
+                    "approval_code",
+                    "order_num",
+                    "addtl_response_data",
+                    "card_acceptor_name_location",
+                    "merchant_store_id",
+                    "account_type",
+                    "surcharge_amt",
+                    "tip_amt",
+                    "moto_type",
+                    "original_scheme",
+                    "mcr_ind",
+                    "par",
+                    "pan_alias"
+         from `pdh_ref_ds.vw_ref_stlm_tlf_config` tlf
+  where ifnull(tlf.ptlf_prefix,"") <> "";
+--
+insert into pdh_analytics_ds.stlm_ptlf_listing
+with trtc as ( 
+         Select pdh_ref_ds.get_tran_uid(
+                                "TC",
+                                nullstr, 
+                                nullstr,
+                                0,
+                                nullstr, 
+                                nullstr,
+                                dn.tran_uid,
+                                nullstr,
+                                nullstr, 
+                                0) as tran_uid,
+                Upper(left(trim(dn.net_term_id),5)) store_id,
+                rsd.caid,
+                tlf.ptlf_prefix as merchant,
+                dn.net_term_id terminal_id,
+                cast(abs(ifnull(dn.transaction_total,0)) as int64) transaction_amt,  
+                if(rkd.value = "date_recon_acq" and 
+                     safe_cast(dn.date_recon_acq as datetime) is not null,
+                     safe_cast(dn.date_recon_acq as datetime),
+                     SAFE_CAST(dn.tstamp_trans AS DATETIME)) as transaction_timestamp,
+                CAST(dn.tstamp_local AS DATETIME) as timestamp_local,
+                if (LENGTH(trim(dn.masked_pan)) < 10, dn.masked_pan,
+                        concat(left(trim(dn.masked_pan),6),
+                               repeat("*",6),
+                               right(trim(dn.masked_pan),4)
+                               )
+                    ) pan,
+                cast(dn.stan as string) as stan,
+                cast(dn.retrieval_ref_no as string) as rrn,
+                cast(dn.original_stan as string) as original_stan,
+                dn.mti,
+                ifnull(em.description,"") as CardEntryMode,
+                cast(abs(ifnull(dn.purchase_total,0)) as int64) as sale_amt,
+                cast(abs(ifnull(dn.cashout_total,0)) as int64) as cashout_amt,
+                upper(trim(ifnull(ds.description,t.abbr))) as transactiontype,
+                pdh_ref_ds.get_scheme_v2(dn.proc_id_iss_b,
+                                         dn.issuer_institution_id,"") scheme,
+                Case upper(trim(ifnull(dn.card_type,"")))
+                   when "C" then "CREDIT"
+                   else "DEBIT"
+                end card_type,
+                dn.card_subtype,
+                lpad(r.response_code,2,"0") response_code,
+                if (r.approval_flag = "Y","1","0") as approval_status,
+                dn.approval_code,
+                case 
+                   when upper(rsd.is_online) <> "ONLINE" then ""
+                   else dn.order_number 
+                end order_number,
+                dn.adtnl_response_data as addtl_response_data,
+				    case upper(trim(account_type))
+                   when "CRD" then "Credit"
+                   when "SAV" then "Saving"
+                   when "CHQ" then "Cheque"
+                   else cast(null as string)
+                 end as account_type,
+                cast(abs(ifnull(dn.surcharge_amount,0)) as int64) surcharge_amt,
+                cast(abs(ifnull(dn.tip_amount,0)) as int64) tip_amt,
+                cast(null as string) as moto_type,
+                cast(null as string) as original_scheme,
+                cast(null as string) as mcr_ind,
+                dn.card_acpt_name_loc as outlet,
+                pdh_ref_ds.get_card_id(source_application => "DataNav",
+                                       pymt_acct_ref => dn.pymt_acct_ref,
+                                       scdr_token => dn.scdr_token, 
+                                       customerRef => null, 
+                                       userId => null, 
+                                       containerId => null, 
+                                       itemId => null, 
+                                       qc_CardNumber => null, 
+                                       masked_pan => null) as card_id,
+                dn.pymt_acct_ref as par_s,
+                dn.scdr_token    as scdr_token_s
+    from pdh_rd_data_navigator_views.vw_lv_gfs_pdh_txn_interface dn
+    Join `pdh_analytics_ds.ref_transaction_types` t 
+          on safe_cast(dn.tran_type_id as int64) = cast(t.dn_tran_code as int64)
+    join `pdh_ref_ds.ref_response_code` r on dn.act_code = r.action_code
+    join `pdh_analytics_ds.ref_tran_type_codes` tt
+                 on Upper(trim(tt.tran_type_desc)) = 
+                    pdh_ref_ds.get_calc_trans_type(dn.proc_id_iss_b, t.abbr ,dn.mti)
+                and tt.settlement_amount_flag <> 0
+                and tt.spend_factor <> 0
+    join `pdh_ref_ds.ref_store_details` rsd 
+               on upper(trim(rsd.store_id)) = Upper(left(trim(dn.net_term_id),5))
+    join `pdh_ref_ds.ref_stlm_tlf_config` tlf 
+               on tlf.division = upper(trim(rsd.division))
+              and ifnull(tlf.ptlf_prefix,"") <> "" 
+    left join pdh_ref_ds.ref_transaction_type_codes ds 
+                      on trim(ds.code) = trim(dn.tran_type_id)
+    left join pdh_ref_ds.ref_entry_mode em on em.code = dn.pos_crd_dat_in_mod
+    left join pdh_ref_ds.ref_key_value rkd 
+           on rkd.attribute = "division mapping"
+          and upper(trim(rkd.key)) = upper(trim(rsd.division))
+WHERE cast(CAST(dn.tstamp_local AS DATETIME) as date) = yesterday
+  and cast(dn.dn_insert_tstamp as date) <= sys_date
+  and TRIM(ifnull(proc_id_iss_b,"")) <> ""
+  and r.action_code is not Null 
+  and r.action_code <> "902"),
+--
+card_identi as (
+      select card_id, max(par) as par, max(pan_alias) as pan_alias
+      from wpay_analytics.wpay_card_identity_model
+      group by card_id
+   ),
+--
+trn_combined as (
+      select tc.*, IFNULL(cim.par, tc.par_s) as par, IFNULL(cim.pan_alias, tc.scdr_token_s) as pan_alias
+      from trtc as tc
+      left join card_identi as cim on tc.card_id = cim.card_id
+   ),
+--
+trn_seq as (
+      select *, 
+             row_number() over(partition by tran_uid order by store_id) tran_seq 
+      from trn_combined
+           )
+--
+   Select concat(trn.merchant,"_Txn_Listing_",
+                 format_date("%Y%m%d",yesterday)) as file_name, --1
+          trn.merchant, --2
+          "D" as record_type, --3
+          trn.tran_uid as transaction_uid, --4
+          trn.store_id wpay_store_id, --5
+          trn.terminal_id, --6 
+          trn.caid  as card_acceptor_id, --7
+          cast(trn.transaction_amt as string) transaction_amt, --8
+          format_datetime("%Y%m%d%H%M%S", trn.transaction_timestamp) transaction_timestamp, --9
+          format_datetime("%Y%m%d%H%M%S",trn.timestamp_local) timestamp_local, --10
+          trn.pan, --11
+          trn.stan, --12
+          trn.rrn, --13
+          trn.original_stan, --14
+          trn.mti, --15
+          replace(trn.CardEntryMode,","," ") as CardEntryMode, --16
+          cast(trn.sale_amt as string) sale_amt, --17
+          cast(trn.cashout_amt as string) cashout_amt, --18
+          upper(trim(trn.transactiontype)) as transaction_type_desc, --19
+          trn.scheme, --20
+          trn.card_type, --21
+          trn.card_subtype, --22
+          settlement_date, --24
+          trn.response_code, --25
+          trn.approval_status, --26
+          trn.approval_code, --27
+          trn.order_number, --28
+          trn.addtl_response_data, --29
+          trn.outlet card_acceptor_name_location,--30
+          upper(trim(ifnull(scm.merchant_store_number,""))) as merchant_store_id, --31
+          trn.account_type, --32
+          cast(trn.surcharge_amt as string) surcharge_amt, --33
+          cast(trn.tip_amt as string) tip_amt, --34
+          trn.moto_type, --35
+          trn.original_scheme, --36
+          trn.mcr_ind, --37
+          trn.par, --38
+          trn.pan_alias --39
+    from trn_seq trn      
+    left join `pdh_ref_ds.ref_str_to_sap_customermapping` scm
+             on upper(trim(scm.wpay_store_number)) = trn.store_id
+            and upper(ifnull(scm.active_flag,"N")) <> "N" 
+            and ifnull(scm.wpay_company_code,"") <> ""
+    where trn.tran_seq = 1;
+    --      
+    --Always Add Trailor 
+      insert into pdh_analytics_ds.stlm_ptlf_listing
+              (file_name,merchant,record_type,transaction_uid)
+              Select tl.file_name,tl.merchant,"T", cast(count(*) - 1 as string)
+              from  pdh_analytics_ds.stlm_ptlf_listing tl
+              Group By 1,2;
+    --       
+    --add to history
+      insert into pdh_analytics_ds.stlm_ptlf_listing_history
+          select sys_datetime, tl.*
+          from pdh_analytics_ds.stlm_ptlf_listing tl;
+    --
+--Always add control record based on tlf and settlement_cycle         
+      insert into pdh_analytics_ds.file_gen_details 
+         select  batch,
+                 sys_date, 
+                 lower(concat(ptlf_prefix,"_listing")),
+                 true,
+                 null, 
+                 start_time,
+                 end_time,
+                 yesterday_datetime,
+                 null
+        from (select tlf.ptlf_prefix,
+                     ifnull(l.min_transaction, sys_datetime) start_time,
+                     ifnull(l.max_transaction, sys_datetime) end_time
+              from `pdh_ref_ds.vw_ref_stlm_tlf_config`  tlf
+              left join (select merchant,
+                          min(parse_datetime("%Y%m%d%H%M%S",transaction_timestamp)) min_transaction,
+                          max(parse_datetime("%Y%m%d%H%M%S",transaction_timestamp)) max_transaction
+                         from pdh_analytics_ds.stlm_ptlf_listing
+                         where record_type = "D"
+                         group by 1) l
+                   on l.merchant = ifnull(tlf.ptlf_prefix,"")
+               where ifnull(tlf.ptlf_prefix,"") <> ""
+             );
+      

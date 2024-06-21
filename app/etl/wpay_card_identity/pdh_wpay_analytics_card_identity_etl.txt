@@ -172,8 +172,17 @@ ON d.card_id = cid.card_id;
 
 -- Update Card Ids, PAN Alias based on PAR/SCDRs
 UPDATE `wpay_analytics.wpay_card_identity_model`
-SET card_id = COALESCE('PAR'||NULLIF(TRIM(par),''),'SCDR'||scdr_token),
-	pan_alias = TO_BASE64(SHA256('SCDR'||scdr_token))
+SET card_id = `pdh_ref_ds.get_card_id`(
+	CASE WHEN scdr_token IS NOT NULL THEN 'DataNav'
+	WHEN dp_customerRef IS NOT NULL OR dp_userId IS NOT NULL OR dp_containerId IS NOT NULL OR dp_itemId IS NOT NULL THEN 'DigitalPay'
+	ELSE 'ISG' END,
+	par, scdr_token, dp_customerRef, CAST(dp_userId AS STRING), CAST(dp_containerId AS STRING), CAST(dp_itemId AS STRING), masked_pan, masked_pan),
+	pan_alias = TO_BASE64(SHA256(`pdh_ref_ds.get_card_id`(
+		CASE WHEN scdr_token IS NOT NULL THEN 'DataNav'
+		WHEN dp_customerRef IS NOT NULL OR dp_userId IS NOT NULL OR dp_containerId IS NOT NULL OR dp_itemId IS NOT NULL THEN 'DigitalPay'
+		ELSE 'ISG' END,
+		par, scdr_token, dp_customerRef, CAST(dp_userId AS STRING), CAST(dp_containerId AS STRING), CAST(dp_itemId AS STRING), masked_pan, masked_pan
+	)))
 WHERE NULLIF(TRIM(scdr_token),'') IS NOT NULL
 ;
 
@@ -227,12 +236,12 @@ SELECT
 	d.card_type,
 	d.card_subtype,
 	CAST(NULL AS STRING) AS bin_product_code,
-    CAST(NULL AS STRING) AS dp_customerRef,
-	NULL AS dp_userId,
+  customerRef AS dp_customerRef,
+	CAST(userId AS NUMERIC) AS dp_userId,
 	CAST(NULL AS STRING) AS dp_username,
 	CAST(NULL AS STRING) AS dp_userStatus,
-	NULL AS dp_containerId,
-	NULL AS dp_itemId,
+	CAST(containerId AS NUMERIC) AS dp_containerId,
+	CAST(itemId AS NUMERIC) AS dp_itemId,
 	CAST(NULL AS STRING) AS dp_itemtype,
 	CAST(NULL AS STRING) AS dp_item_token,
 	CAST(NULL AS STRING) AS Issuer,

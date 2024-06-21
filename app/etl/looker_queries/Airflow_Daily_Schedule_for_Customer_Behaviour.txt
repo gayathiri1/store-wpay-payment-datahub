@@ -42,7 +42,7 @@ on
   and curr.is_online = prev.is_online
   and curr.scheme = prev.scheme
   and curr.card_type = prev.card_type
-  and curr.brand = prev.brand
+  and curr.invoice_group = prev.invoice_group
   and curr.store_id = prev.store_id
   and left(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),4) = cast(prev.Year as string)
   and substring(cast(date_add(cast(concat(concat(concat(concat(curr.Year,'-'),curr.Month),'-'),'01') as date), interval -1 month) as string),6,2)  = prev.Month

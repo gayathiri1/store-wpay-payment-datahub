@@ -1,0 +1,2049 @@
+create or replace table wpay_analytics.wpay_payment_acceptance as	(
+
+--------------------
+--- DAILY VIEW ---
+--------------------
+
+with daily_tbl as(
+
+with base_tbl as (	
+
+select * except(merchant_group), stores.merchant_group MerchantGroup								
+								
+, concat(calc_tran_type_description,"-",calc_approval_flag) payment_event	
+, date_trunc(tstamp_trans, week) transaction_week		
+, concat(dates.fw_start_date, " - ", dates.fw_end_date) financial_week				
+from 								
+--wpay_analytics.wpay_billing_engine_tran_dtl trans								
+wpay_analytics.wpay_billing_engine_tran_dtl trans					
+left join								
+							
+pdh_ref_ds.ref_store_details stores		
+
+on								
+
+left(trans.net_term_id,5) = stores.store_id								
+								
+left join								
+								
+wpay_analytics.ref_response_code codes								
+on								
+codes.action_code = trans.act_code and								
+codes.response_code = trans.response_code				
+
+left join
+
+`pdh_ref_ds.dim_date` dates
+
+on left(string(trans.tstamp_trans), 10) = string(dates.clndr_date)
+								
+where upper(trim(is_online)) = "ONLINE"			
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')							
+and tstamp_trans between date_sub((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl), interval 31 day) and ((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl))
+
+)		
+
+								
+---------------------------------------------------------------------------------------------------------------								
+								
+, pivot_tbl AS (								
+SELECT	
+"Daily" as timeframe,							
+left(cast(tstamp_trans as string),10) period,								
+invoice_group,								
+company,								
+MerchantGroup,
+merchant_portal_mg,								
+calc_scheme,								
+calc_card_type,								
+payment_attempt_id,								
+order_id
+								
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH REVERSAL-A' or payment_event = "PRE AUTH REVERSAL-A") THEN 1 ELSE 0 END) AS PreAuthReversalA								
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH-A'or payment_event = "PRE AUTH-A") THEN 1 ELSE 0 END) AS PreAuthA								
+,MAX(CASE WHEN payment_event = 'PRE-AUTH-D' THEN 1 ELSE 0 END) AS PreAuthD								
+,MAX(CASE WHEN payment_event = 'PURCHASE-A' THEN 1 ELSE 0 END) AS PURCHASEA								
+,MAX(CASE WHEN payment_event = 'PURCHASE-D' THEN 1 ELSE 0 END) AS PURCHASED								
+,MAX(CASE WHEN payment_event = 'REFUND-A' THEN 1 ELSE 0 END) AS REFUNDA								
+,MAX(CASE WHEN payment_event = 'REFUND-D' THEN 1 ELSE 0 END) AS REFUNDD								
+,MAX(CASE WHEN payment_event = 'PURCHASE REVERSAL-A' THEN 1 ELSE 0 END) AS PURCHASEREVERSALA								
+,MAX(CASE WHEN payment_event = 'REFUND REVERSAL-A' THEN 1 ELSE 0 END) AS REFUNDREVERSALA								
+FROM base_tbl								
+where payment_event is not null and payment_attempt_id is not null								
+GROUP BY 1,2,3,4,5,6,7,8,9,10				
+								
+)								
+								
+---------------------------------------------------------------------								
+								
+, auth_count_tbl as (								
+								
+select								
+
+timeframe,						
+period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,						
+calc_scheme,								
+calc_card_type,								
+						
+sum(if(REFUNDA = 0 and REFUNDD = 0 ,1, 0)) total_payment_attempts,								
+sum(if(REFUNDA = 1 or REFUNDD = 1, 1, 0)) total_refund,								
+count(distinct (case when REFUNDA = 0 and REFUNDD = 0 then order_id else null end)) unique_orders,								
+
+count(distinct payment_attempt_id) payment_count,								
+sum(PreAuthA) pre_auth_approved,								
+sum(PreAuthD) pre_auth_declined,								
+
+sum(if(PREAUTHA = 0 and PREAUTHD = 0 and PURCHASEA = 1, 1, 0)) purchase_approved_no_preauth,								
+sum(if(PREAUTHA = 1 and PURCHASED = 0 and PURCHASEA = 0, 1, 0)) preauth_approved_no_purchase,								
+sum(if(PREAUTHA = 1 and PreAuthReversalA = 1, 1, 0)) preauth_approved_reversed,								
+								
+sum(PURCHASEREVERSALA) purchase_reversal_approved,								
+sum(if(PREAUTHA = 0 and PREAUTHD = 0 and PURCHASED = 1,1,0)) purchase_declined_no_preauth,								
+sum(if(PREAUTHD = 1 and PURCHASED = 1,1,0)) preauth_d_purchase_d,								
+sum(if(PREAUTHD = 1 and PURCHASEA = 1,1,0)) preauth_d_purchase_a,								
+sum(if(PREAUTHA = 1 and PURCHASED = 1,1,0)) preauth_a_purchase_d,								
+sum(if(PREAUTHA = 1 and PURCHASEA = 1,1,0)) preauth_a_purchase_a																
+from pivot_tbl														
+group by 1,2,3,4,5,6,7,8							
+								
+)								
+								
+-----------------------------------------------------------------------------------------------								
+							
+, approved_orders as								
+								
+(								
+select		
+timeframe,						
+period,								
+invoice_group,								
+company,								
+MerchantGroup,															
+count(distinct order_id) order_approved								
+from								
+(								
+select
+timeframe,								
+period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,													
+order_id,								
+sum(PURCHASEA) purchase_counter,								
+sum(PREAUTHA) pre_auth_counter,								
+sum(PreAuthReversalA) pre_auth_reversal_counter,								
+sum(PURCHASED) purchase_declined_counter,								
+(sum(PURCHASEA)) purchase_sum,								
+(sum(PREAUTHA) - (sum(PURCHASEA) + sum(PURCHASED))) pre_auth_sum								
+from								
+pivot_tbl															
+group by 1,2,3,4,5,6,7							
+) orders								
+where								
+(orders.purchase_sum >= 1 or orders.pre_auth_sum >= 1)								
+group by 1,2,3,4,5								
+)								
+															
+-----------------------------------------------------------------------------------------------			
+
+--- CREATE THE FINAL OUTPUT FOR ONLINE LOGIC ---
+
+, online_orders as								
+(		
+
+select								
+'Online' as method,	
+auth_count_tbl.timeframe,							
+auth_count_tbl.period,								
+auth_count_tbl.invoice_group,								
+auth_count_tbl.company,								
+auth_count_tbl.MerchantGroup,			
+auth_count_tbl.merchant_portal_mg,					
+auth_count_tbl.calc_scheme,								
+auth_count_tbl.calc_card_type,
+(approved_orders.order_approved)/(uniques.uniques) as orders_approved,							
+sum(preauth_a_purchase_a + purchase_approved_no_preauth + preauth_approved_reversed + (((preauth_approved_no_purchase - preauth_approved_reversed)))) approved_payments,								
+sum(preauth_a_purchase_a + purchase_approved_no_preauth + preauth_approved_reversed) captured_payments,								
+sum(total_payment_attempts) total_payments,								
+sum(total_refund) total_refund,								
+sum(unique_orders) unique_orders,								
+sum(payment_count) payment_count,								
+sum(pre_auth_declined + preauth_a_purchase_d + purchase_declined_no_preauth) declined_payments,								
+sum((preauth_approved_no_purchase - preauth_approved_reversed)) pending_payments,								
+						
+								
+from								
+								
+auth_count_tbl								
+								
+left join								
+approved_orders								
+on								
+auth_count_tbl.period = approved_orders.period								
+and auth_count_tbl.invoice_group = approved_orders.invoice_group								
+and auth_count_tbl.company = approved_orders.company								
+and auth_count_tbl.MerchantGroup = approved_orders.MerchantGroup		
+
+left join
+(select period, MerchantGroup , count(MerchantGroup) as uniques from auth_count_tbl
+group by 1,2) uniques
+on
+auth_count_tbl.period = uniques.period															
+and auth_count_tbl.MerchantGroup = uniques.MerchantGroup		
+
+								
+group by 1,2,3,4,5,6,7,8,9,10				
+)								
+								
+--------------------------------------------------------------------------------------------------------								
+												
+, base_tbl_instore as (								
+select								
+* except(merchant_group),								
+stores.merchant_group MerchantGroup,								
+								
+concat(calc_tran_type_description,"-",calc_approval_flag) payment_event			
+, concat(dates.fw_start_date, " - ", dates.fw_end_date) financial_week					
+from								
+--wpay_analytics.wpay_billing_engine_tran_dtl trans								
+wpay_analytics.wpay_billing_engine_tran_dtl trans
+left join								
+pdh_ref_ds.ref_store_details stores								
+on								
+left(trans.net_term_id,5) = stores.store_id								
+								
+left join								
+wpay_analytics.ref_response_code codes								
+on								
+codes.action_code = trans.act_code								
+and codes.response_code = trans.response_code	
+
+left join
+
+`pdh_ref_ds.dim_date` dates
+
+on left(string(trans.tstamp_trans), 10) = string(dates.clndr_date)
+								
+where								
+upper(trim(is_online)) != "ONLINE"								
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')																
+and tstamp_trans between date_sub((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl), interval 31 day) and ((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl))										
+								
+)								
+								
+---------------------------------------------------------------------------------------------------------------								
+								
+, pivot_tbl_instore AS (								
+SELECT			
+"Daily" as timeframe,					
+left(cast(tstamp_trans as string),10) period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,					
+calc_scheme,								
+calc_card_type,								
+payment_attempt_id								
+						
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH REVERSAL-A' or payment_event = "PRE AUTH REVERSAL-A") THEN 1 ELSE 0 END) AS PreAuthReversalA								
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH-A' or payment_event = "PRE AUTH-A") THEN 1 ELSE 0 END) AS PreAuthA								
+,MAX(CASE WHEN payment_event = 'PRE-AUTH-D' THEN 1 ELSE 0 END) AS PreAuthD								
+,MAX(CASE WHEN payment_event = 'PURCHASE-A' THEN 1 ELSE 0 END) AS PURCHASEA								
+,MAX(CASE WHEN payment_event = 'PURCHASE-D' THEN 1 ELSE 0 END) AS PURCHASED								
+,MAX(CASE WHEN payment_event = 'REFUND-A' THEN 1 ELSE 0 END) AS REFUNDA								
+,MAX(CASE WHEN payment_event = 'REFUND-D' THEN 1 ELSE 0 END) AS REFUNDD								
+,MAX(CASE WHEN payment_event = 'PURCHASE REVERSAL-A' THEN 1 ELSE 0 END) AS PURCHASEREVERSALA								
+,MAX(CASE WHEN payment_event = 'REFUND REVERSAL-A' THEN 1 ELSE 0 END) AS REFUNDREVERSALA								
+FROM base_tbl_instore								
+where payment_event is not null and payment_attempt_id is not null								
+GROUP BY 1,2,3,4,5,6,7,8,9								
+								
+)								
+								
+---------------------------------------------------------------------								
+								
+, auth_count_tbl_instore as (								
+								
+select								
+
+timeframe,								
+period,								
+invoice_group,								
+company,								
+MerchantGroup,	
+merchant_portal_mg,							
+calc_scheme,								
+calc_card_type,								
+
+sum(if(PURCHASEA = 1 or PURCHASED = 1 ,1, 0)) total_payment_attempts,								
+sum(if(REFUNDA = 1 or REFUNDD = 1, 1, 0)) total_refund,								
+sum(if(REFUNDA = 1, 1, 0)) approved_refund,								
+sum(if(REFUNDD = 1, 1, 0)) declined_refund,								
+count(distinct payment_attempt_id) unique_orders,								
+count(distinct payment_attempt_id) payment_count,								
+sum(PreAuthA) pre_auth_approved,								
+sum(PreAuthD) pre_auth_declined,								
+sum(if(PURCHASEA = 1, 1, 0)) purchase_approved,								
+sum(if(PURCHASED = 1,1,0)) purchase_declined,								
+sum(PURCHASEREVERSALA) purchase_reversal_approved,								
+															
+from pivot_tbl_instore								
+							
+group by 1,2,3,4,5,6,7,8								
+								
+)								
+								
+-----------------------------------------------------------------------------------------------															
+								
+, approved_orders_instore as								
+								
+(	
+
+select
+timeframe,								
+period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,														
+sum(purchase_counter) order_approved								
+from								
+(								
+select	
+timeframe,							
+period,								
+invoice_group,								
+company,								
+MerchantGroup,	
+merchant_portal_mg,															
+sum(PURCHASEA) purchase_counter,								
+sum(PREAUTHA) pre_auth_counter,								
+sum(PreAuthReversalA) pre_auth_reversal_counter,								
+sum(PURCHASED) purchase_declined_counter,								
+(sum(PURCHASEA)) purchase_sum,								
+(sum(PREAUTHA) - (sum(PURCHASEA) + sum(PURCHASED))) pre_auth_sum								
+from								
+pivot_tbl_instore															
+group by 1,2,3,4,5,6					
+) orders								
+where								
+(orders.purchase_sum >= 1 or orders.pre_auth_sum >= 1)								
+group by 1,2,3,4,5,6							
+)								
+								
+-----------------------------------------------------------------------------------------------		
+
+-- CREATE THE FINAL OUTPUT FOR INSTORE LOGIC --- 
+
+,instore_orders as								
+(								
+select								
+'In Store' as method,		
+auth_count_tbl.timeframe,						
+auth_count_tbl.period,							
+auth_count_tbl.invoice_group,								
+auth_count_tbl.company,								
+auth_count_tbl.MerchantGroup,		
+auth_count_tbl.merchant_portal_mg,						
+auth_count_tbl.calc_scheme,								
+auth_count_tbl.calc_card_type,
+(approved_orders.order_approved)/(uniques.uniques) as orders_approved,															
+sum(purchase_approved) approved_payments,								
+sum(purchase_approved) captured_payments,								
+sum(total_payment_attempts) total_payments,								
+sum(approved_refund) total_refund,								
+sum(unique_orders) unique_orders,								
+sum(payment_count) payment_count,								
+sum(purchase_declined) declined_payments,								
+sum((purchase_approved - purchase_reversal_approved - purchase_declined)) pending_payments,								
+							
+								
+from								
+								
+auth_count_tbl_instore auth_count_tbl								
+								
+left join								
+approved_orders_instore approved_orders								
+on								
+auth_count_tbl.period = approved_orders.period								
+and auth_count_tbl.invoice_group = approved_orders.invoice_group								
+and auth_count_tbl.company = approved_orders.company								
+and auth_count_tbl.MerchantGroup = approved_orders.MerchantGroup								
+
+left join
+(select period, MerchantGroup , count(MerchantGroup) as uniques from auth_count_tbl_instore
+group by 1,2) uniques
+on
+auth_count_tbl.period = uniques.period															
+and auth_count_tbl.MerchantGroup = uniques.MerchantGroup					
+								
+group by 1,2,3,4,5,6,7,8,9,10
+
+)								
+						
+select * from online_orders								
+union all								
+select * from instore_orders
+)
+
+
+-------------------
+--- WEEKLY VIEW ---
+-------------------
+
+
+, weekly_tbl as(
+
+with base_tbl as (	
+
+select * except(merchant_group), stores.merchant_group MerchantGroup								
+								
+, concat(calc_tran_type_description,"-",calc_approval_flag) payment_event	
+, date_trunc(tstamp_trans, week) transaction_week		
+, concat(dates.fw_start_date, " - ", dates.fw_end_date) financial_week				
+from 								
+--wpay_analytics.wpay_billing_engine_tran_dtl trans								
+wpay_analytics.wpay_billing_engine_tran_dtl trans								
+left join								
+							
+pdh_ref_ds.ref_store_details stores		
+
+on								
+
+left(trans.net_term_id,5) = stores.store_id								
+								
+left join								
+								
+wpay_analytics.ref_response_code codes								
+on								
+codes.action_code = trans.act_code and								
+codes.response_code = trans.response_code				
+
+left join
+
+`pdh_ref_ds.dim_date` dates
+
+on left(string(trans.tstamp_trans), 10) = string(dates.clndr_date)
+								
+where upper(trim(is_online)) = "ONLINE"		
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')								
+and tstamp_trans between date_sub((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl), interval 364 day) and ((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl))
+
+)		
+
+								
+---------------------------------------------------------------------------------------------------------------								
+								
+, pivot_tbl AS (								
+SELECT	
+"Weekly" as timeframe,							
+financial_week period,								
+invoice_group,								
+company,								
+MerchantGroup,
+merchant_portal_mg,								
+calc_scheme,								
+calc_card_type,								
+payment_attempt_id,								
+order_id
+								
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH REVERSAL-A' or payment_event = "PRE AUTH REVERSAL-A") THEN 1 ELSE 0 END) AS PreAuthReversalA								
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH-A'or payment_event = "PRE AUTH-A") THEN 1 ELSE 0 END) AS PreAuthA								
+,MAX(CASE WHEN payment_event = 'PRE-AUTH-D' THEN 1 ELSE 0 END) AS PreAuthD								
+,MAX(CASE WHEN payment_event = 'PURCHASE-A' THEN 1 ELSE 0 END) AS PURCHASEA								
+,MAX(CASE WHEN payment_event = 'PURCHASE-D' THEN 1 ELSE 0 END) AS PURCHASED								
+,MAX(CASE WHEN payment_event = 'REFUND-A' THEN 1 ELSE 0 END) AS REFUNDA								
+,MAX(CASE WHEN payment_event = 'REFUND-D' THEN 1 ELSE 0 END) AS REFUNDD								
+,MAX(CASE WHEN payment_event = 'PURCHASE REVERSAL-A' THEN 1 ELSE 0 END) AS PURCHASEREVERSALA								
+,MAX(CASE WHEN payment_event = 'REFUND REVERSAL-A' THEN 1 ELSE 0 END) AS REFUNDREVERSALA								
+FROM base_tbl								
+where payment_event is not null and payment_attempt_id is not null								
+GROUP BY 1,2,3,4,5,6,7,8,9,10				
+								
+)								
+								
+---------------------------------------------------------------------								
+								
+, auth_count_tbl as (								
+								
+select								
+
+timeframe,						
+period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,						
+calc_scheme,								
+calc_card_type,								
+						
+sum(if(REFUNDA = 0 and REFUNDD = 0 ,1, 0)) total_payment_attempts,								
+sum(if(REFUNDA = 1 or REFUNDD = 1, 1, 0)) total_refund,								
+count(distinct (case when REFUNDA = 0 and REFUNDD = 0 then order_id else null end)) unique_orders,								
+
+count(distinct payment_attempt_id) payment_count,								
+sum(PreAuthA) pre_auth_approved,								
+sum(PreAuthD) pre_auth_declined,								
+
+sum(if(PREAUTHA = 0 and PREAUTHD = 0 and PURCHASEA = 1, 1, 0)) purchase_approved_no_preauth,								
+sum(if(PREAUTHA = 1 and PURCHASED = 0 and PURCHASEA = 0, 1, 0)) preauth_approved_no_purchase,								
+sum(if(PREAUTHA = 1 and PreAuthReversalA = 1, 1, 0)) preauth_approved_reversed,								
+								
+sum(PURCHASEREVERSALA) purchase_reversal_approved,								
+sum(if(PREAUTHA = 0 and PREAUTHD = 0 and PURCHASED = 1,1,0)) purchase_declined_no_preauth,								
+sum(if(PREAUTHD = 1 and PURCHASED = 1,1,0)) preauth_d_purchase_d,								
+sum(if(PREAUTHD = 1 and PURCHASEA = 1,1,0)) preauth_d_purchase_a,								
+sum(if(PREAUTHA = 1 and PURCHASED = 1,1,0)) preauth_a_purchase_d,								
+sum(if(PREAUTHA = 1 and PURCHASEA = 1,1,0)) preauth_a_purchase_a																
+from pivot_tbl														
+group by 1,2,3,4,5,6,7,8							
+								
+)								
+								
+-----------------------------------------------------------------------------------------------								
+							
+, approved_orders as								
+								
+(								
+select		
+timeframe,						
+period,								
+invoice_group,								
+company,								
+MerchantGroup,															
+count(distinct order_id) order_approved								
+from								
+(								
+select
+timeframe,								
+period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,													
+order_id,								
+sum(PURCHASEA) purchase_counter,								
+sum(PREAUTHA) pre_auth_counter,								
+sum(PreAuthReversalA) pre_auth_reversal_counter,								
+sum(PURCHASED) purchase_declined_counter,								
+(sum(PURCHASEA)) purchase_sum,								
+(sum(PREAUTHA) - (sum(PURCHASEA) + sum(PURCHASED))) pre_auth_sum								
+from								
+pivot_tbl															
+group by 1,2,3,4,5,6,7							
+) orders								
+where								
+(orders.purchase_sum >= 1 or orders.pre_auth_sum >= 1)								
+group by 1,2,3,4,5								
+)								
+															
+-----------------------------------------------------------------------------------------------			
+
+--- CREATE THE FINAL OUTPUT FOR ONLINE LOGIC ---
+
+, online_orders as								
+(		
+
+select								
+'Online' as method,	
+auth_count_tbl.timeframe,							
+auth_count_tbl.period,								
+auth_count_tbl.invoice_group,								
+auth_count_tbl.company,								
+auth_count_tbl.MerchantGroup,			
+auth_count_tbl.merchant_portal_mg,					
+auth_count_tbl.calc_scheme,								
+auth_count_tbl.calc_card_type,	
+(approved_orders.order_approved)/(uniques.uniques) as orders_approved,							
+sum(preauth_a_purchase_a + purchase_approved_no_preauth + preauth_approved_reversed + (((preauth_approved_no_purchase - preauth_approved_reversed)))) approved_payments,								
+sum(preauth_a_purchase_a + purchase_approved_no_preauth + preauth_approved_reversed) captured_payments,								
+sum(total_payment_attempts) total_payments,								
+sum(total_refund) total_refund,								
+sum(unique_orders) unique_orders,								
+sum(payment_count) payment_count,								
+sum(pre_auth_declined + preauth_a_purchase_d + purchase_declined_no_preauth) declined_payments,								
+sum((preauth_approved_no_purchase - preauth_approved_reversed)) pending_payments,								
+							
+								
+from								
+								
+auth_count_tbl								
+								
+left join								
+approved_orders								
+on								
+auth_count_tbl.period = approved_orders.period								
+and auth_count_tbl.invoice_group = approved_orders.invoice_group								
+and auth_count_tbl.company = approved_orders.company								
+and auth_count_tbl.MerchantGroup = approved_orders.MerchantGroup															
+
+
+left join
+(select period, MerchantGroup , count(MerchantGroup) as uniques from auth_count_tbl
+group by 1,2) uniques
+on
+auth_count_tbl.period = uniques.period															
+and auth_count_tbl.MerchantGroup = uniques.MerchantGroup	
+
+group by 1,2,3,4,5,6,7,8,9,10					
+)								
+								
+--------------------------------------------------------------------------------------------------------								
+												
+, base_tbl_instore as (								
+select								
+* except(merchant_group),								
+stores.merchant_group MerchantGroup,								
+								
+concat(calc_tran_type_description,"-",calc_approval_flag) payment_event			
+, concat(dates.fw_start_date, " - ", dates.fw_end_date) financial_week					
+from								
+--wpay_analytics.wpay_billing_engine_tran_dtl trans								
+wpay_analytics.wpay_billing_engine_tran_dtl trans
+left join								
+pdh_ref_ds.ref_store_details stores								
+on								
+left(trans.net_term_id,5) = stores.store_id								
+								
+left join								
+wpay_analytics.ref_response_code codes								
+on								
+codes.action_code = trans.act_code								
+and codes.response_code = trans.response_code	
+
+left join
+
+`pdh_ref_ds.dim_date` dates
+
+on left(string(trans.tstamp_trans), 10) = string(dates.clndr_date)
+								
+where								
+upper(trim(is_online)) != "ONLINE"								
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')																
+and tstamp_trans between date_sub((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl), interval 364 day) and ((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl))			
+								
+)								
+								
+---------------------------------------------------------------------------------------------------------------								
+								
+, pivot_tbl_instore AS (								
+SELECT			
+"Weekly" as timeframe,							
+financial_week period,							
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,					
+calc_scheme,								
+calc_card_type,								
+payment_attempt_id								
+						
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH REVERSAL-A' or payment_event = "PRE AUTH REVERSAL-A") THEN 1 ELSE 0 END) AS PreAuthReversalA								
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH-A' or payment_event = "PRE AUTH-A") THEN 1 ELSE 0 END) AS PreAuthA								
+,MAX(CASE WHEN payment_event = 'PRE-AUTH-D' THEN 1 ELSE 0 END) AS PreAuthD								
+,MAX(CASE WHEN payment_event = 'PURCHASE-A' THEN 1 ELSE 0 END) AS PURCHASEA								
+,MAX(CASE WHEN payment_event = 'PURCHASE-D' THEN 1 ELSE 0 END) AS PURCHASED								
+,MAX(CASE WHEN payment_event = 'REFUND-A' THEN 1 ELSE 0 END) AS REFUNDA								
+,MAX(CASE WHEN payment_event = 'REFUND-D' THEN 1 ELSE 0 END) AS REFUNDD								
+,MAX(CASE WHEN payment_event = 'PURCHASE REVERSAL-A' THEN 1 ELSE 0 END) AS PURCHASEREVERSALA								
+,MAX(CASE WHEN payment_event = 'REFUND REVERSAL-A' THEN 1 ELSE 0 END) AS REFUNDREVERSALA								
+FROM base_tbl_instore								
+where payment_event is not null and payment_attempt_id is not null								
+GROUP BY 1,2,3,4,5,6,7,8,9								
+								
+)								
+								
+---------------------------------------------------------------------								
+								
+, auth_count_tbl_instore as (								
+								
+select								
+
+timeframe,								
+period,								
+invoice_group,								
+company,								
+MerchantGroup,	
+merchant_portal_mg,							
+calc_scheme,								
+calc_card_type,								
+
+sum(if(PURCHASEA = 1 or PURCHASED = 1 ,1, 0)) total_payment_attempts,								
+sum(if(REFUNDA = 1 or REFUNDD = 1, 1, 0)) total_refund,								
+sum(if(REFUNDA = 1, 1, 0)) approved_refund,								
+sum(if(REFUNDD = 1, 1, 0)) declined_refund,								
+count(distinct payment_attempt_id) unique_orders,								
+count(distinct payment_attempt_id) payment_count,								
+sum(PreAuthA) pre_auth_approved,								
+sum(PreAuthD) pre_auth_declined,								
+sum(if(PURCHASEA = 1, 1, 0)) purchase_approved,								
+sum(if(PURCHASED = 1,1,0)) purchase_declined,								
+sum(PURCHASEREVERSALA) purchase_reversal_approved,								
+															
+from pivot_tbl_instore								
+							
+group by 1,2,3,4,5,6,7,8								
+								
+)								
+								
+-----------------------------------------------------------------------------------------------															
+								
+, approved_orders_instore as								
+								
+(	
+
+select
+timeframe,								
+period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,														
+sum(purchase_counter) order_approved								
+from								
+(								
+select	
+timeframe,							
+period,								
+invoice_group,								
+company,								
+MerchantGroup,	
+merchant_portal_mg,															
+sum(PURCHASEA) purchase_counter,								
+sum(PREAUTHA) pre_auth_counter,								
+sum(PreAuthReversalA) pre_auth_reversal_counter,								
+sum(PURCHASED) purchase_declined_counter,								
+(sum(PURCHASEA)) purchase_sum,								
+(sum(PREAUTHA) - (sum(PURCHASEA) + sum(PURCHASED))) pre_auth_sum								
+from								
+pivot_tbl_instore															
+group by 1,2,3,4,5,6					
+) orders								
+where								
+(orders.purchase_sum >= 1 or orders.pre_auth_sum >= 1)								
+group by 1,2,3,4,5,6							
+)								
+								
+-----------------------------------------------------------------------------------------------		
+
+-- CREATE THE FINAL OUTPUT FOR INSTORE LOGIC --- 
+
+,instore_orders as								
+(								
+select								
+'In Store' as method,		
+auth_count_tbl.timeframe,						
+auth_count_tbl.period,							
+auth_count_tbl.invoice_group,								
+auth_count_tbl.company,								
+auth_count_tbl.MerchantGroup,		
+auth_count_tbl.merchant_portal_mg,						
+auth_count_tbl.calc_scheme,								
+auth_count_tbl.calc_card_type,		
+(approved_orders.order_approved)/(uniques.uniques) as orders_approved,													
+sum(purchase_approved) approved_payments,								
+sum(purchase_approved) captured_payments,								
+sum(total_payment_attempts) total_payments,								
+sum(approved_refund) total_refund,								
+sum(unique_orders) unique_orders,								
+sum(payment_count) payment_count,								
+sum(purchase_declined) declined_payments,								
+sum((purchase_approved - purchase_reversal_approved - purchase_declined)) pending_payments,								
+								
+								
+from								
+								
+auth_count_tbl_instore auth_count_tbl								
+								
+left join								
+approved_orders_instore approved_orders								
+on								
+auth_count_tbl.period = approved_orders.period								
+and auth_count_tbl.invoice_group = approved_orders.invoice_group								
+and auth_count_tbl.company = approved_orders.company								
+and auth_count_tbl.MerchantGroup = approved_orders.MerchantGroup								
+
+left join
+(select period, MerchantGroup , count(MerchantGroup) as uniques from auth_count_tbl_instore
+group by 1,2) uniques
+on
+auth_count_tbl.period = uniques.period															
+and auth_count_tbl.MerchantGroup = uniques.MerchantGroup								
+								
+group by 1,2,3,4,5,6,7,8,9,10
+
+)								
+						
+select * from online_orders								
+union all								
+select * from instore_orders
+
+)
+
+
+-------------------
+--- MONTHLY VIEW ---
+-------------------
+
+
+, monthly_tbl as(
+
+with base_tbl as (	
+
+select * except(merchant_group), stores.merchant_group MerchantGroup								
+								
+, concat(calc_tran_type_description,"-",calc_approval_flag) payment_event	
+, date_trunc(tstamp_trans, week) transaction_week		
+, concat(dates.fw_start_date, " - ", dates.fw_end_date) financial_week				
+from 								
+--wpay_analytics.wpay_billing_engine_tran_dtl trans								
+wpay_analytics.wpay_billing_engine_tran_dtl trans									
+left join								
+							
+pdh_ref_ds.ref_store_details stores		
+
+on								
+
+left(trans.net_term_id,5) = stores.store_id								
+								
+left join								
+								
+wpay_analytics.ref_response_code codes								
+on								
+codes.action_code = trans.act_code and								
+codes.response_code = trans.response_code				
+
+left join
+
+`pdh_ref_ds.dim_date` dates
+
+on left(string(trans.tstamp_trans), 10) = string(dates.clndr_date)
+								
+where upper(trim(is_online)) = "ONLINE"
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')								
+and date(tstamp_trans) between
+date_add(date_sub((select max(date(tstamp_trans)) from(
+select * from 
+wpay_analytics.wpay_billing_engine_tran_dtl  
+WHERE date(tstamp_trans) BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 12 month), interval 1 day) and (select max(date(tstamp_trans)) from(
+select * from 
+wpay_analytics.wpay_billing_engine_tran_dtl 
+WHERE date(tstamp_trans) BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))	
+)		
+
+								
+---------------------------------------------------------------------------------------------------------------								
+								
+, pivot_tbl AS (								
+SELECT	
+"Monthly" as timeframe,							
+left(string(tstamp_trans), 7) period,								
+invoice_group,								
+company,								
+MerchantGroup,
+merchant_portal_mg,								
+calc_scheme,								
+calc_card_type,								
+payment_attempt_id,								
+order_id
+								
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH REVERSAL-A' or payment_event = "PRE AUTH REVERSAL-A") THEN 1 ELSE 0 END) AS PreAuthReversalA								
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH-A'or payment_event = "PRE AUTH-A") THEN 1 ELSE 0 END) AS PreAuthA								
+,MAX(CASE WHEN payment_event = 'PRE-AUTH-D' THEN 1 ELSE 0 END) AS PreAuthD								
+,MAX(CASE WHEN payment_event = 'PURCHASE-A' THEN 1 ELSE 0 END) AS PURCHASEA								
+,MAX(CASE WHEN payment_event = 'PURCHASE-D' THEN 1 ELSE 0 END) AS PURCHASED								
+,MAX(CASE WHEN payment_event = 'REFUND-A' THEN 1 ELSE 0 END) AS REFUNDA								
+,MAX(CASE WHEN payment_event = 'REFUND-D' THEN 1 ELSE 0 END) AS REFUNDD								
+,MAX(CASE WHEN payment_event = 'PURCHASE REVERSAL-A' THEN 1 ELSE 0 END) AS PURCHASEREVERSALA								
+,MAX(CASE WHEN payment_event = 'REFUND REVERSAL-A' THEN 1 ELSE 0 END) AS REFUNDREVERSALA								
+FROM base_tbl								
+where payment_event is not null and payment_attempt_id is not null								
+GROUP BY 1,2,3,4,5,6,7,8,9,10				
+								
+)		
+
+	
+
+-- SELECT	
+-- "Monthly" as timeframe,							
+-- period,								
+-- invoice_group,								
+								
+-- count(distinct payment_attempt_id)							
+-- FROM pivot_tbl								
+-- where payment_attempt_id is not null			
+-- and invoice_group = 'Woolworths/WOW Online'	
+-- and period = '2024-01'		
+-- and (PreAuthReversalA		= 0						
+-- and PreAuthA			= 0					
+-- and PreAuthD				= 0				
+-- and PURCHASEA			= 0					
+-- and PURCHASED		= 0						
+-- and REFUNDA			= 0					
+-- and REFUNDD			= 0					
+-- and PURCHASEREVERSALA			= 0					
+-- and REFUNDREVERSALA	= 0)
+-- GROUP BY 1,2,3
+
+-- SELECT	
+-- "Monthly" as timeframe,							
+-- left(string(tstamp_trans), 7) period,								
+-- invoice_group,								
+-- payment_event,
+								
+-- count(*)							
+-- FROM base_tbl								
+-- where payment_event is not null and payment_attempt_id is not null			
+-- and invoice_group = 'Woolworths/WOW Online'	
+-- and left(string(tstamp_trans), 7) = '2024-01'					
+-- GROUP BY 1,2,3,4				
+								
+							
+			
+								
+---------------------------------------------------------------------								
+								
+, auth_count_tbl as (								
+								
+select								
+
+timeframe,						
+period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,						
+calc_scheme,								
+calc_card_type,								
+						
+sum(if(REFUNDA = 0 and REFUNDD = 0 ,1, 0)) total_payment_attempts,								
+sum(if(REFUNDA = 1 or REFUNDD = 1, 1, 0)) total_refund,								
+count(distinct (case when REFUNDA = 0 and REFUNDD = 0 then order_id else null end)) unique_orders,								
+
+count(distinct payment_attempt_id) payment_count,								
+sum(PreAuthA) pre_auth_approved,								
+sum(PreAuthD) pre_auth_declined,								
+
+sum(if(PREAUTHA = 0 and PREAUTHD = 0 and PURCHASEA = 1, 1, 0)) purchase_approved_no_preauth,								
+sum(if(PREAUTHA = 1 and PURCHASED = 0 and PURCHASEA = 0, 1, 0)) preauth_approved_no_purchase,								
+sum(if(PREAUTHA = 1 and PreAuthReversalA = 1, 1, 0)) preauth_approved_reversed,								
+								
+sum(PURCHASEREVERSALA) purchase_reversal_approved,								
+sum(if(PREAUTHA = 0 and PREAUTHD = 0 and PURCHASED = 1,1,0)) purchase_declined_no_preauth,								
+sum(if(PREAUTHD = 1 and PURCHASED = 1,1,0)) preauth_d_purchase_d,								
+sum(if(PREAUTHD = 1 and PURCHASEA = 1,1,0)) preauth_d_purchase_a,								
+sum(if(PREAUTHA = 1 and PURCHASED = 1,1,0)) preauth_a_purchase_d,								
+sum(if(PREAUTHA = 1 and PURCHASEA = 1,1,0)) preauth_a_purchase_a																
+from pivot_tbl														
+group by 1,2,3,4,5,6,7,8							
+								
+)								
+
+-- select								
+
+-- timeframe,						
+-- period,								
+-- invoice_group,															
+						
+-- sum(if(REFUNDA = 0 and REFUNDD = 0 ,1, 0)) total_payment_attempts,								
+-- sum(if(REFUNDA = 1 or REFUNDD = 1, 1, 0)) total_refund,								
+-- count(distinct (case when REFUNDA = 0 and REFUNDD = 0 then order_id else null end)) unique_orders,								
+
+-- count(distinct payment_attempt_id) payment_count,								
+-- sum(PreAuthA) pre_auth_approved,								
+-- sum(PreAuthD) pre_auth_declined,								
+
+-- sum(if(PREAUTHA = 0 and PREAUTHD = 0 and PURCHASEA = 1, 1, 0)) purchase_approved_no_preauth,								
+-- sum(if(PREAUTHA = 1 and PURCHASED = 0 and PURCHASEA = 0, 1, 0)) preauth_approved_no_purchase,								
+-- sum(if(PREAUTHA = 1 and PreAuthReversalA = 1, 1, 0)) preauth_approved_reversed,								
+								
+-- sum(PURCHASEREVERSALA) purchase_reversal_approved,								
+-- sum(if(PREAUTHA = 0 and PREAUTHD = 0 and PURCHASED = 1,1,0)) purchase_declined_no_preauth,								
+-- sum(if(PREAUTHD = 1 and PURCHASED = 1,1,0)) preauth_d_purchase_d,								
+-- sum(if(PREAUTHD = 1 and PURCHASEA = 1,1,0)) preauth_d_purchase_a,								
+-- sum(if(PREAUTHA = 1 and PURCHASED = 1,1,0)) preauth_a_purchase_d,								
+-- sum(if(PREAUTHA = 1 and PURCHASEA = 1,1,0)) preauth_a_purchase_a																
+-- from pivot_tbl														
+-- where invoice_group = 'Woolworths/WOW Online'	
+-- and period = '2024-01'
+-- group by 1,2,3						
+
+-----------------------------------------------------------------------------------------------								
+							
+, approved_orders as								
+								
+(								
+select		
+timeframe,						
+period,								
+invoice_group,								
+company,								
+MerchantGroup,															
+count(distinct order_id) order_approved								
+from								
+(								
+select
+timeframe,								
+period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,													
+order_id,								
+sum(PURCHASEA) purchase_counter,								
+sum(PREAUTHA) pre_auth_counter,								
+sum(PreAuthReversalA) pre_auth_reversal_counter,								
+sum(PURCHASED) purchase_declined_counter,								
+(sum(PURCHASEA)) purchase_sum,								
+(sum(PREAUTHA) - (sum(PURCHASEA) + sum(PURCHASED))) pre_auth_sum								
+from								
+pivot_tbl															
+group by 1,2,3,4,5,6,7							
+) orders								
+where								
+(orders.purchase_sum >= 1 or orders.pre_auth_sum >= 1)								
+group by 1,2,3,4,5								
+)								
+															
+-----------------------------------------------------------------------------------------------			
+
+--- CREATE THE FINAL OUTPUT FOR ONLINE LOGIC ---
+
+, online_orders as								
+(		
+
+select								
+'Online' as method,	
+auth_count_tbl.timeframe,							
+auth_count_tbl.period,								
+auth_count_tbl.invoice_group,								
+auth_count_tbl.company,								
+auth_count_tbl.MerchantGroup,			
+auth_count_tbl.merchant_portal_mg,					
+auth_count_tbl.calc_scheme,								
+auth_count_tbl.calc_card_type,	
+(approved_orders.order_approved)/(uniques.uniques) as orders_approved,							
+sum(preauth_a_purchase_a + purchase_approved_no_preauth + preauth_approved_reversed + (((preauth_approved_no_purchase - preauth_approved_reversed)))) approved_payments,								
+sum(preauth_a_purchase_a + purchase_approved_no_preauth + preauth_approved_reversed) captured_payments,								
+sum(total_payment_attempts) total_payments,								
+sum(total_refund) total_refund,								
+sum(unique_orders) unique_orders,								
+sum(payment_count) payment_count,								
+sum(pre_auth_declined + preauth_a_purchase_d + purchase_declined_no_preauth) declined_payments,								
+sum((preauth_approved_no_purchase - preauth_approved_reversed)) pending_payments,								
+								
+								
+from								
+								
+auth_count_tbl								
+								
+left join								
+approved_orders								
+on								
+auth_count_tbl.period = approved_orders.period								
+and auth_count_tbl.invoice_group = approved_orders.invoice_group								
+and auth_count_tbl.company = approved_orders.company								
+and auth_count_tbl.MerchantGroup = approved_orders.MerchantGroup															
+
+left join
+(select period, MerchantGroup , count(MerchantGroup) as uniques from auth_count_tbl
+group by 1,2) uniques
+on
+auth_count_tbl.period = uniques.period															
+and auth_count_tbl.MerchantGroup = uniques.MerchantGroup	
+
+group by 1,2,3,4,5,6,7,8,9,10				
+)								
+								
+--------------------------------------------------------------------------------------------------------								
+												
+, base_tbl_instore as (								
+select								
+* except(merchant_group),								
+stores.merchant_group MerchantGroup,								
+								
+concat(calc_tran_type_description,"-",calc_approval_flag) payment_event			
+, concat(dates.fw_start_date, " - ", dates.fw_end_date) financial_week					
+from								
+--wpay_analytics.wpay_billing_engine_tran_dtl trans								
+wpay_analytics.wpay_billing_engine_tran_dtl trans							
+left join								
+pdh_ref_ds.ref_store_details stores								
+on								
+left(trans.net_term_id,5) = stores.store_id								
+								
+left join								
+wpay_analytics.ref_response_code codes								
+on								
+codes.action_code = trans.act_code								
+and codes.response_code = trans.response_code	
+
+left join
+
+`pdh_ref_ds.dim_date` dates
+
+on left(string(trans.tstamp_trans), 10) = string(dates.clndr_date)
+								
+where								
+upper(trim(is_online)) != "ONLINE"								
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')														
+and date(tstamp_trans) between
+date_add(date_sub((select max(date(tstamp_trans)) from(
+select * from 
+wpay_analytics.wpay_billing_engine_tran_dtl  
+WHERE date(tstamp_trans) BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 12 month), interval 1 day) and (select max(date(tstamp_trans)) from(
+select * from 
+wpay_analytics.wpay_billing_engine_tran_dtl 
+WHERE date(tstamp_trans) BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))							
+)								
+								
+---------------------------------------------------------------------------------------------------------------								
+								
+, pivot_tbl_instore AS (								
+SELECT			
+"Monthly" as timeframe,							
+left(string(tstamp_trans), 7) period,							
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,					
+calc_scheme,								
+calc_card_type,								
+payment_attempt_id								
+						
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH REVERSAL-A' or payment_event = "PRE AUTH REVERSAL-A") THEN 1 ELSE 0 END) AS PreAuthReversalA								
+,MAX(CASE WHEN (payment_event = 'PRE-AUTH-A' or payment_event = "PRE AUTH-A") THEN 1 ELSE 0 END) AS PreAuthA								
+,MAX(CASE WHEN payment_event = 'PRE-AUTH-D' THEN 1 ELSE 0 END) AS PreAuthD								
+,MAX(CASE WHEN payment_event = 'PURCHASE-A' THEN 1 ELSE 0 END) AS PURCHASEA								
+,MAX(CASE WHEN payment_event = 'PURCHASE-D' THEN 1 ELSE 0 END) AS PURCHASED								
+,MAX(CASE WHEN payment_event = 'REFUND-A' THEN 1 ELSE 0 END) AS REFUNDA								
+,MAX(CASE WHEN payment_event = 'REFUND-D' THEN 1 ELSE 0 END) AS REFUNDD								
+,MAX(CASE WHEN payment_event = 'PURCHASE REVERSAL-A' THEN 1 ELSE 0 END) AS PURCHASEREVERSALA								
+,MAX(CASE WHEN payment_event = 'REFUND REVERSAL-A' THEN 1 ELSE 0 END) AS REFUNDREVERSALA								
+FROM base_tbl_instore								
+where payment_event is not null and payment_attempt_id is not null								
+GROUP BY 1,2,3,4,5,6,7,8,9								
+								
+)								
+								
+---------------------------------------------------------------------								
+								
+, auth_count_tbl_instore as (								
+								
+select								
+
+timeframe,								
+period,								
+invoice_group,								
+company,								
+MerchantGroup,	
+merchant_portal_mg,							
+calc_scheme,								
+calc_card_type,								
+
+sum(if(PURCHASEA = 1 or PURCHASED = 1 ,1, 0)) total_payment_attempts,								
+sum(if(REFUNDA = 1 or REFUNDD = 1, 1, 0)) total_refund,								
+sum(if(REFUNDA = 1, 1, 0)) approved_refund,								
+sum(if(REFUNDD = 1, 1, 0)) declined_refund,								
+count(distinct payment_attempt_id) unique_orders,								
+count(distinct payment_attempt_id) payment_count,								
+sum(PreAuthA) pre_auth_approved,								
+sum(PreAuthD) pre_auth_declined,								
+sum(if(PURCHASEA = 1, 1, 0)) purchase_approved,								
+sum(if(PURCHASED = 1,1,0)) purchase_declined,								
+sum(PURCHASEREVERSALA) purchase_reversal_approved,								
+															
+from pivot_tbl_instore								
+							
+group by 1,2,3,4,5,6,7,8								
+								
+)								
+								
+-----------------------------------------------------------------------------------------------															
+								
+, approved_orders_instore as								
+								
+(	
+
+select
+timeframe,								
+period,								
+invoice_group,								
+company,								
+MerchantGroup,		
+merchant_portal_mg,														
+sum(purchase_counter) order_approved								
+from								
+(								
+select	
+timeframe,							
+period,								
+invoice_group,								
+company,								
+MerchantGroup,	
+merchant_portal_mg,															
+sum(PURCHASEA) purchase_counter,								
+sum(PREAUTHA) pre_auth_counter,								
+sum(PreAuthReversalA) pre_auth_reversal_counter,								
+sum(PURCHASED) purchase_declined_counter,								
+(sum(PURCHASEA)) purchase_sum,								
+(sum(PREAUTHA) - (sum(PURCHASEA) + sum(PURCHASED))) pre_auth_sum								
+from								
+pivot_tbl_instore															
+group by 1,2,3,4,5,6					
+) orders								
+where								
+(orders.purchase_sum >= 1 or orders.pre_auth_sum >= 1)								
+group by 1,2,3,4,5,6							
+)								
+								
+-----------------------------------------------------------------------------------------------		
+
+-- CREATE THE FINAL OUTPUT FOR INSTORE LOGIC --- 
+
+,instore_orders as								
+(								
+select								
+'In Store' as method,		
+auth_count_tbl.timeframe,						
+auth_count_tbl.period,							
+auth_count_tbl.invoice_group,								
+auth_count_tbl.company,								
+auth_count_tbl.MerchantGroup,		
+auth_count_tbl.merchant_portal_mg,						
+auth_count_tbl.calc_scheme,								
+auth_count_tbl.calc_card_type,
+(approved_orders.order_approved)/(uniques.uniques) as orders_approved,																
+sum(purchase_approved) approved_payments,								
+sum(purchase_approved) captured_payments,								
+sum(total_payment_attempts) total_payments,								
+sum(approved_refund) total_refund,								
+sum(unique_orders) unique_orders,								
+sum(payment_count) payment_count,								
+sum(purchase_declined) declined_payments,								
+sum((purchase_approved - purchase_reversal_approved - purchase_declined)) pending_payments,								
+					
+								
+from								
+								
+auth_count_tbl_instore auth_count_tbl								
+								
+left join								
+approved_orders_instore approved_orders								
+on								
+auth_count_tbl.period = approved_orders.period								
+and auth_count_tbl.invoice_group = approved_orders.invoice_group								
+and auth_count_tbl.company = approved_orders.company								
+and auth_count_tbl.MerchantGroup = approved_orders.MerchantGroup								
+
+left join
+(select period, MerchantGroup , count(MerchantGroup) as uniques from auth_count_tbl_instore
+group by 1,2) uniques
+on
+auth_count_tbl.period = uniques.period															
+and auth_count_tbl.MerchantGroup = uniques.MerchantGroup								
+								
+group by 1,2,3,4,5,6,7,8,9,10
+
+)								
+						
+select * from online_orders								
+union all								
+select * from instore_orders
+
+)
+
+,
+final_output as
+(
+select * from daily_tbl
+union all
+select * from weekly_tbl
+union all
+select * from monthly_tbl
+)
+
+
+( 
+select *, case when period = (select max(period) from (select * from final_output where timeframe = "Daily")) then "max_day" 
+when  period = (select max(period) from (select * from final_output where timeframe = "Weekly")) then "max_week" 
+when  period = (select max(period) from (select * from final_output where timeframe = "Monthly")) then "max_month" 
+else "False" end as max_period_flag
+from final_output)
+
+);
+
+create or replace view wpay_analytics.vw_wpay_payment_acceptance as(
+select * from wpay_analytics.wpay_payment_acceptance);
+
+------------------------------------------------------------------------------------------------------
+
+-----------------------------------------
+-- LOGIC FOR THE DECLINE REASONS VIEWS --- 
+-----------------------------------------
+
+------------------------------------------------------------------------------------------------------
+
+create or replace table wpay_analytics.wpay_payment_acceptance_declines as				
+
+(		
+
+
+
+with daily_reasons as(
+  							
+with base_tbl as (									
+select * except(merchant_group), trans.merchant_group MerchantGroup									
+									
+, concat(calc_tran_type_description,"-",calc_approval_flag) payment_event	
+, concat(dates.fw_start_date, " - ", dates.fw_end_date) financial_week								
+from --wpay_analytics.wpay_billing_engine_tran_dtl trans									
+wpay_analytics.wpay_billing_engine_tran_dtl trans									
+									
+left join									
+								
+pdh_ref_ds.ref_store_details stores									
+on									
+left(trans.net_term_id,5) = stores.store_id									
+									
+left join									
+									
+wpay_analytics.ref_response_code codes									
+on									
+codes.action_code = trans.act_code and									
+codes.response_code = trans.response_code		
+
+
+left join
+
+`pdh_ref_ds.dim_date` dates
+
+on left(string(trans.tstamp_trans), 10) = string(dates.clndr_date)
+									
+where upper(trim(is_online)) = "ONLINE"									
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')											
+and tstamp_trans between date_sub((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl), interval 2 day) and ((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl))												
+					
+)									
+									
+---------------------------------------------------------------------------------------------------------------									
+									
+, pivot_tbl AS (									
+SELECT	
+"Daily" as timeframe,							
+left(cast(tstamp_trans as string),10) period,									
+invoice_group,									
+company,									
+MerchantGroup,	
+merchant_portal_mg,								
+calc_scheme,									
+calc_card_type,									
+-- description,									
+payment_attempt_id,									
+order_id,									
+payment_event,									
+description									
+FROM base_tbl									
+where payment_event is not null and payment_attempt_id is not null									
+and (payment_event = 'PRE-AUTH-D'or payment_event = "PURCHASE-D")									
+-- and left(cast(tstamp_trans as string), 10) between '2023-03-01' and '2023-03-31'									
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12						
+									
+)									
+									
+---------------------------------------------------------------------									
+									
+, auth_count_tbl as (									
+									
+select									
+timeframe,								
+period,									
+invoice_group,									
+company,									
+MerchantGroup,	
+merchant_portal_mg,								
+calc_scheme,									
+calc_card_type,									
+description,									
+									
+count(distinct payment_attempt_id) payment_count,									
+sum(if(payment_event = 'PRE-AUTH-D', 1, 0)) pre_auth_declined,									
+sum(if(payment_event = "PURCHASE-D",1,0)) purchase_declined									
+from pivot_tbl									
+-- where invoice_group = 'DM/DM Online'									
+-- --where invoice_group = 'BWS/BWS Online'									
+-- and period in ('2023-05','2023-06')									
+group by 1,2,3,4,5,6,7,8,9								
+									
+)									
+									
+-----------------------------------------------------------------------------------------------									
+-----------------------------------------------------------------------------------------------		
+
+---	FINAL OUTPUT FOR ONLINE DECLINE REASONS --- 
+
+, online_declines as									
+(									
+select								
+'Online' as method,	
+auth_count_tbl.timeframe,								
+auth_count_tbl.period,									
+auth_count_tbl.invoice_group,									
+auth_count_tbl.company,									
+auth_count_tbl.MerchantGroup,		
+auth_count_tbl.merchant_portal_mg,							
+auth_count_tbl.calc_scheme,									
+auth_count_tbl.calc_card_type,									
+description,									
+--payment_event,									
+									
+sum(payment_count) payment_count,									
+sum(pre_auth_declined) declined_pre_auth,									
+sum(purchase_declined) declined_purchase									
+									
+from									
+									
+auth_count_tbl									
+									
+group by 1,2,3,4,5,6,7,8,9,10							
+)									
+									
+---------------------------------									
+-- instore declines									
+									
+									
+									
+, base_tbl_instore as (									
+select * except(merchant_group), trans.merchant_group MerchantGroup									
+									
+, concat(calc_tran_type_description,"-",calc_approval_flag) payment_event									
+from --wpay_analytics.wpay_billing_engine_tran_dtl trans									
+wpay_analytics.wpay_billing_engine_tran_dtl trans							
+									
+left join									
+									
+pdh_ref_ds.ref_store_details stores									
+on									
+left(trans.net_term_id,5) = stores.store_id									
+									
+left join									
+									
+wpay_analytics.ref_response_code codes									
+on									
+codes.action_code = trans.act_code and									
+codes.response_code = trans.response_code									
+									
+where upper(trim(is_online)) != "ONLINE"									
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')																			
+and tstamp_trans between date_sub((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl), interval 2 day) and ((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl))				
+)									
+									
+---------------------------------------------------------------------------------------------------------------									
+									
+, pivot_tbl_instore AS (									
+SELECT	
+"Daily" timeframe,								
+left(cast(tstamp_trans as string),10) period,										
+invoice_group,									
+company,									
+MerchantGroup,		
+merchant_portal_mg,							
+calc_scheme,									
+calc_card_type,									
+-- description,									
+payment_attempt_id,									
+order_id,									
+payment_event,									
+description									
+FROM base_tbl_instore									
+where payment_event is not null and payment_attempt_id is not null									
+and (payment_event = 'PRE-AUTH-D'or payment_event = "PURCHASE-D")									
+-- and left(cast(tstamp_trans as string), 10) between '2023-03-01' and '2023-03-31'									
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12							
+									
+)									
+									
+---------------------------------------------------------------------									
+									
+, auth_count_tbl_instore as (									
+									
+select									
+
+timeframe,							
+period,									
+invoice_group,									
+company,									
+MerchantGroup,
+merchant_portal_mg,									
+calc_scheme,									
+calc_card_type,									
+description,									
+									
+count(distinct payment_attempt_id) payment_count,									
+sum(if(payment_event = 'PRE-AUTH-D', 1, 0)) pre_auth_declined,									
+sum(if(payment_event = "PURCHASE-D",1,0)) purchase_declined									
+from pivot_tbl_instore									
+								
+group by 1,2,3,4,5,6,7,8,9							
+									
+)									
+									
+-----------------------------------------------------------------------------------------------									
+-----------------------------------------------------------------------------------------------	
+
+
+---	FINAL OUTPUT FOR INSTORE DECLINE REASONS --- 
+
+, instore_declines as									
+(				
+
+select									
+'In Store' as method,	
+auth_count_tbl.timeframe,								
+auth_count_tbl.period,									
+auth_count_tbl.invoice_group,									
+auth_count_tbl.company,									
+auth_count_tbl.MerchantGroup,
+auth_count_tbl.merchant_portal_mg,							
+auth_count_tbl.calc_scheme,									
+auth_count_tbl.calc_card_type,									
+description,									
+									
+									
+sum(payment_count) payment_count,									
+sum(pre_auth_declined) declined_pre_auth,									
+sum(purchase_declined) declined_purchase									
+									
+from									
+									
+auth_count_tbl_instore auth_count_tbl									
+									
+group by 1,2,3,4,5,6,7,8,9,10								
+)									
+
+
+select *, case when period = (select max(period) from online_declines) then "True" else "False" end as max_period_flag from(
+
+select * from online_declines									
+union all									
+select * from instore_declines	
+
+  )
+)
+
+
+, weekly_reasons as(
+
+  							
+with base_tbl as (									
+select * except(merchant_group), trans.merchant_group MerchantGroup									
+									
+, concat(calc_tran_type_description,"-",calc_approval_flag) payment_event				
+, concat(dates.fw_start_date, " - ", dates.fw_end_date) financial_week						
+from --wpay_analytics.wpay_billing_engine_tran_dtl trans									
+wpay_analytics.wpay_billing_engine_tran_dtl trans							
+									
+left join									
+								
+pdh_ref_ds.ref_store_details stores									
+on									
+left(trans.net_term_id,5) = stores.store_id									
+									
+left join									
+									
+wpay_analytics.ref_response_code codes									
+on									
+codes.action_code = trans.act_code and									
+codes.response_code = trans.response_code		
+
+left join
+
+`pdh_ref_ds.dim_date` dates
+
+on left(string(trans.tstamp_trans), 10) = string(dates.clndr_date)
+									
+where upper(trim(is_online)) = "ONLINE"									
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')										
+and tstamp_trans between date_sub((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl), interval 6 day) and ((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl))								
+						
+									
+)									
+									
+---------------------------------------------------------------------------------------------------------------									
+									
+, pivot_tbl AS (									
+SELECT	
+"Weekly" as timeframe,							
+financial_week period,								
+invoice_group,									
+company,									
+MerchantGroup,	
+merchant_portal_mg,								
+calc_scheme,									
+calc_card_type,									
+-- description,									
+payment_attempt_id,									
+order_id,									
+payment_event,									
+description									
+FROM base_tbl									
+where payment_event is not null and payment_attempt_id is not null									
+and (payment_event = 'PRE-AUTH-D'or payment_event = "PURCHASE-D")									
+-- and left(cast(tstamp_trans as string), 10) between '2023-03-01' and '2023-03-31'									
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12						
+									
+)									
+									
+---------------------------------------------------------------------									
+									
+, auth_count_tbl as (									
+									
+select									
+timeframe,								
+period,									
+invoice_group,									
+company,									
+MerchantGroup,	
+merchant_portal_mg,								
+calc_scheme,									
+calc_card_type,									
+description,									
+									
+count(distinct payment_attempt_id) payment_count,									
+sum(if(payment_event = 'PRE-AUTH-D', 1, 0)) pre_auth_declined,									
+sum(if(payment_event = "PURCHASE-D",1,0)) purchase_declined									
+from pivot_tbl									
+-- where invoice_group = 'DM/DM Online'									
+-- --where invoice_group = 'BWS/BWS Online'									
+-- and period in ('2023-05','2023-06')									
+group by 1,2,3,4,5,6,7,8,9								
+									
+)									
+									
+-----------------------------------------------------------------------------------------------									
+-----------------------------------------------------------------------------------------------		
+
+---	FINAL OUTPUT FOR ONLINE DECLINE REASONS --- 
+
+, online_declines as									
+(									
+select								
+'Online' as method,	
+auth_count_tbl.timeframe,								
+auth_count_tbl.period,									
+auth_count_tbl.invoice_group,									
+auth_count_tbl.company,									
+auth_count_tbl.MerchantGroup,		
+auth_count_tbl.merchant_portal_mg,							
+auth_count_tbl.calc_scheme,									
+auth_count_tbl.calc_card_type,									
+description,									
+--payment_event,									
+									
+sum(payment_count) payment_count,									
+sum(pre_auth_declined) declined_pre_auth,									
+sum(purchase_declined) declined_purchase									
+									
+from									
+									
+auth_count_tbl									
+									
+group by 1,2,3,4,5,6,7,8,9,10							
+)									
+									
+---------------------------------									
+-- instore declines									
+									
+									
+									
+, base_tbl_instore as (									
+select * except(merchant_group), trans.merchant_group MerchantGroup									
+									
+, concat(calc_tran_type_description,"-",calc_approval_flag) payment_event				
+, concat(dates.fw_start_date, " - ", dates.fw_end_date) financial_week					
+from --wpay_analytics.wpay_billing_engine_tran_dtl trans									
+wpay_analytics.wpay_billing_engine_tran_dtl trans								
+									
+left join									
+									
+pdh_ref_ds.ref_store_details stores									
+on									
+left(trans.net_term_id,5) = stores.store_id									
+									
+left join									
+									
+wpay_analytics.ref_response_code codes									
+on									
+codes.action_code = trans.act_code and									
+codes.response_code = trans.response_code	
+
+left join
+
+`pdh_ref_ds.dim_date` dates
+
+on left(string(trans.tstamp_trans), 10) = string(dates.clndr_date)
+
+									
+where upper(trim(is_online)) != "ONLINE"									
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')																			
+and tstamp_trans between date_sub((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl), interval 6 day) and ((select max(tstamp_trans) from wpay_analytics.wpay_billing_engine_tran_dtl))	
+
+)									
+									
+---------------------------------------------------------------------------------------------------------------									
+									
+, pivot_tbl_instore AS (									
+SELECT	
+"Weekly" timeframe,								
+financial_week period,										
+invoice_group,									
+company,									
+MerchantGroup,		
+merchant_portal_mg,							
+calc_scheme,									
+calc_card_type,									
+-- description,									
+payment_attempt_id,									
+order_id,									
+payment_event,									
+description									
+FROM base_tbl_instore									
+where payment_event is not null and payment_attempt_id is not null									
+and (payment_event = 'PRE-AUTH-D'or payment_event = "PURCHASE-D")									
+-- and left(cast(tstamp_trans as string), 10) between '2023-03-01' and '2023-03-31'									
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12							
+									
+)									
+									
+---------------------------------------------------------------------									
+									
+, auth_count_tbl_instore as (									
+									
+select									
+
+timeframe,							
+period,									
+invoice_group,									
+company,									
+MerchantGroup,
+merchant_portal_mg,									
+calc_scheme,									
+calc_card_type,									
+description,									
+									
+count(distinct payment_attempt_id) payment_count,									
+sum(if(payment_event = 'PRE-AUTH-D', 1, 0)) pre_auth_declined,									
+sum(if(payment_event = "PURCHASE-D",1,0)) purchase_declined									
+from pivot_tbl_instore									
+								
+group by 1,2,3,4,5,6,7,8,9							
+									
+)									
+									
+-----------------------------------------------------------------------------------------------									
+-----------------------------------------------------------------------------------------------	
+
+
+---	FINAL OUTPUT FOR INSTORE DECLINE REASONS --- 
+
+, instore_declines as									
+(				
+
+select									
+'In Store' as method,	
+auth_count_tbl.timeframe,								
+auth_count_tbl.period,									
+auth_count_tbl.invoice_group,									
+auth_count_tbl.company,									
+auth_count_tbl.MerchantGroup,
+auth_count_tbl.merchant_portal_mg,							
+auth_count_tbl.calc_scheme,									
+auth_count_tbl.calc_card_type,									
+description,									
+									
+									
+sum(payment_count) payment_count,									
+sum(pre_auth_declined) declined_pre_auth,									
+sum(purchase_declined) declined_purchase									
+									
+from									
+									
+auth_count_tbl_instore auth_count_tbl									
+									
+group by 1,2,3,4,5,6,7,8,9,10								
+)									
+
+
+select *, case when period = (select max(period) from online_declines) then "True" else "False" end as max_period_flag from(
+
+select * from online_declines									
+union all									
+select * from instore_declines	
+
+  )
+)
+
+, monthly_reasons as(
+
+  							
+with base_tbl as (									
+select * except(merchant_group), trans.merchant_group MerchantGroup									
+									
+, concat(calc_tran_type_description,"-",calc_approval_flag) payment_event									
+from --wpay_analytics.wpay_billing_engine_tran_dtl trans									
+wpay_analytics.wpay_billing_engine_tran_dtl trans								
+									
+left join									
+								
+pdh_ref_ds.ref_store_details stores									
+on									
+left(trans.net_term_id,5) = stores.store_id									
+									
+left join									
+									
+wpay_analytics.ref_response_code codes									
+on									
+codes.action_code = trans.act_code and									
+codes.response_code = trans.response_code									
+									
+where upper(trim(is_online)) = "ONLINE"			
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')						
+and date(tstamp_trans) between
+date_add(date_sub((select max(date(tstamp_trans)) from(
+select * from 
+wpay_analytics.wpay_billing_engine_tran_dtl  
+WHERE date(tstamp_trans) BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 1 month), interval 1 day) and (select max(date(tstamp_trans)) from(
+select * from 
+wpay_analytics.wpay_billing_engine_tran_dtl 
+WHERE date(tstamp_trans) BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))	
+
+)									
+									
+---------------------------------------------------------------------------------------------------------------									
+									
+, pivot_tbl AS (									
+SELECT	
+"Monthly" as timeframe,							
+left(cast(tstamp_trans as string),7) period,									
+invoice_group,									
+company,									
+MerchantGroup,	
+merchant_portal_mg,								
+calc_scheme,									
+calc_card_type,									
+-- description,									
+payment_attempt_id,									
+order_id,									
+payment_event,									
+description									
+FROM base_tbl									
+where payment_event is not null and payment_attempt_id is not null									
+and (payment_event = 'PRE-AUTH-D'or payment_event = "PURCHASE-D")									
+-- and left(cast(tstamp_trans as string), 10) between '2023-03-01' and '2023-03-31'									
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12						
+									
+)									
+									
+---------------------------------------------------------------------									
+									
+, auth_count_tbl as (									
+									
+select									
+timeframe,								
+period,									
+invoice_group,									
+company,									
+MerchantGroup,	
+merchant_portal_mg,								
+calc_scheme,									
+calc_card_type,									
+description,									
+									
+count(distinct payment_attempt_id) payment_count,									
+sum(if(payment_event = 'PRE-AUTH-D', 1, 0)) pre_auth_declined,									
+sum(if(payment_event = "PURCHASE-D",1,0)) purchase_declined									
+from pivot_tbl									
+-- where invoice_group = 'DM/DM Online'									
+-- --where invoice_group = 'BWS/BWS Online'									
+-- and period in ('2023-05','2023-06')									
+group by 1,2,3,4,5,6,7,8,9								
+									
+)									
+									
+-----------------------------------------------------------------------------------------------									
+-----------------------------------------------------------------------------------------------		
+
+---	FINAL OUTPUT FOR ONLINE DECLINE REASONS --- 
+
+, online_declines as									
+(									
+select								
+'Online' as method,	
+auth_count_tbl.timeframe,								
+auth_count_tbl.period,									
+auth_count_tbl.invoice_group,									
+auth_count_tbl.company,									
+auth_count_tbl.MerchantGroup,		
+auth_count_tbl.merchant_portal_mg,							
+auth_count_tbl.calc_scheme,									
+auth_count_tbl.calc_card_type,									
+description,									
+--payment_event,									
+									
+sum(payment_count) payment_count,									
+sum(pre_auth_declined) declined_pre_auth,									
+sum(purchase_declined) declined_purchase									
+									
+from									
+									
+auth_count_tbl									
+									
+group by 1,2,3,4,5,6,7,8,9,10							
+)									
+									
+---------------------------------									
+-- instore declines									
+									
+									
+									
+, base_tbl_instore as (									
+select * except(merchant_group), trans.merchant_group MerchantGroup									
+									
+, concat(calc_tran_type_description,"-",calc_approval_flag) payment_event									
+from --wpay_analytics.wpay_billing_engine_tran_dtl trans									
+wpay_analytics.wpay_billing_engine_tran_dtl trans							
+									
+left join									
+									
+pdh_ref_ds.ref_store_details stores									
+on									
+left(trans.net_term_id,5) = stores.store_id									
+									
+left join									
+									
+wpay_analytics.ref_response_code codes									
+on									
+codes.action_code = trans.act_code and									
+codes.response_code = trans.response_code									
+									
+where upper(trim(is_online)) != "ONLINE"									
+and upper(calc_tran_type_description) in ('PRE-AUTH','PRE AUTH','PURCHASE','REFUND','PURCHASE REVERSAL','REFUND REVERSAL', 'PRE-AUTH REVERSAL','PRE AUTH REVERSAL')																		
+and date(tstamp_trans) between
+date_add(date_sub((select max(date(tstamp_trans)) from(
+select * from 
+wpay_analytics.wpay_billing_engine_tran_dtl  
+WHERE date(tstamp_trans) BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 1 month), interval 1 day) and (select max(date(tstamp_trans)) from(
+select * from 
+wpay_analytics.wpay_billing_engine_tran_dtl 
+WHERE date(tstamp_trans) BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month)))	
+								
+)									
+									
+---------------------------------------------------------------------------------------------------------------									
+									
+, pivot_tbl_instore AS (									
+SELECT	
+"Monthly" timeframe,								
+left(cast(tstamp_trans as string),7) period,										
+invoice_group,									
+company,									
+MerchantGroup,		
+merchant_portal_mg,							
+calc_scheme,									
+calc_card_type,									
+-- description,									
+payment_attempt_id,									
+order_id,									
+payment_event,									
+description									
+FROM base_tbl_instore									
+where payment_event is not null and payment_attempt_id is not null									
+and (payment_event = 'PRE-AUTH-D'or payment_event = "PURCHASE-D")									
+-- and left(cast(tstamp_trans as string), 10) between '2023-03-01' and '2023-03-31'									
+GROUP BY 1,2,3,4,5,6,7,8,9,10,11,12							
+									
+)									
+									
+---------------------------------------------------------------------									
+									
+, auth_count_tbl_instore as (									
+									
+select									
+
+timeframe,							
+period,									
+invoice_group,									
+company,									
+MerchantGroup,
+merchant_portal_mg,									
+calc_scheme,									
+calc_card_type,									
+description,									
+									
+count(distinct payment_attempt_id) payment_count,									
+sum(if(payment_event = 'PRE-AUTH-D', 1, 0)) pre_auth_declined,									
+sum(if(payment_event = "PURCHASE-D",1,0)) purchase_declined									
+from pivot_tbl_instore									
+								
+group by 1,2,3,4,5,6,7,8,9							
+									
+)									
+									
+-----------------------------------------------------------------------------------------------									
+-----------------------------------------------------------------------------------------------	
+
+
+---	FINAL OUTPUT FOR INSTORE DECLINE REASONS --- 
+
+, instore_declines as									
+(				
+
+select									
+'In Store' as method,	
+auth_count_tbl.timeframe,								
+auth_count_tbl.period,									
+auth_count_tbl.invoice_group,									
+auth_count_tbl.company,									
+auth_count_tbl.MerchantGroup,
+auth_count_tbl.merchant_portal_mg,							
+auth_count_tbl.calc_scheme,									
+auth_count_tbl.calc_card_type,									
+description,									
+									
+									
+sum(payment_count) payment_count,									
+sum(pre_auth_declined) declined_pre_auth,									
+sum(purchase_declined) declined_purchase									
+									
+from									
+									
+auth_count_tbl_instore auth_count_tbl									
+									
+group by 1,2,3,4,5,6,7,8,9,10								
+)									
+
+
+select *, case when period = (select max(period) from online_declines) then "True" else "False" end as max_period_flag from(
+
+select * from online_declines									
+union all									
+select * from instore_declines	
+
+  )
+)
+
+select * from daily_reasons
+union all
+select * from weekly_reasons
+union all
+select * from monthly_reasons
+
+);
+
+create or replace view wpay_analytics.vw_wpay_payment_acceptance_declines as(
+select * from wpay_analytics.wpay_payment_acceptance_declines);

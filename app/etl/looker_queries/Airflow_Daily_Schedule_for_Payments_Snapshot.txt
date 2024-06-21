@@ -235,7 +235,7 @@ with monthly as
 ,cb_dtl as 
 (
   select 
-  cb.txn_dttm_local ,
+  cb.received_dt ,
   stores.company company,
   stores.merchant_group as Merchant_group,
   stores.merchant_portal_mg as merchant_portal_mg,
@@ -261,8 +261,8 @@ with monthly as
 (
   select 
   'Monthly' as Timeframe,
-  date(concat(left(cast(cb.txn_dttm_local as string),7), "-01")) as commencement_date,
-  left(cast(cb.txn_dttm_local as string),7) as Period,
+  date(concat(left(cast(cb.received_dt as string),7), "-01")) as commencement_date,
+  left(cast(cb.received_dt as string),7) as Period,
   cast(null as string) invoice_group,
   cb.company company,
   cb.merchant_group as Merchant_group,
@@ -281,7 +281,7 @@ with monthly as
   count(distinct cb.id ) as dispute_count
   from cb_dtl cb
 
-  where left(cast(cb.txn_dttm_local as string),7) between 
+  where left(cast(cb.received_dt as string),7) between 
   left(string(date_sub(current_date() , interval 6 month)), 7)
   and left(cast(current_date() as string),7)
 
@@ -314,9 +314,9 @@ with monthly as
   from cb_dtl cb
   left join
   `pdh_ref_ds.dim_date` dates
-  on left(cast(cb.txn_dttm_local as string),10) = string(dates.clndr_date)
+  on left(cast(cb.received_dt as string),10) = string(dates.clndr_date)
 
-where left(cast(cb.txn_dttm_local as string),10) between 
+where left(cast(cb.received_dt as string),10) between 
     left(string(date_sub(current_date() , interval 9 week)), 10)
     and left(cast(current_date() as string),10)
 
@@ -328,7 +328,7 @@ where left(cast(cb.txn_dttm_local as string),10) between
   select 
   'Daily' as Timeframe,
   dates.clndr_date as commencement_date,
-  format_date("%d-%m", txn_dttm_local) as Period,
+  format_date("%d-%m", received_dt) as Period,
   cast(null as string) invoice_group,
   cb.company company,
   cb.merchant_group as Merchant_group,
@@ -348,9 +348,9 @@ where left(cast(cb.txn_dttm_local as string),10) between
   from cb_dtl cb
   left join
   `pdh_ref_ds.dim_date` dates
-  on left(cast(cb.txn_dttm_local as string),10) = string(dates.clndr_date)
+  on left(cast(cb.received_dt as string),10) = string(dates.clndr_date)
 
-  where left(cast(cb.txn_dttm_local as string),10) between 
+  where left(cast(cb.received_dt as string),10) between 
     left(string(date_sub(current_date() , interval 32 day)), 10)
     and left(cast(current_date() as string),10)
 
@@ -384,6 +384,5 @@ select *, case when (daily_cb.commencement_date = (select min(commencement_date)
 create or replace view `wpay_analytics.vw_wpay_payments_snapshot`
 as
 select * from `wpay_analytics.wpay_payments_snapshot`;
-
 
 

@@ -41,7 +41,18 @@ on upper(t1.division) = upper(t2.division)
 
 
 ,
+runtime as
+(
+  select 
+    concat(left(t.net_term_id,5)," | ", upper(site_name)) site_name,
+    max(tstamp_trans) as max_time
+  FROM wpay_analytics.vw_lv_wpay_billing_engine_tran_dtl t
+  LEFT JOIN pdh_ref_ds.ref_store_details s 
+  ON LEFT(t.net_term_id, 5) = s.store_id
+  group by 1
+)   
 
+,
 
 excluded_schemes as
 (
@@ -130,7 +141,7 @@ output_included as
 (
 SELECT 
   'Wpay' as method,
-  case when left(cast(T.new_time as string),7) = (select max(left(cast(T.new_time as string),7)) from trans_included T) then "Month to date" else left(cast(T.new_time as string),7) end as month,
+  --case when left(cast(T.new_time as string),7) = (select max(left(cast(T.new_time as string),7)) from trans_included T) then "Month to date" else left(cast(T.new_time as string),7) end as month,
   date(left(cast(T.new_time as string),10)) as period,
   T.division,
   T.company,
@@ -207,7 +218,7 @@ JOIN
   wpay_analytics.settlement_reference S 
 ON 
   upper(T.division) = upper(S.division)
-group by 1,2,3,4,5,6,7,8,9,10,11,12
+group by 1,2,3,4,5,6,7,8,9,10,11
 )
 
 
@@ -216,7 +227,7 @@ output_excluded as
 (
 SELECT 
   'Third Party' as method,
-  case when left(cast(T.new_time as string),7) = (select max(left(cast(T.new_time as string),7)) from trans_excluded T) then "Month to date" else left(cast(T.new_time as string),7) end as month,
+  --case when left(cast(T.new_time as string),7) = (select max(left(cast(T.new_time as string),7)) from trans_excluded T) then "Month to date" else left(cast(T.new_time as string),7) end as month,
   date(left(cast(T.new_time as string),10)) as period,
   T.division,
   T.company,
@@ -293,15 +304,17 @@ JOIN
   wpay_analytics.settlement_reference S 
 ON 
   upper(T.division) = upper(S.division)
-group by 1,2,3,4,5,6,7,8,9,10,11,12
+group by 1,2,3,4,5,6,7,8,9,10,11
 )
 
+,output as (
 select * from(
 select 
   *, 
   concat(cast(settle_date as string),' ',payout_time_only) as payout_time,
   FORMAT_DATE('%A', settle_date) AS weekday_name,
-  case when (datetime(cast(settle_date as string)) <= current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag 
+  case when (datetime(cast(settle_date as string)) <= current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag,
+  case when left(cast(settle_date as string),7) = left(cast(current_date() as string),7) then "Month to date" else left(cast(settle_date as string),7) end as month, 
 from 
   output_included
 union all
@@ -309,7 +322,8 @@ select
   *, 
   concat(cast(settle_date as string),' ',payout_time_only) as payout_time,
   FORMAT_DATE('%A', settle_date) AS weekday_name,
-  case when (datetime(cast(settle_date as string)) <= current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag 
+  case when (datetime(cast(settle_date as string)) <= current_date()) then 'Confirmed' else 'Pending' end as Pending_Flag,
+  case when left(cast(settle_date as string),7) = left(cast(current_date() as string),7) then "Month to date" else left(cast(settle_date as string),7) end as month, 
 from 
   output_excluded
 )
@@ -320,14 +334,22 @@ where
 period between
       date_add(date_sub((select max(period) from(
       select * from 
-     wpay_analytics.wpay_payouts_all_merchants 
+     output_included 
       WHERE period BETWEEN date_trunc(date_sub(current_date(), interval 1 month), month) AND last_day(date_sub(current_date(), interval 1 month), month))) , interval 6 month), interval 1 day) and (select max(period) from(
       select * from 
-      wpay_analytics.wpay_payouts_all_merchants ))
+      output_included ))
 
-      
+)
+  
+select
+  output.*,
+  left(cast(runtime.max_time as string),19) as max_time
+from
+  output
+left join 
+  runtime
+  on output.site_name = runtime.site_name
 
--- order by period asc
 
 );
 

@@ -12,3 +12,232 @@ SET be.chargeback_id =
 where chargeback_id is null 
 and cast(switch_tran_date as date) > current_date - 150
 ;
+
+
+
+-- DataNavSuper / DataNav
+
+
+update wpay_analytics.wpay_billing_engine_tran_dtl
+set 
+--payment_attempt_id = 'masked_pan'||masked_pan||'retrieval_reference_number'||retrieval_reference_number||'order_number'||order_number
+payment_attempt_id = 'masked_pan'||masked_pan||'rrn'||coalesce(retrieval_ref_no,'')||'order_number'||coalesce(order_number,'')
+,payment_event_id = 'tran_uid'||tran_uid
+,order_id = order_number
+where source_application in ('DataNavSuper','DataNav')
+and cast(switch_tran_date as date) > current_date - 2
+;
+
+-- DigitalPay
+
+update wpay_analytics.wpay_billing_engine_tran_dtl
+set 
+payment_attempt_id = 'containerRef'||containerRef||'containerId'||containerId
+,payment_event_id = 'tran_uid'||tran_uid
+,order_id = order_number
+where source_application in ('DigitalPay')
+and cast(switch_tran_date as date) > current_date - 2
+;
+
+--QuikCilver
+
+update wpay_analytics.wpay_billing_engine_tran_dtl
+set 
+payment_attempt_id = 'tran_uid'||tran_uid
+--,payment_event_id = 'ReferenceNumber'||qc_ReferenceNumber||'ApprovalCode'||approval_code
+,order_id = order_number
+where source_application in ('QuikCilver')
+and cast(switch_tran_date as date) > current_date - 2
+;
+
+update wpay_analytics.wpay_billing_engine_tran_dtl be
+set be.payment_event_id = 'ReferenceNumber'||coalesce(qc.ReferenceNumber,'')||'ApprovalCode'||coalesce(qc.ApprovalCode,'')
+from 
+(
+  select * 
+  from
+  (
+    select distinct
+    CAST(CardNumber AS STRING) as CardNumber
+    ,cast(concat(TransactionDate,' ',TransactionTime) as TIMESTAMP) tstamp_trans
+    ,ApprovalCode 
+    ,ReferenceNumber
+    FROM `pdh_rd_quickcilver.qc_detail_transactions` d
+  )
+  qualify row_number() over (partition by CardNumber,tstamp_trans,ApprovalCode ) = 1    
+) qc
+where be.masked_pan = qc.CardNumber
+and be.tstamp_trans = qc.tstamp_trans
+and be.approval_code = qc.ApprovalCode
+and be.source_application in ('QuikCilver')
+and cast(switch_tran_date as date) > current_date - 2
+;
+
+
+--Linkly
+	
+-- Based on get_tran_uid
+update wpay_analytics.wpay_billing_engine_tran_dtl be
+set 
+be.payment_attempt_id = l.payment_attempt_id
+,be.payment_event_id = l.payment_attempt_id
+,be.order_id = l.order_number
+from
+( 
+  
+      select tran_uid, 'ReqTxRef'||ReqTxRef||'ResRef'||ReqTxRef payment_attempt_id,'ReqTxRef'||ReqTxRef order_number
+      from
+      (
+        Select 
+        pdh_ref_ds.get_tran_uid
+        (
+          "LK",
+          null, 
+          ResRef,
+          0, 
+          null,
+          concat(CASE 
+          when ReqDate is null then "19000101"
+          else format_date("%Y%m%d",ReqDate)
+          End,"T",
+          CASE 
+          when ReqTime is null then "000000"
+          else format_time("%H%M%S",ReqTime)
+          end),
+          null,
+          null, 
+          null, 
+          0
+        ) as tran_uid
+        ,ReqTxRef
+        ,ResRef
+        FROM `pdh_rd_apm.alipay_linkly` d
+      )
+      qualify row_number() over (partition by tran_uid ) = 1    
+ 
+) l
+where be.tran_uid = l.tran_uid
+and be.source_application in ('Linkly')
+and cast(switch_tran_date as date) > current_date - 2
+;
+
+
+
+
+
+--ISG
+
+
+-- Based on get_tran_uid
+
+
+update wpay_analytics.wpay_billing_engine_tran_dtl be
+set 
+be.payment_attempt_id = ISG.payment_attempt_id
+,be.payment_event_id = ISG.payment_event_id
+,be.order_id = ISG.order_number
+from
+( 
+  select 
+  CASE 
+  WHEN PaymentRequestId IS NOT NULL THEN 'PaymentRequestId'||PaymentRequestId||(case when tran_type = 'REFUND' then 'sequence_number'||sequence_number END) 
+  ELSE 'tran_uid'||tran_uid
+  end payment_attempt_id
+  ,* 
+  from 
+  (
+    select 
+    pdh_ref_ds.get_tran_uid(
+                              "CY",
+                              null, 
+                              null,
+                              0,
+                              null,
+                              concat(
+                              left(rpad(cast(isg.transaction_timestamp as string),14,"0"),8),"T",
+                              right(rpad(cast(isg.transaction_timestamp as string),14,"0"),6)),
+                              cast(isg.tran_uid as string),
+                              null, 
+                              isg.transaction_type, 
+                              isg.transaction_amount) as tran_uid,
+    cr.PaymentRequestId, 
+    COALESCE('merchant_ref_number'||cr.merchant_ref_number,'retrieval_reference_number'||ISG.retrieval_reference_number) order_number,
+    COALESCE('request_id'||cr.request_id,'tran_uid'||isg.tran_uid)  payment_event_id,
+    CASE
+    WHEN ics_applications LIKE '%ics_credit%' 
+    THEN CONCAT(PaymentRequestID, 'RF', ROW_NUMBER() OVER (PARTITION BY merchant_ref_number, PaymentRequestID, IF(ics_applications LIKE '%ics_credit%', 'REFUND', '') ORDER BY transaction_date)) 
+    ELSE CAST(PaymentRequestID AS STRING)
+    END sequence_number,
+    CASE 
+    WHEN ics_applications LIKE '%ics_bill%' THEN 'PURCHASE'
+    WHEN ics_applications LIKE '%ics_credit%' THEN 'REFUND'
+    WHEN ics_applications LIKE '%ics_pay_subscription_create%' THEN 'PURCHASE'
+    WHEN ics_applications LIKE 'ics_%_auth_reversal' THEN 'PRE-AUTH REVERSAL'
+    WHEN ics_applications LIKE '%ics_auth%' OR ics_applications LIKE '%ics_decision%' THEN 'PRE-AUTH'
+    END tran_type
+    FROM 
+    pdh_rd_data_navigator.isg_wpay_tran isg
+    LEFT OUTER JOIN `pdh_rd_external.cyb_online_txns_rpt` cr
+    ON cr.request_id = cast(isg.tran_uid as string)
+  )    
+  qualify row_number() over (partition by tran_uid ) = 1    
+) isg 
+where be.tran_uid = ISG.tran_uid
+and be.source_application in ('ISG')
+and cast(switch_tran_date as date) > current_date - 2
+;
+
+--- Update null payment attempts
+
+update wpay_analytics.wpay_billing_engine_tran_dtl be
+set payment_attempt_id = 'tran_uid'||tran_uid
+where payment_attempt_id is null
+and be.source_application in ('ISG')
+and cast(switch_tran_date as date) > current_date - 2
+;
+
+update wpay_analytics.wpay_billing_engine_tran_dtl be
+set payment_event_id = 'tran_uid'||tran_uid
+where payment_event_id is null
+and be.source_application in ('ISG')
+and cast(switch_tran_date as date) > current_date - 2
+;
+
+update wpay_analytics.wpay_billing_engine_tran_dtl be
+set order_id = 'retrieval_ref_no'||retrieval_ref_no
+where order_id is null
+and be.source_application in ('ISG')
+and cast(switch_tran_date as date) > current_date - 2
+;
+
+
+
+--Gr4vy
+	
+
+
+update wpay_analytics.wpay_billing_engine_tran_dtl be
+set 
+be.payment_attempt_id = Gr4vy.payment_attempt_id
+,be.payment_event_id = Gr4vy.payment_attempt_id
+,be.order_id = Gr4vy.order_number
+from
+( 
+  
+  select tran_uid, 'tran_uid'||tran_uid payment_attempt_id,'external_identifier'||external_identifier order_number
+  from 
+  (
+    select 
+    tran_uid,
+    external_identifier
+    FROM 
+    `pdh_rd_gr4vy_views.vw_rd_tran_gr4vy` dn
+    --INNER JOIN `pdh_rd_external.cyb_online_txns_rpt` cr
+    --ON dn.connector_transaction_id = cr.request_id
+  )
+  qualify row_number() over (partition by tran_uid ) = 1    
+) Gr4vy 
+where be.tran_uid = Gr4vy.tran_uid
+and be.source_application in ('Gr4vy')
+and cast(switch_tran_date as date) > current_date - 2
+;
