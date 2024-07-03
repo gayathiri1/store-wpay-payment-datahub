@@ -47,7 +47,7 @@ dag_name = "pdh_billing_engine_etl"
 
 try:
     if IS_PROD:
-        dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "30 08 * * *")
+        dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "00 08 * * *")
     else:
         dag = DAG('pdh_billing_engine_etl', catchup=False, default_args=default_args,schedule_interval= "00 16 * * *")
 except Exception as e:
