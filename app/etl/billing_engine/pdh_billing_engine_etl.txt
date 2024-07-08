@@ -299,9 +299,15 @@ secondlvl AS (
     and cast(substr(firstlvl.datetime_local_txn,3,4) as int64)=t.local_transaction_date and substr(firstlvl.datetime_local_txn,7,4) = LEFT(FORMAT('%06d', CAST(t.local_time AS int64)), 4)
     WHERE firstlvl.system_trace_audit_num IS NULL
 )
-SELECT * FROM firstlvl WHERE system_trace_audit_num IS NOT NULL
+SELECT *,
+if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee/1.1, amount_txn_fee) int_fees_au,
+if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee, amount_txn_fee) int_fees_nz
+FROM firstlvl WHERE system_trace_audit_num IS NOT NULL
 UNION ALL 
-SELECT * FROM secondlvl WHERE system_trace_audit_num IS NOT NULL;
+SELECT *,
+if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee/1.1, amount_txn_fee) int_fees_au,
+if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee, amount_txn_fee) int_fees_nz
+FROM secondlvl WHERE system_trace_audit_num IS NOT NULL;
 
 IF (SELECT MAX(t1g0_file_date) FROM `pdh_staging_ds.gfs_aux_mastercard`) < data_req_date THEN
     SELECT ERROR("Mastercard scheme data not up to date");
@@ -772,7 +778,6 @@ Select
     where cast(TransactionDate as Date) >= txn_start_date 
 	and cast(TransactionDate as Date) <= txn_end_date
     AND trim(transactionType) <> "RESET CARD PIN"
-	AND s.brand <> "COUNTDOWN"
 	AND OutletCode IS NOT NULL AND TRIM(OutletCode) <> ""
 	AND s.is_closed = FALSE;
 
@@ -1911,7 +1916,7 @@ FROM `temp_fee_calc` d;
 --Mastercard Update
 
 Update `pdh_analytics_ds.tbl_fees_all` i
-set i.interchange_fees_actual = int_fees*100,
+set i.interchange_fees_actual = (CASE WHEN s.country = 'AU' THEN int_fees_au WHEN s.country = 'NZ' THEN int_fees_nz ELSE 0 END)*100,
 i.fee_indicator='A'
  from (select pan, 
    amount_txn,
@@ -1919,7 +1924,8 @@ i.fee_indicator='A'
    datetime_local_txn,
    system_trace_audit_num,
    retrieval_reference_number,
-   min(int_fees) int_fees
+   min(int_fees_au) int_fees_au,
+   min(int_fees_nz) int_fees_nz,
    from
    (SELECT 
    pan,    
@@ -1928,42 +1934,48 @@ i.fee_indicator='A'
    datetime_local_txn,
    system_trace_audit_num,
    retrieval_reference_number,
-   if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee/1.1,amount_txn_fee) int_fees,
+   int_fees_au,
+   int_fees_nz,
    count(1)
    from `pdh_staging_ds.gfs_aux_mastercard`  where t1g0_file_date > '2021-07-02' 
-   group by 1,2,3,4,5,6,7
-  ) c group by 1,2,3,4,5,6 ) v 
+   group by 1,2,3,4,5,6,7,8
+  ) c group by 1,2,3,4,5,6 ) v,
+ (SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) s
 where i.tstamp_local = parse_timestamp('%y%m%d%H%M%S', trim(v.datetime_local_txn))
 and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acceptor_terminal_id), 5)
 and i.retrieval_ref_no = LPAD(v.retrieval_reference_number,12,'0')
 and i.stan = v.system_trace_audit_num
 and i.transaction_total = CAST(v.amount_txn*100 AS int64)
 and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
+AND LEFT(i.net_term_id, 5) = s.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and TRIM(proc_id_iss_b)='MC'; 
 
 
 Update `pdh_analytics_ds.tbl_fees_all` i	
-set i.interchange_fees_actual = int_fees*100,
+set i.interchange_fees_actual = (CASE WHEN s.country = 'AU' THEN int_fees_au WHEN s.country = 'NZ' THEN int_fees_nz ELSE 0 END)*100,
 i.fee_indicator='A'
- from (
-   
+from (
     Select concat(substr(pan,1,6),"~~~~~~~",substr(pan,14,3)) pan,
     cast(amount_txn as int64) amount_txn,
     LEFT(trim(card_acceptor_terminal_id), 5) store_id,
     date(parse_timestamp('%y%m%d%H%M%S',datetime_local_txn)) txn_lcl_date,
-    MIN(if(extended_interchange_amount_fee > 0, cast(extended_interchange_amount_fee as int64)/1000000/1.1,cast(amount_txn_fee as int64)/100)) int_fees
-    
+    MIN(if(extended_interchange_amount_fee > 0, cast(extended_interchange_amount_fee as int64)/1000000/1.1,cast(amount_txn_fee as int64)/100)) int_fees_au,
+	MIN(if(extended_interchange_amount_fee > 0, cast(extended_interchange_amount_fee as int64)/1000000/1,cast(amount_txn_fee as int64)/100)) int_fees_nz
      from `pdh_rd_data_navigator.mastercard_T1G0`
      where trim(card_acceptor_terminal_id)<>'' 
     and file_date > DATE_SUB(start_date, INTERVAL 10 DAY)
 
      GROUP BY 1,2,3,4 
-     ) v 
+     ) v ,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) s
 where date(i.tstamp_local) = v.txn_lcl_date
 and LEFT(trim(i.net_term_id), 5) = v.store_id
 and i.transaction_total = v.amount_txn
 and concat(substr(i.masked_pan,1,6),'~~~~~~~',substr(i.masked_pan,14,3)) = trim(v.pan)
+AND LEFT(i.net_term_id, 5) = s.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and TRIM(proc_id_iss_b)='MC'
 and fee_indicator <> 'A';				
@@ -1972,11 +1984,13 @@ and fee_indicator <> 'A';
 --VISA UPDATE
 
 Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual= v.interchange_fee/10000/1.1,
+set interchange_fees_actual= v.interchange_fee/10000/(CASE WHEN country = 'AU' AND domestic_or_international = 'D' THEN int_fee_gst ELSE 1 END),
 i.fee_indicator='A'
-from (Select mti,tstamp_local,card_acpt_term_id,rrn,stan,tran_amt,pan,
+from (Select mti,tstamp_local,card_acpt_term_id,rrn,stan,tran_amt,pan,domestic_or_international,
 MIN(ABS(interchange_fee)) interchange_fee from  `pdh_rd_data_navigator.gfs_aux_visa`
-GROUP BY 1,2,3,4,5,6,7) v
+GROUP BY 1,2,3,4,5,6,7,8) v,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) s
 --from invoice_gfs_taf.aux_visa_apr2021 v
 where i.tstamp_local = v.tstamp_local
 and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acpt_term_id), 5)
@@ -1985,6 +1999,7 @@ and i.stan = v.stan
 and i.transaction_total = v.tran_amt
 and i.mti = CASE v.mti WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
 and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
+AND LEFT(i.net_term_id, 5) = s.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and trim(i.proc_id_iss_b) = 'VDCS'
 ;
@@ -2027,15 +2042,19 @@ and i.approval_flag = 'Y';
 --ISG UPDATE FOR VISA
 
 UPDATE `pdh_analytics_ds.tbl_fees_all` i
-SET interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
+SET interchange_fees_actual = s.interchange_fee_atm / 10000 / (CASE WHEN s.sett_flag = 8 THEN int_fee_gst ELSE 1 END),
 i.fee_indicator = 'A'
-FROM (SELECT txn_code_of_fin_txn, samt, term_id, an, MIN(interchange_fee_atm) interchange_fee_atm FROM `pdh_rd_data_navigator.tc33_visa` WHERE file_date >= (start_date - 1)
-GROUP BY 1,2,3,4) s
+FROM (SELECT txn_code_of_fin_txn, samt, term_id, an, sett_flag, MIN(interchange_fee_atm) interchange_fee_atm FROM `pdh_rd_data_navigator.tc33_visa` WHERE file_date >= (start_date - 1)
+GROUP BY 1,2,3,4,5) s,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) m
 WHERE i.net_term_id = s.term_id
-AND i.masked_pan = s.an
+AND left(i.masked_pan,6) = left(s.an,6)
+AND right(i.masked_pan,4) = right(s.an,4)
 and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
 and i.amt_recon_net = s.samt
 and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+AND LEFT(i.net_term_id, 5) = m.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and i.approval_flag = 'Y';
 
@@ -2043,34 +2062,40 @@ and i.approval_flag = 'Y';
 
 -- PURCHASE transactions have TRACE_ID
 Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
+set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/int_fee_gst/10000 else s.amt_tran_fee end,
 i.fee_indicator = 'A'
 from (
     SELECT DISTINCT trace_id, extd_interchg_amt_fee, amt_tran_fee,
     RANK() OVER (PARTITION BY trace_id ORDER BY pdh_load_time DESC) rank
     FROM `pdh_rd_data_navigator.tn70_mc`
-) s
+) s,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) m
 where i.adtnl_response_data = concat(right(s.trace_id,4), left(s.trace_id, length(s.trace_id)-4))
 and i.calc_tran_type_abbr = 'PURCHASE'
 and rank = 1
+AND LEFT(i.net_term_id, 5) = m.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and i.approval_flag = 'Y';
 
 -- REFUND transactions where TRACE_ID is NULL
 Update `pdh_analytics_ds.tbl_fees_all` i
-set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
+set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/int_fee_gst/10000 else s.amt_tran_fee end,
 i.fee_indicator = 'A'
 from (
     SELECT DISTINCT card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt, extd_interchg_amt_fee, amt_tran_fee,
     RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank
     FROM `pdh_rd_data_navigator.tn70_mc`
-) s
-where (i.net_term_id = s.card_acceptor_terminal_id and i.masked_pan = s.pan and s.processing_code = 200000 and i.date_recon_acq = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
+) s,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) m
+where (i.net_term_id = s.card_acceptor_terminal_id and i.masked_pan = s.pan and s.processing_code = 200000 and date(i.tstamp_local) = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
 and (i.tran_type_desc = 'REFUND' and s.processing_code = 200000)
 and i.amt_recon_net = s.transaction_amt)
 and i.calc_tran_type_abbr = 'REFUND'
 and s.rank = 1
 and i.fee_indicator <> 'A'
+AND LEFT(i.net_term_id, 5) = m.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and i.approval_flag = 'Y';
 
@@ -2090,7 +2115,7 @@ AND switch_tran_date >= start_date;
 --Mastercard Update
 
 Update `wpay_analytics.wpay_billing_engine_tran_dtl` i
-set i.interchange_fees_actual = int_fees*100,
+set i.interchange_fees_actual = (CASE WHEN s.country = 'AU' THEN int_fees_au WHEN s.country = 'NZ' THEN int_fees_nz ELSE 0 END)*100,
 i.fee_indicator='A'
  from (select pan, 
    amount_txn,
@@ -2098,7 +2123,8 @@ i.fee_indicator='A'
    datetime_local_txn,
    system_trace_audit_num,
    retrieval_reference_number,
-   min(int_fees) int_fees
+   min(int_fees_au) int_fees_au,
+   min(int_fees_nz) int_fees_nz,
    from
    (SELECT 
    pan,    
@@ -2107,55 +2133,63 @@ i.fee_indicator='A'
    datetime_local_txn,
    system_trace_audit_num,
    retrieval_reference_number,
-   if(extended_interchange_amount_fee > 0, extended_interchange_amount_fee/1.1,amount_txn_fee) int_fees,
+   int_fees_au,
+   int_fees_nz,
    count(1)
    from `pdh_staging_ds.gfs_aux_mastercard`  where t1g0_file_date > '2021-07-02' 
-   group by 1,2,3,4,5,6,7
-  ) c group by 1,2,3,4,5,6 ) v 
+   group by 1,2,3,4,5,6,7,8
+  ) c group by 1,2,3,4,5,6 ) v,
+ (SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) s
 where i.tstamp_local = parse_timestamp('%y%m%d%H%M%S', trim(v.datetime_local_txn))
 and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acceptor_terminal_id), 5)
 and i.retrieval_ref_no = LPAD(v.retrieval_reference_number,12,'0')
 and i.stan = v.system_trace_audit_num
 and i.transaction_total = CAST(v.amount_txn*100 AS int64)
 and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
+AND LEFT(i.net_term_id, 5) = s.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and TRIM(proc_id_iss_b)='MC'; 
 
 
 Update `wpay_analytics.wpay_billing_engine_tran_dtl` i	
-set i.interchange_fees_actual = int_fees*100,
+set i.interchange_fees_actual = (CASE WHEN s.country = 'AU' THEN int_fees_au WHEN s.country = 'NZ' THEN int_fees_nz ELSE 0 END)*100,
 i.fee_indicator='A'
- from (
-   
+from (
     Select concat(substr(pan,1,6),"~~~~~~~",substr(pan,14,3)) pan,
     cast(amount_txn as int64) amount_txn,
     LEFT(trim(card_acceptor_terminal_id), 5) store_id,
     date(parse_timestamp('%y%m%d%H%M%S',datetime_local_txn)) txn_lcl_date,
-    MIN(if(extended_interchange_amount_fee > 0, cast(extended_interchange_amount_fee as int64)/1000000/1.1,cast(amount_txn_fee as int64)/100)) int_fees
-    
+    MIN(if(extended_interchange_amount_fee > 0, cast(extended_interchange_amount_fee as int64)/1000000/1.1,cast(amount_txn_fee as int64)/100)) int_fees_au,
+	MIN(if(extended_interchange_amount_fee > 0, cast(extended_interchange_amount_fee as int64)/1000000,cast(amount_txn_fee as int64)/100)) int_fees_nz
      from `pdh_rd_data_navigator.mastercard_T1G0`
      where trim(card_acceptor_terminal_id)<>'' 
     and file_date > DATE_SUB(start_date, INTERVAL 10 DAY)
 
      GROUP BY 1,2,3,4 
-     ) v 
+     ) v ,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) s
 where date(i.tstamp_local) = v.txn_lcl_date
 and LEFT(trim(i.net_term_id), 5) = v.store_id
 and i.transaction_total = v.amount_txn
 and concat(substr(i.masked_pan,1,6),'~~~~~~~',substr(i.masked_pan,14,3)) = trim(v.pan)
+AND LEFT(i.net_term_id, 5) = s.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and TRIM(proc_id_iss_b)='MC'
-and fee_indicator <> 'A';				
+and fee_indicator <> 'A';
 
 -------------------------------------------------------------------------------------------------------------------------------------------
 --VISA UPDATE
 
 Update `wpay_analytics.wpay_billing_engine_tran_dtl` i
-set interchange_fees_actual= v.interchange_fee/10000/1.1,
+set interchange_fees_actual= v.interchange_fee/10000/(CASE WHEN country = 'AU' AND domestic_or_international = 'D' THEN int_fee_gst ELSE 1 END),
 i.fee_indicator='A'
-from (Select mti,tstamp_local,card_acpt_term_id,rrn,stan,tran_amt,pan,
+from (Select mti,tstamp_local,card_acpt_term_id,rrn,stan,tran_amt,pan,domestic_or_international,
 MIN(ABS(interchange_fee)) interchange_fee from  `pdh_rd_data_navigator.gfs_aux_visa`
-GROUP BY 1,2,3,4,5,6,7) v
+GROUP BY 1,2,3,4,5,6,7,8) v,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) s
 --from invoice_gfs_taf.aux_visa_apr2021 v
 where i.tstamp_local = v.tstamp_local
 and LEFT(trim(i.net_term_id), 5) = LEFT(trim(v.card_acpt_term_id), 5)
@@ -2164,6 +2198,7 @@ and i.stan = v.stan
 and i.transaction_total = v.tran_amt
 and i.mti = CASE v.mti WHEN '0200' THEN '1210' WHEN '0220' THEN '1240' WHEN '0420' THEN '1440' ELSE null END
 and substr(i.masked_pan,1,6) = substr(v.pan,1,6)
+AND LEFT(i.net_term_id, 5) = s.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and trim(i.proc_id_iss_b) = 'VDCS'
 ;
@@ -2206,15 +2241,19 @@ and i.approval_flag = 'Y';
 --ISG UPDATE FOR VISA
 
 Update `wpay_analytics.wpay_billing_engine_tran_dtl` i
-SET interchange_fees_actual = s.interchange_fee_atm / 10000 / 1.1,
+SET interchange_fees_actual = s.interchange_fee_atm / 10000 / (CASE WHEN s.sett_flag = 8 THEN int_fee_gst ELSE 1 END),
 i.fee_indicator = 'A'
-FROM (SELECT txn_code_of_fin_txn, samt, term_id, an, MIN(interchange_fee_atm) interchange_fee_atm FROM `pdh_rd_data_navigator.tc33_visa` WHERE file_date >= (start_date - 1)
-GROUP BY 1,2,3,4) s
+FROM (SELECT txn_code_of_fin_txn, samt, term_id, an, sett_flag, MIN(interchange_fee_atm) interchange_fee_atm FROM `pdh_rd_data_navigator.tc33_visa` WHERE file_date >= (start_date - 1)
+GROUP BY 1,2,3,4,5) s,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) m
 WHERE i.net_term_id = s.term_id
-AND i.masked_pan = s.an
+AND left(i.masked_pan,6) = left(s.an,6)
+AND right(i.masked_pan,4) = right(s.an,4)
 and ( (i.tran_type_desc = 'PURCHASE' and s.txn_code_of_fin_txn = '05') or (i.tran_type_desc = 'REFUND' and s.txn_code_of_fin_txn = '06') )
 and i.amt_recon_net = s.samt
 and i.calc_tran_type_abbr IN ('PURCHASE', 'REFUND')
+AND LEFT(i.net_term_id, 5) = m.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and i.approval_flag = 'Y';
 
@@ -2222,34 +2261,40 @@ and i.approval_flag = 'Y';
 
 -- PURCHASE transactions have TRACE_ID
 Update `wpay_analytics.wpay_billing_engine_tran_dtl` i
-set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
+set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/int_fee_gst/10000 else s.amt_tran_fee end,
 i.fee_indicator = 'A'
 from (
     SELECT DISTINCT trace_id, extd_interchg_amt_fee, amt_tran_fee,
     RANK() OVER (PARTITION BY trace_id ORDER BY pdh_load_time DESC) rank
     FROM `pdh_rd_data_navigator.tn70_mc`
-) s
+) s,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) m
 where i.adtnl_response_data = concat(right(s.trace_id,4), left(s.trace_id, length(s.trace_id)-4))
 and i.calc_tran_type_abbr = 'PURCHASE'
 and rank = 1
+AND LEFT(i.net_term_id, 5) = m.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and i.approval_flag = 'Y';
 
 -- REFUND transactions where TRACE_ID is NULL
 Update `wpay_analytics.wpay_billing_engine_tran_dtl` i
-set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/1.1/10000 else s.amt_tran_fee end,
+set interchange_fees_actual = case when s.extd_interchg_amt_fee > 0 then s.extd_interchg_amt_fee/int_fee_gst/10000 else s.amt_tran_fee end,
 i.fee_indicator = 'A'
 from (
     SELECT DISTINCT card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt, extd_interchg_amt_fee, amt_tran_fee,
     RANK() OVER (PARTITION BY card_acceptor_terminal_id, pan, datetime_loc_tran, processing_code, transaction_amt ORDER BY pdh_load_time DESC) rank
     FROM `pdh_rd_data_navigator.tn70_mc`
-) s
-where (i.net_term_id = s.card_acceptor_terminal_id and i.masked_pan = s.pan and s.processing_code = 200000 and i.date_recon_acq = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
+) s,
+(SELECT store_id, country, CASE WHEN country = 'AU' THEN 1.1 WHEN country = 'NZ' THEN 1 ELSE 1 END int_fee_gst
+	FROM pdh_ref_ds.ref_store_details) m
+where (i.net_term_id = s.card_acceptor_terminal_id and i.masked_pan = s.pan and s.processing_code = 200000 and date(i.tstamp_local) = PARSE_DATE("%y%m%d", LEFT(CAST(s.datetime_loc_tran AS STRING),6))
 and (i.tran_type_desc = 'REFUND' and s.processing_code = 200000)
 and i.amt_recon_net = s.transaction_amt)
 and i.calc_tran_type_abbr = 'REFUND'
 and s.rank = 1
 and i.fee_indicator <> 'A'
+AND LEFT(i.net_term_id, 5) = m.store_id
 AND switch_tran_date >= start_date AND switch_tran_date <= end_date
 and i.approval_flag = 'Y';
 
@@ -2425,8 +2470,8 @@ SELECT
     tt.spend_factor * i.amt_recon_net / 100 AS vcalc_settlement_amount_inc_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_calc / 100 AS vcalc_interchange_fees_ex_gst,
    0.0 vcalc_interchange_fees_rebate_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * 1 AS vcalc_interchange_fees_tran_count,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * i.processing_fees / 100 AS vcalc_processing_fees_ex_gst,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * 1 AS vcalc_processing_fees_tran_count,
@@ -2645,8 +2690,8 @@ SELECT
     tt.spend_factor * i.amt_recon_net / 100 AS vcalc_settlement_amount_inc_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_calc / 100 AS vcalc_interchange_fees_ex_gst,
    0.0 vcalc_interchange_fees_rebate_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * 1 AS vcalc_interchange_fees_tran_count,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * i.processing_fees / 100 AS vcalc_processing_fees_ex_gst,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * 1 AS vcalc_processing_fees_tran_count,
@@ -2865,8 +2910,8 @@ SELECT
     tt.spend_factor * i.amt_recon_net / 100 AS vcalc_settlement_amount_inc_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_calc / 100 AS vcalc_interchange_fees_ex_gst,
    0.0 vcalc_interchange_fees_rebate_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * 1 AS vcalc_interchange_fees_tran_count,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * i.processing_fees / 100 AS vcalc_processing_fees_ex_gst,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * 1 AS vcalc_processing_fees_tran_count,
@@ -3085,8 +3130,8 @@ SELECT
     tt.spend_factor * i.amt_recon_net / 100 AS vcalc_settlement_amount_inc_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_calc / 100 AS vcalc_interchange_fees_ex_gst,
    0.0 vcalc_interchange_fees_rebate_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * 1 AS vcalc_interchange_fees_tran_count,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * i.processing_fees / 100 AS vcalc_processing_fees_ex_gst,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * 1 AS vcalc_processing_fees_tran_count,
@@ -3305,8 +3350,8 @@ SELECT
     tt.spend_factor * i.amt_recon_net / 100 AS vcalc_settlement_amount_inc_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_calc / 100 AS vcalc_interchange_fees_ex_gst,
    0.0 vcalc_interchange_fees_rebate_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
-   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_count_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_actual / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_actual / 100 END AS vcalc_interchange_fees_actual_ex_gst,
+   CASE WHEN calc_scheme = 'EFTPOS' AND i.fee_indicator = 'A' THEN Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * i.interchange_fees_invoiced / 100 ELSE Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag *tt.interchange_fee_factor * i.interchange_fees_invoiced / 100 END AS vcalc_interchange_fees_invoiced_ex_gst,
    Ifnull(tt.interchange_fees_flag, 0) * tac.interchange_fee_flag * tt.interchange_count_factor * 1 AS vcalc_interchange_fees_tran_count,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * i.processing_fees / 100 AS vcalc_processing_fees_ex_gst,
    Ifnull(tt.processing_fees_flag, 0) * tac.processing_fee_flag * 1 AS vcalc_processing_fees_tran_count,
